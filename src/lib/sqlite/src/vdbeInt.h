@@ -543,4 +543,7 @@ int sqlite3VdbeMemHandleBom(Mem *pMem);
   #define ExpandBlob(P) SQLITE_OK
 #endif
 
+i64 sqlite3VdbeMsgpackRecordLen(Mem *pMem, u32 n);
+u32 sqlite3VdbeMsgpackRecordPut(u8 *pBuf, Mem *pMem, u32 n);
+
 #endif /* !defined(SQLITE_VDBEINT_H) */
