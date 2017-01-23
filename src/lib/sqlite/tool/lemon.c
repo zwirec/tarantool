@@ -1505,6 +1505,15 @@ static void handle_T_option(char *z){
   lemon_strcpy(user_templatename, z);
 }
 
+static char *user_outputname = NULL;
+static void handle_o_option(char *z){
+  user_outputname = (char *) malloc( lemonStrlen(z)+1 );
+  if( user_outputname==0 ){
+    memory_error();
+  }
+  lemon_strcpy(user_outputname, z);
+}
+
 /* Merge together to lists of rules ordered by rule.iRule */
 static struct rule *Rule_merge(struct rule *pA, struct rule *pB){
   struct rule *pFirst = 0;
@@ -1587,6 +1596,7 @@ int main(int argc, char **argv)
     {OPT_FLAG, "m", (char*)&mhflag, "Output a makeheaders compatible file."},
     {OPT_FLAG, "l", (char*)&nolinenosflag, "Do not print #line statements."},
     {OPT_FSTR, "O", 0, "Ignored.  (Placeholder for '-O' compiler options.)"},
+    {OPT_FSTR, "o", (char*)handle_o_option, "Specify output file."},
     {OPT_FLAG, "p", (char*)&showPrecedenceConflict,
                     "Show conflicts resolved by precedence rules"},
     {OPT_FLAG, "q", (char*)&quiet, "(Quiet) Don't print the report file."},
@@ -2963,13 +2973,14 @@ PRIVATE char *file_makename(struct lemon *lemp, const char *suffix)
 {
   char *name;
   char *cp;
+  char *o = (user_outputname == 0 ? lemp->filename : user_outputname);
 
-  name = (char*)malloc( lemonStrlen(lemp->filename) + lemonStrlen(suffix) + 5 );
+  name = (char*)malloc( lemonStrlen(o) + lemonStrlen(suffix) + 5 );
   if( name==0 ){
     fprintf(stderr,"Can't allocate space for a filename.\n");
     exit(1);
   }
-  lemon_strcpy(name,lemp->filename);
+  lemon_strcpy(name,o);
   cp = strrchr(name,'.');
   if( cp ) *cp = 0;
   lemon_strcat(name,suffix);
