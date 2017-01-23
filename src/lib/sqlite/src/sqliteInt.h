@@ -162,7 +162,7 @@
 ** autoconf-based build
 */
 #ifdef _HAVE_SQLITE_CONFIG_H
-#include "config.h"
+#include "sqliteConfig.h"
 #endif
 
 #include "sqliteLimit.h"
