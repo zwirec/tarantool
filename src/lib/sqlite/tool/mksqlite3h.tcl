@@ -53,22 +53,11 @@ set nVersion [eval format "%d%03d%03d" [split $zVersion .]]
 
 # Get the fossil-scm version number from $TOP/manifest.uuid.
 #
-set in [open $TOP/manifest.uuid]
-set zUuid [string trim [read $in]]
-close $in
+set zUuid {00000000-0000-0000-0000-000000000000}
 
 # Get the fossil-scm check-in date from the "D" card of $TOP/manifest.
 #
-set in [open $TOP/manifest]
-set zDate {}
-while {![eof $in]} {
-  set line [gets $in]
-  if {[regexp {^D (2[-0-9T:]+)} $line all date]} {
-    set zDate [string map {T { }} $date]
-    break
-  }
-}
-close $in
+set zDate {D 1970-01-01 00:00:00}
 
 # Set up patterns for recognizing API declarations.
 #
