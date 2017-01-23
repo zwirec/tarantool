@@ -76,6 +76,7 @@ add_library(box STATIC
     relay.cc
     journal.c
     wal.cc
+    sql.c
     ${lua_sources}
     lua/init.c
     lua/call.c
@@ -92,7 +93,30 @@ add_library(box STATIC
     lua/session.c
     lua/net_box.c
     lua/xlog.c
+    lua/sql.c
     ${bin_sources})
 
-target_link_libraries(box ${ZSTD_LIBRARIES})
+if (CMAKE_C_COMPILER_VERSION VERSION_EQUAL 4.7.2 AND
+    NOT CMAKE_CROSSCOMPILING AND EXISTS "/etc/debian_version")
+    #
+    # GCC 4.7.2 on Debian Wheezy is buggy and fails to compile
+    # vy_stmt.c with enabled optimizations.
+    #
+    message(WARNING "Detected buggy GCC 4.7.2 on Debian")
+    set_source_files_properties(vy_stmt.c PROPERTIES COMPILE_FLAGS -O0)
+endif()
+
+# Currently, sqlite is grafted in a somewhat hackish way.
+# In particular, internal and generated headers are necessary,
+# hence the include path for source files depending on sqlite below.
+set_source_files_properties(
+    sql.c
+    lua/sql.c
+    PROPERTY COMPILE_FLAGS "\
+-D_HAVE_SQLITE_CONFIG_H=1 \
+-I${PROJECT_SOURCE_DIR}/src/lib/sqlite/src \
+-I${PROJECT_BINARY_DIR}/src/lib/sqlite/src")
+
+target_link_libraries(box ${ZSTD_LIBRARIES} trnsqlite)
+
 add_dependencies(box build_bundled_libs)
