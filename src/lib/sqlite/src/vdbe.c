@@ -3796,6 +3796,7 @@ case OP_SeekGT: {       /* jump, in3 */
     { int i; for(i=0; i<r.nField; i++) assert( memIsValid(&r.aMem[i]) ); }
 #endif
     r.eqSeen = 0;
+    r.opcode = oc;
     rc = sqlite3BtreeMovetoUnpacked(pC->uc.pCursor, &r, 0, 0, &res);
     if( rc!=SQLITE_OK ){
       goto abort_due_to_error;
