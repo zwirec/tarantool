@@ -58,11 +58,15 @@ box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo>2")
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo>=2")
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo=10000")
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo>10000")
---box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo<2")
+box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo<2")
+box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo<2.001")
+box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo<=2")
+box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE foo<100")
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar WHERE bar='foo'")
 box.sql.execute("SELECT count(*) FROM foobar")
 box.sql.execute("SELECT count(*) FROM foobar WHERE bar='foo'")
-
+box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar ORDER BY bar")
+box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar ORDER BY bar DESC")
 
 -- cleanup
 foobar:drop()
