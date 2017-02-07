@@ -20,8 +20,4 @@ int tarantoolSqlite3MovetoUnpacked(BtCursor *pCur, UnpackedRecord *pIdxKey,
                                    int *pRes);
 int tarantoolSqlite3Count(BtCursor *pCur, i64 *pnEntry);
 int tarantoolSqlite3Insert(BtCursor *pCur, const BtreePayload *pX);
-/*
-** TODO:
-** delete
-*/
-
+int tarantoolSqlite3Delete(BtCursor *pCur, u8 flags);

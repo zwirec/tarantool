@@ -549,6 +549,12 @@ box_iterator_free(box_iterator_t *it)
 		it->free(it);
 }
 
+const struct key_def *
+box_iterator_key_def(box_iterator_t *iterator)
+{
+	return iterator->index->key_def;
+}
+
 /* }}} */
 
 /* {{{ Introspection */

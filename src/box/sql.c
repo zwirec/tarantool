@@ -306,6 +306,35 @@ int tarantoolSqlite3Insert(BtCursor *pCur, const BtreePayload *pX)
 	return SQLITE_OK;
 }
 
+int tarantoolSqlite3Delete(BtCursor *pCur, u8 flags)
+{
+	(void)flags;
+
+	assert(pCur->curFlags & BTCF_TaCursor);
+
+	struct ta_cursor *c = pCur->pTaCursor;
+	uint32_t space_id, index_id;
+	size_t original_size;
+	const char *key;
+	uint32_t key_size;
+	int rc;
+
+	assert(c);
+	assert(c->iter);
+	assert(c->tuple_last);
+
+	space_id = get_space_id(pCur->pgnoRoot, &index_id);
+	original_size = region_used(&fiber()->gc);
+	key = tuple_extract_key(c->tuple_last,
+				box_iterator_key_def(c->iter),
+				&key_size);
+	if (key == NULL)
+		return SQLITE_TARANTOOL_ERROR;
+	rc = box_delete(space_id, index_id, key, key+key_size, NULL);
+	region_truncate(&fiber()->gc, original_size);
+	return rc == 0 ? SQLITE_OK : SQLITE_TARANTOOL_ERROR;
+}
+
 /* Cursor positioning. */
 static int
 cursor_seek(BtCursor *pCur, int *pRes, enum iterator_type type,

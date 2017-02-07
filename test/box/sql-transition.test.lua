@@ -72,5 +72,13 @@ box.sql.execute("SELECT count(*) FROM foobar WHERE bar='foo'")
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar ORDER BY bar")
 box.sql.execute("SELECT bar, foo, 42, 'awesome' FROM foobar ORDER BY bar DESC")
 
+-- updates
+box.sql.execute("REPLACE INTO foobar VALUES (1, 'cacodaemon')")
+box.sql.execute("SELECT COUNT(*) FROM foobar WHERE foo=1")
+box.sql.execute("SELECT COUNT(*) FROM foobar WHERE bar='cacodaemon'")
+box.sql.execute("DELETE FROM foobar WHERE bar='cacodaemon'")
+box.sql.execute("SELECT COUNT(*) FROM foobar WHERE bar='cacodaemon'")
+
+
 -- cleanup
 foobar:drop()

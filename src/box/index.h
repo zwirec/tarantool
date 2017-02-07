@@ -38,6 +38,7 @@ extern "C" {
 #endif /* defined(__cplusplus) */
 
 typedef struct tuple box_tuple_t;
+struct key_def;
 
 /** \cond public */
 /** A space iterator */
@@ -132,6 +133,9 @@ box_iterator_free(box_iterator_t *iterator);
 
 /** \endcond public */
 
+
+const struct key_def *
+box_iterator_key_def(box_iterator_t *iterator);
 
 /** \cond public */
 
