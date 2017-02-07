@@ -6,6 +6,9 @@
 ** that's why we are using a weird naming schema.
 */
 
+/* Misc */
+const char *tarantoolErrorMessage();
+
 /* Storage interface. */
 int tarantoolSqlite3CloseCursor(BtCursor *pCur);
 const void *tarantoolSqlite3PayloadFetch(BtCursor *pCur, u32 *pAmt);

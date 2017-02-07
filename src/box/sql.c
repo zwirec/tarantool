@@ -162,8 +162,12 @@ static enum iterator_type normalize_iter_type(BtCursor *pCur)
 }
 #endif
 
-static int sql_copy_error(sqlite3 *);
 static uint32_t get_space_id(Pgno page, uint32_t *index_id);
+
+const char *tarantoolErrorMessage()
+{
+	return box_error_message(box_error_last());
+}
 
 int tarantoolSqlite3CloseCursor(BtCursor *pCur)
 {
@@ -297,7 +301,7 @@ int tarantoolSqlite3Insert(BtCursor *pCur, const BtreePayload *pX)
 			pX->pKey, (const char *)pX->pKey + pX->nKey,
 			NULL)
 	    != 0) {
-		return sql_copy_error(pCur->pBtree->db);
+		return SQLITE_TARANTOOL_ERROR;
 	}
 	return SQLITE_OK;
 }
@@ -333,7 +337,7 @@ cursor_seek(BtCursor *pCur, int *pRes, enum iterator_type type,
 	c->iter = box_index_iterator(space_id, index_id, type, k, ke);
 	if (c->iter == NULL) {
 		pCur->eState = CURSOR_INVALID;
-		return sql_copy_error(pCur->pBtree->db);
+		return SQLITE_TARANTOOL_ERROR;
         }
 	c->type = type;
 	pCur->eState = CURSOR_VALID;
@@ -355,7 +359,7 @@ cursor_advance(BtCursor *pCur, int *pRes)
 
 	rc = box_iterator_next(c->iter, &tuple);
 	if (rc)
-		return sql_copy_error(pCur->pBtree->db);
+		return SQLITE_TARANTOOL_ERROR;
 	if (c->tuple_last) box_tuple_unref(c->tuple_last);
 	if (tuple) {
 		box_tuple_ref(tuple);
@@ -366,13 +370,6 @@ cursor_advance(BtCursor *pCur, int *pRes)
 	}
 	c->tuple_last = tuple;
 	return SQLITE_OK;
-}
-
-/* Copy last error from Tarantool's diag */
-static int sql_copy_error(sqlite3 *db)
-{
-	(void)db;
-	return SQLITE_ERROR;
 }
 
 /*

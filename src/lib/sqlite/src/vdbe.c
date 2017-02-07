@@ -20,6 +20,7 @@
 */
 #include "sqliteInt.h"
 #include "vdbeInt.h"
+#include "tarantoolInt.h"
 #include "msgpuck.h"
 
 /*
@@ -6871,7 +6872,9 @@ abort_due_to_error:
   if( db->mallocFailed ) rc = SQLITE_NOMEM_BKPT;
   assert( rc );
   if( p->zErrMsg==0 && rc!=SQLITE_IOERR_NOMEM ){
-    sqlite3VdbeError(p, "%s", sqlite3ErrStr(rc));
+    const char *m = (rc!=SQLITE_TARANTOOL_ERROR) ? sqlite3ErrStr(rc) :
+      tarantoolErrorMessage();
+    sqlite3VdbeError(p, "%s", m);
   }
   p->rc = rc;
   sqlite3SystemError(db, rc);
