@@ -46,6 +46,7 @@
 #undef unlikely
 
 #include "index.h"
+#include "box.h"
 #include "tuple.h"
 #include "fiber.h"
 #include "small/region.h"
@@ -252,6 +253,12 @@ int tarantoolSqlite3MovetoUnpacked(BtCursor *pCur, UnpackedRecord *pIdxKey,
 		iter_type = ITER_GT;
 		res_success = 1; /* item>key */
 		break;
+	case OP_NoConflict:
+	case OP_NotFound:
+	case OP_Found:
+		iter_type = ITER_EQ;
+		res_success = 0;
+		break;
 	}
 	rc = cursor_seek(pCur, pRes, iter_type, k, ke);
 	if (*pRes == 0) {
@@ -279,6 +286,19 @@ int tarantoolSqlite3Count(BtCursor *pCur, i64 *pnEntry)
 	uint32_t space_id, index_id;
 	space_id = get_space_id(pCur->pgnoRoot, &index_id);
 	*pnEntry = box_index_len(space_id, index_id);
+	return SQLITE_OK;
+}
+
+int tarantoolSqlite3Insert(BtCursor *pCur, const BtreePayload *pX)
+{
+	assert(pCur->curFlags & BTCF_TaCursor);
+
+	if (box_replace(get_space_id(pCur->pgnoRoot, NULL),
+			pX->pKey, (const char *)pX->pKey + pX->nKey,
+			NULL)
+	    != 0) {
+		return sql_copy_error(pCur->pBtree->db);
+	}
 	return SQLITE_OK;
 }
 

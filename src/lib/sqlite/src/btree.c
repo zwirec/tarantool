@@ -8033,6 +8033,10 @@ int sqlite3BtreeInsert(
   ** blob of associated data.  */
   assert( (pX->pKey==0)==(pCur->pKeyInfo==0) );
 
+  if( pCur->curFlags & BTCF_TaCursor ){
+    return tarantoolSqlite3Insert(pCur, pX);
+  }
+
   /* Save the positions of any other cursors open on this table.
   **
   ** In some cases, the call to btreeMoveto() below is a no-op. For
