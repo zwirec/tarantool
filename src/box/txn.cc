@@ -44,6 +44,8 @@ enum {
 };
 
 double too_long_threshold;
+/** Pool of transaction objects. */
+static struct mempool txn_pool;
 
 static inline void
 fiber_set_txn(struct fiber *fiber, struct txn *txn)
@@ -95,7 +97,7 @@ struct txn *
 txn_begin(bool is_autocommit)
 {
 	assert(! in_txn());
-	struct txn *txn = region_alloc_object_xc(&fiber()->gc, struct txn);
+	struct txn *txn = (struct txn *) mempool_alloc_xc(&txn_pool);
 	/* Initialize members explicitly to save time on memset() */
 	stailq_create(&txn->stmts);
 	txn->n_rows = 0;
@@ -249,7 +251,7 @@ txn_commit(struct txn *txn)
 		txn->engine->commit(txn, signature);
 	}
 	region_destroy(&txn->region);
-	TRASH(txn);
+	mempool_free(&txn_pool, txn);
 	/** Free volatile txn memory. */
 	fiber_gc();
 	fiber_set_txn(fiber(), NULL);
@@ -293,7 +295,7 @@ txn_rollback()
 	if (txn->engine)
 		txn->engine->rollback(txn);
 	region_destroy(&txn->region);
-	TRASH(txn);
+	mempool_free(&txn_pool, txn);
 	/** Free volatile txn memory. */
 	fiber_gc();
 	fiber_set_txn(fiber(), NULL);
@@ -306,6 +308,12 @@ txn_check_autocommit(struct txn *txn, const char *where)
 		tnt_raise(ClientError, ER_UNSUPPORTED,
 			  where, "multi-statement transactions");
 	}
+}
+
+void
+txn_init()
+{
+	mempool_create(&txn_pool, cord_slab_cache(), sizeof(struct txn));
 }
 
 extern "C" {
