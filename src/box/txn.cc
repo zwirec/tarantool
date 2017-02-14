@@ -60,7 +60,7 @@ txn_add_redo(struct txn_stmt *stmt, struct request *request)
 
 	/* Create a redo log row for Lua requests */
 	struct xrow_header *row;
-	row = region_alloc_object_xc(&fiber()->gc, struct xrow_header);
+	row = region_alloc_object_xc(&in_txn()->region, struct xrow_header);
 	/* Initialize members explicitly to save time on memset() */
 	row->type = request->type;
 	row->replica_id = 0;
@@ -68,7 +68,7 @@ txn_add_redo(struct txn_stmt *stmt, struct request *request)
 	row->sync = 0;
 	row->tm = 0;
 	row->tx_id = 0;
-	row->bodycnt = request_encode_xc(request, row->body);
+	row->bodycnt = request_encode_xc(request, row->body, &in_txn()->region);
 	stmt->row = row;
 }
 
@@ -77,7 +77,7 @@ static struct txn_stmt *
 txn_stmt_new(struct txn *txn)
 {
 	struct txn_stmt *stmt;
-	stmt = region_alloc_object_xc(&fiber()->gc, struct txn_stmt);
+	stmt = region_alloc_object_xc(&txn->region, struct txn_stmt);
 
 	/* Initialize members explicitly to save time on memset() */
 	stmt->space = NULL;
@@ -104,6 +104,7 @@ txn_begin(bool is_autocommit)
 	txn->in_sub_stmt = 0;
 	txn->engine = NULL;
 	txn->engine_tx = NULL;
+	region_create(&txn->region, cord_slab_cache());
 	/* fiber_on_yield/fiber_on_stop initialized by engine on demand */
 	fiber_set_txn(fiber(), txn);
 	return txn;
@@ -247,6 +248,7 @@ txn_commit(struct txn *txn)
 
 		txn->engine->commit(txn, signature);
 	}
+	region_destroy(&txn->region);
 	TRASH(txn);
 	/** Free volatile txn memory. */
 	fiber_gc();
@@ -290,6 +292,7 @@ txn_rollback()
 		trigger_run(&txn->on_rollback, txn); /* must not throw. */
 	if (txn->engine)
 		txn->engine->rollback(txn);
+	region_destroy(&txn->region);
 	TRASH(txn);
 	/** Free volatile txn memory. */
 	fiber_gc();
@@ -371,7 +374,7 @@ box_txn_alloc(size_t size)
 		double lf;
 		long l;
 	};
-	return region_aligned_alloc(&fiber()->gc, size,
+	return region_aligned_alloc(txn_region(), size,
 	                            alignof(union natural_align));
 }
 
