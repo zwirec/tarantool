@@ -132,6 +132,7 @@ const struct opt_def index_opts_reg[] = {
 	OPT_DEF("run_count_per_level", OPT_INT, struct index_opts, run_count_per_level),
 	OPT_DEF("run_size_ratio", OPT_FLOAT, struct index_opts, run_size_ratio),
 	OPT_DEF("lsn", OPT_INT, struct index_opts, lsn),
+	DUMMY_OPT_DEF("sql", OPT_STR),
 	{ NULL, opt_type_MAX, 0, 0 },
 };
 
