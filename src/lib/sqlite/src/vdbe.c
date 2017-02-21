@@ -6899,10 +6899,11 @@ case OP_IncMaxid: {
   pC = p->apCsr[pOp->p1];
   assert( pC != 0 );
 
-  rc = tarantoolSqliteIncrementMaxid(pC->uc.pCursor);
+  rc = tarantoolSqlite3IncrementMaxid(pC->uc.pCursor);
   if( rc!=SQLITE_OK ){
       goto abort_due_to_error;
   }
+  pC->nullRow = 0;
   break;
 }
 
