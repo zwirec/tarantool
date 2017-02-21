@@ -57,6 +57,8 @@ ffi.cdef[[
     /** \cond public */
     int
     box_txn_begin();
+    int
+    box_txn_begin_two_phase();
     /** \endcond public */
 
     struct port_entry {
@@ -227,6 +229,13 @@ box.begin = function()
         box.error()
     end
 end
+
+box.begin_two_phase = function()
+    if builtin.box_txn_begin_two_phase() == -1 then
+        box.error()
+    end
+end
+
 -- box.commit yields, so it's defined as Lua/C binding
 -- box.rollback yields as well
 
