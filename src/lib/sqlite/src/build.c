@@ -3420,7 +3420,7 @@ void sqlite3CreateIndex(
     sqlite3BeginWriteOperation(pParse, 1, iDb);
 
     pSysIndex = sqlite3HashFind(
-      &pParse->db->aDb[0].pSchema->tblHash, "_index"
+      &pParse->db->aDb[0].pSchema->tblHash, TARANTOOL_INDEX
     );
     if( NEVER(!pSysIndex) ) return;
 
