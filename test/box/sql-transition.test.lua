@@ -107,4 +107,5 @@ box.sql.execute("SELECT foo, bar FROM barfoo WHERE foo>=2")
 box.sql.execute("SELECT foo, bar FROM barfoo WHERE foo<=2")
 
 -- cleanup
+box.sql.execute("DROP INDEX barfoo2")
 barfoo:drop()

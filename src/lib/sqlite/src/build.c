@@ -3584,13 +3584,15 @@ void sqlite3DropIndex(Parse *pParse, SrcList *pName, int ifExists){
   v = sqlite3GetVdbe(pParse);
   if( v ){
     sqlite3BeginWriteOperation(pParse, 1, iDb);
+
     sqlite3NestedParse(pParse,
-       "DELETE FROM %Q.%s WHERE name=%Q AND type='index'",
-       db->aDb[iDb].zDbSName, MASTER_NAME, pIndex->zName
-    );
+                       "DELETE FROM %Q.%s WHERE id=%d AND iid=%d",
+                       db->aDb[iDb].zDbSName,
+                       TARANTOOL_INDEX,
+                       SQLITE_PAGENO_TO_SPACEID(pIndex->tnum),
+                       SQLITE_PAGENO_TO_INDEXID(pIndex->tnum));
     sqlite3ClearStatTables(pParse, iDb, "idx", pIndex->zName);
     sqlite3ChangeCookie(pParse, iDb);
-    destroyRootPage(pParse, pIndex->tnum, iDb);
     sqlite3VdbeAddOp4(v, OP_DropIndex, iDb, 0, 0, pIndex->zName, 0);
   }
 
