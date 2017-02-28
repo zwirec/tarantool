@@ -201,6 +201,8 @@ struct ta_cursor
 	enum iterator_type type;
 };
 
+static struct ta_cursor *cursor_create();
+
 static int
 cursor_seek(BtCursor *pCur, int *pRes, enum iterator_type type,
 	    const char *k, const char *ke);
@@ -470,6 +472,63 @@ out:
 	return SQLITE_OK;
 }
 
+/*
+ * The function assumes the cursor is open on _schema.
+ * Increment max_id and store updated tuple in the cursor
+ * object.
+ */
+int tarantoolSqliteIncrementMaxid(BtCursor *pCur)
+{
+	/* ["max_id"] */
+	static const char key[] = {
+		(char)0x91, /* MsgPack array(1) */
+		(char)0xa6, /* MsgPack string(6) */
+		'm', 'a', 'x', '_', 'i', 'd'
+	};
+	/* [["+", 1, 1]]*/
+	static const char ops[] = {
+		(char)0x91, /* MsgPack array(1) */
+		(char)0x93, /* MsgPack array(3) */
+		(char)0xa1, /* MsgPack string(1) */
+		'+',
+		1,          /* MsgPack int(1) */
+		1           /* MsgPack int(1) */
+	};
+
+	assert(pCur->curFlags & BTCF_TaCursor);
+
+	struct ta_cursor *c = pCur->pTaCursor;
+	uint32_t space_id, index_id;
+	box_tuple_t *res;
+	int rc;
+
+	space_id = get_space_id(pCur->pgnoRoot, &index_id);
+	rc = box_update(space_id, index_id,
+		key, key + sizeof(key),
+		ops, ops + sizeof(ops),
+		0,
+		&res);
+	if (rc != 0 || res == NULL) {
+		return SQLITE_TARANTOOL_ERROR;
+	}
+	if (!c) {
+		c = cursor_create();
+		if (!c) return SQLITE_NOMEM;
+		pCur->pTaCursor = c;
+		c->iter = NULL;
+	} else if (c->tuple_last) {
+		box_tuple_unref(c->tuple_last);
+	}
+	box_tuple_ref(res);
+	c->tuple_last = res;
+	return SQLITE_OK;
+}
+
+static struct ta_cursor *cursor_create()
+{
+	return malloc(sizeof(struct ta_cursor));
+}
+
 /* Cursor positioning. */
 static int
 cursor_seek(BtCursor *pCur, int *pRes, enum iterator_type type,
@@ -490,7 +549,7 @@ cursor_seek(BtCursor *pCur, int *pRes, enum iterator_type type,
 			c->iter = NULL;
 		}
 	} else {
-		c = malloc(sizeof(*c));
+		c = cursor_create();
 		if (!c) {
 			*pRes = 1;
 			return SQLITE_NOMEM;

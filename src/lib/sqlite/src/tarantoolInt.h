@@ -44,6 +44,13 @@ int tarantoolSqlite3Delete(BtCursor *pCur, u8 flags);
 int tarantoolSqlite3IdxKeyCompare(BtCursor *pCur, UnpackedRecord *pUnpacked,
                                   int *res);
 
+/*
+ * The function assumes the cursor is open on _schema.
+ * Increment max_id and store updated tuple in the cursor
+ * object.
+ */
+int tarantoolSqliteIncrementMaxid(BtCursor *pCur);
+
 
 /*
  * Format "parts" array for _index entry.
