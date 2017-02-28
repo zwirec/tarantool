@@ -48,6 +48,24 @@ double too_long_threshold;
 /** Pool of transaction objects. */
 static struct mempool txn_pool;
 
+void
+xrow_header_encode_2pc(struct xrow_header *header, struct txn *txn,
+		       uint32_t op_type)
+{
+	assert(op_type == IPROTO_PREPARE || op_type == IPROTO_COMMIT ||
+	       op_type == IPROTO_ROLLBACK);
+	static const size_t size = mp_sizeof_map(0);
+	memset(header, 0, sizeof(*header));
+	header->type = op_type;
+	header->tx_id = txn->tx_id;
+	header->coordinator_id = txn->coordinator_id;
+	char *body = (char *) region_alloc_xc(&fiber()->gc, size);
+	mp_encode_map(body, 0);
+	header->bodycnt = 1;
+	header->body[0].iov_len = size;
+	header->body[0].iov_base = body;
+}
+
 static void
 txn_add_redo(struct txn_stmt *stmt, struct request *request)
 {
@@ -124,6 +142,67 @@ txn_begin_two_phase(uint64_t tx_id, uint32_t coordinator_id)
 	return txn;
 }
 
+/** Append transaction statements to the wal request. */
+static inline void
+wal_request_append_rows(struct txn *txn, struct xrow_header **rows)
+{
+	struct txn_stmt *stmt;
+	stailq_foreach_entry(stmt, &txn->stmts, next) {
+		if (stmt->row == NULL)
+			continue; /* A read (e.g. select) request */
+		*rows++ = stmt->row;
+	}
+}
+
+static inline int64_t
+txn_write_to_wal(struct journal_entry *req)
+{
+	ev_tstamp start = ev_now(loop()), stop;
+	int64_t res = journal_write(req);
+
+	stop = ev_now(loop());
+	if (stop - start > too_long_threshold)
+		say_warn("too long WAL write: %.3f sec", stop - start);
+	if (res < 0) {
+		/* Cascading rollback. */
+		txn_rollback(); /* Perform our part of cascading rollback. */
+		/*
+		 * Move fiber to end of event loop to avoid
+		 * execution of any new requests before all
+		 * pending rollbacks are processed.
+		 */
+		fiber_reschedule();
+		tnt_raise(LoggedError, ER_WAL_IO);
+	}
+	/*
+	 * Use vclock_sum() from WAL writer as transaction signature.
+	 */
+	return res;
+}
+
+/**
+ * Write to WAL the PREPARE + transactional data.
+ * @param txn            Transaction to prepare.
+ * @param prepare_header Header of the PREPARE request. It can be
+ *                       received from iproto thread, or localy
+ *                       constructed.
+ * @retval LSN of the prepared transaction.
+ */
+static int64_t
+txn_write_prepare_to_wal(struct txn *txn, struct xrow_header *prepare_header)
+{
+	assert(txn->n_rows > 0);
+	assert(prepare_header->type == IPROTO_PREPARE);
+
+	struct journal_entry *req = journal_entry_new(txn->n_rows + 1);
+	if (req == NULL)
+		diag_raise();
+	assert(req->n_rows == txn->n_rows + 1);
+	req->rows[0] = prepare_header;
+	wal_request_append_rows(txn, req->rows + 1);
+	return txn_write_to_wal(req);
+}
+
 void
 txn_prepare_two_phase(struct txn *txn, struct xrow_header *header)
 {
@@ -137,10 +216,13 @@ txn_prepare_two_phase(struct txn *txn, struct xrow_header *header)
 	assert(txn->is_two_phase);
 	assert(header->tx_id == txn->tx_id);
 	assert(header->coordinator_id == txn->coordinator_id);
-	(void) header;
 	txn->in_prepare = true;
 	if (txn->engine) {
-		txn->engine->prepare_two_phase(txn);
+		txn->engine->begin_prepare_two_phase(txn);
+		int64_t signature = -1;
+		if (txn->n_rows > 0)
+			signature = txn_write_prepare_to_wal(txn, header);
+		txn->engine->end_prepare_two_phase(txn, signature);
 	}
 }
 
@@ -222,46 +304,45 @@ txn_commit_stmt(struct txn *txn, struct request *request)
 		txn_commit(txn);
 }
 
-
+/**
+ * Write to WAL only COMMIT/ROLLBACK statement for correct
+ * recovery of the two phase transaction..
+ */
 static int64_t
-txn_write_to_wal(struct txn *txn)
+txn_finish_2pc_to_wal(struct txn *txn, uint32_t end_type)
 {
 	assert(txn->n_rows > 0);
+	assert(txn->is_two_phase);
+	assert(txn->in_prepare);
 
+	struct journal_entry *req = journal_entry_new(1);
+	if (req == NULL)
+		diag_raise();
+	struct xrow_header header;
+	xrow_header_encode_2pc(&header, txn, end_type);
+	header.tm = ev_now(loop());
+	req->rows[0] = &header;
+	return txn_write_to_wal(req);
+}
+
+/**
+ * Write to WAL only COMMIT statement or the transactional data -
+ * it depends from type of the transaction - two or not two phase.
+ */
+static int64_t
+txn_write_commit_to_wal(struct txn *txn)
+{
+	assert(txn->n_rows > 0);
+	if (txn->is_two_phase) {
+		assert(txn->in_prepare);
+		return txn_finish_2pc_to_wal(txn, IPROTO_COMMIT);
+	}
 	struct journal_entry *req = journal_entry_new(txn->n_rows);
 	if (req == NULL)
 		diag_raise();
-
-	struct txn_stmt *stmt;
-	struct xrow_header **row = req->rows;
-	stailq_foreach_entry(stmt, &txn->stmts, next) {
-		if (stmt->row == NULL)
-			continue; /* A read (e.g. select) request */
-		*row++ = stmt->row;
-	}
-	assert(row == req->rows + req->n_rows);
-
-	ev_tstamp start = ev_now(loop()), stop;
-	int64_t res = journal_write(req);
-
-	stop = ev_now(loop());
-	if (stop - start > too_long_threshold)
-		say_warn("too long WAL write: %.3f sec", stop - start);
-	if (res < 0) {
-		/* Cascading rollback. */
-		txn_rollback(); /* Perform our part of cascading rollback. */
-		/*
-		 * Move fiber to end of event loop to avoid
-		 * execution of any new requests before all
-		 * pending rollbacks are processed.
-		 */
-		fiber_reschedule();
-		tnt_raise(LoggedError, ER_WAL_IO);
-	}
-	/*
-	 * Use vclock_sum() from WAL writer as transaction signature.
-	 */
-	return res;
+	assert(req->n_rows == txn->n_rows);
+	wal_request_append_rows(txn, req->rows);
+	return txn_write_to_wal(req);
 }
 
 void
@@ -276,9 +357,11 @@ txn_commit(struct txn *txn)
 		int64_t signature = -1;
 		if (! txn->is_two_phase)
 			txn->engine->prepare(txn);
-
-		if (txn->n_rows > 0)
-			signature = txn_write_to_wal(txn);
+		if (txn->n_rows > 0) {
+			signature = txn_write_commit_to_wal(txn);
+			if (txn->is_two_phase)
+				signature = -1;
+		}
 		/*
 		 * The transaction is in the binary log. No action below
 		 * may throw. In case an error has happened, there is
@@ -331,8 +414,11 @@ txn_rollback()
 		return;
 	if (txn->has_triggers)
 		trigger_run(&txn->on_rollback, txn); /* must not throw. */
-	if (txn->engine)
+	if (txn->engine) {
+		if (txn->in_prepare)
+			txn_finish_2pc_to_wal(txn, IPROTO_ROLLBACK);
 		txn->engine->rollback(txn);
+	}
 	region_destroy(&txn->region);
 	mempool_free(&txn_pool, txn);
 	/** Free volatile txn memory. */
@@ -401,11 +487,7 @@ box_txn_prepare_two_phase()
 	}
 	try {
 		struct xrow_header row;
-		memset(&row, 0, sizeof(row));
-		row.type = IPROTO_PREPARE;
-		row.replica_id = instance_id;
-		row.tx_id = txn->tx_id;
-		row.coordinator_id = txn->coordinator_id;
+		xrow_header_encode_2pc(&row, txn, IPROTO_PREPARE);
 		txn_prepare_two_phase(txn, &row);
 	} catch (Exception *e) {
 		return -1;
