@@ -121,6 +121,7 @@ const struct index_opts index_opts_default = {
 	/* .run_count_per_level = */ 2,
 	/* .run_size_ratio      = */ 3.5,
 	/* .lsn                 = */ 0,
+	/* .sql                 = */ { '\0' },
 };
 
 const struct opt_def index_opts_reg[] = {
@@ -132,7 +133,7 @@ const struct opt_def index_opts_reg[] = {
 	OPT_DEF("run_count_per_level", OPT_INT, struct index_opts, run_count_per_level),
 	OPT_DEF("run_size_ratio", OPT_FLOAT, struct index_opts, run_size_ratio),
 	OPT_DEF("lsn", OPT_INT, struct index_opts, lsn),
-	DUMMY_OPT_DEF("sql", OPT_STR),
+	OPT_DEF("sql", OPT_STR, struct key_opts, sql),
 	{ NULL, opt_type_MAX, 0, 0 },
 };
 
@@ -549,10 +550,12 @@ key_validate_parts(struct index_def *index_def, const char *key,
 
 const struct space_opts space_opts_default = {
 	/* .temporary = */ false,
+	/* .sql       = */ { '\0' },
 };
 
 const struct opt_def space_opts_reg[] = {
 	OPT_DEF("temporary", OPT_BOOL, struct space_opts, temporary),
+	OPT_DEF("sql", OPT_STR, struct space_opts, sql),
 	{ NULL, opt_type_MAX, 0, 0 }
 };
 
