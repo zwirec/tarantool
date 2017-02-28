@@ -63,3 +63,6 @@ box.sql.execute("DROP TABLE barfoo")
 
 -- attempt to create a WITHOUT ROWID table lacking PRIMARY KEY
 box.sql.execute("CREATE TABLE without_rowid_lacking_primary_key(x) WITHOUT ROWID")
+
+-- attempt to create a table lacking WITHOUT ROWID clause
+box.sql.execute("CREATE TABLE rowid(x)")

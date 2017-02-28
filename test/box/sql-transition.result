@@ -177,3 +177,8 @@ box.sql.execute("CREATE TABLE without_rowid_lacking_primary_key(x) WITHOUT ROWID
 ---
 - error: PRIMARY KEY missing on table without_rowid_lacking_primary_key
 ...
+-- attempt to create a table lacking WITHOUT ROWID clause
+box.sql.execute("CREATE TABLE rowid(x)")
+---
+- error: At the moment, only WITHOUT ROWID tables are supported
+...
