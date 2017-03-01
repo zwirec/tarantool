@@ -192,6 +192,7 @@ add_library(testfixture SHARED
     ../ext/misc/nextchar.c
     ../ext/misc/percentile.c
     ../ext/misc/regexp.c
+    ../ext/misc/remember.c
     ../ext/misc/series.c
     ../ext/misc/spellfix.c
     ../ext/misc/totype.c

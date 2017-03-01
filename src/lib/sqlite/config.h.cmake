@@ -1,4 +1,5 @@
 #cmakedefine SQLITE_DEBUG 1
+#define SQLITE_TEST 1
 
 #cmakedefine HAVE_DLFCN_H 1
 #cmakedefine HAVE_GMTIME_R 1
