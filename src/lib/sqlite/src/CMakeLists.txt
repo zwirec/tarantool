@@ -206,3 +206,5 @@ add_dependencies(testfixture generate_sqlite3_files)
 
 set_target_properties(testfixture PROPERTIES COMPILE_DEFINITIONS
     "${TEST_DEFINITIONS}")
+
+target_link_libraries(testfixture ${TCL_LIBRARY})

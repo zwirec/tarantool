@@ -4211,7 +4211,7 @@ static void init_all(Tcl_Interp *interp){
 #include <sys/resource.h>
 #endif
 
-#define TCLSH_MAIN main   /* Needed to fake out mktclapp */
+#define TCLSH_MAIN testfixture_main   /* Needed to fake out mktclapp */
 int SQLITE_CDECL TCLSH_MAIN(int argc, char **argv){
   Tcl_Interp *interp;
 
