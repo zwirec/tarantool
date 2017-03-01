@@ -14,6 +14,7 @@
 ** from disk.
 */
 #include "sqliteInt.h"
+#include "tarantoolInt.h"
 
 /*
 ** Fill the InitData structure with an error message that indicates
@@ -165,6 +166,12 @@ static int sqlite3InitOne(sqlite3 *db, int iDb, char **pzErrMsg){
   initData.rc = SQLITE_OK;
   initData.pzErrMsg = pzErrMsg;
   sqlite3InitCallback(&initData, 3, (char **)azArg, 0);
+
+  /* Load schema from Tarantool - into the primary db only. */
+  if( iDb==0 && initData.rc==SQLITE_OK ){
+    tarantoolSqlite3LoadSchema(&initData);
+  }
+
   if( initData.rc ){
     rc = initData.rc;
     goto error_out;

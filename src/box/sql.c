@@ -56,21 +56,17 @@
 static sqlite3 *db = NULL;
 
 /*
- * Manually add objects to SQLite in-memory schema.
- * Argv must adhere to sqlite_master format.
- * It is interpreted as follows:
- *   argv[0] = name
- *   argv[1] = pageNo
- *   argv[2] = sql
- */
-int sql_schema_put(int idb, int argc, char **argv);
-
-/*
- * Add system space to SQLite in-memory schema.
- * End result: the table is registered and accessible from SQL.
+ * Manully add objects to SQLite in-memory schema.
+ * This is loosely based on sqlite_master row format.
+ * @Params
+ *   name - object name
+ *   id   - SQLITE_PAGENO_FROM_SPACEID_INDEXID(...)
+ *          for tables and indices
+ *   sql  - SQL statement that created this object
  */
 static void
-sql_schema_put_system_space(const char *name, int id, const char *sql)
+sql_schema_put(InitData *init,
+	       const char *name, int id, const char *sql)
 {
 	char pageno[16];
 	char *argv[] = {
@@ -79,10 +75,14 @@ sql_schema_put_system_space(const char *name, int id, const char *sql)
 		(char *)sql,
 		NULL
 	};
+
+	if (init->rc != SQLITE_OK) return;
+
 	snprintf(pageno, sizeof(pageno), "%d",
 		SQLITE_PAGENO_FROM_SPACEID_AND_INDEXID(id, 0)
 	);
-	sql_schema_put(0, 3, argv);
+
+	sqlite3InitCallback(init, 3, argv, NULL);
 }
 
 void
@@ -95,17 +95,21 @@ sql_init()
 	} else {
 		/* XXX */
 	}
+}
 
-	sql_schema_put_system_space(
-		TARANTOOL_SYS_SCHEMA_NAME,
+/* Load database schema from Tarantool. */
+void tarantoolSqlite3LoadSchema(InitData *init)
+{
+	sql_schema_put(
+		init, TARANTOOL_SYS_SCHEMA_NAME,
 		BOX_SCHEMA_ID,
 		"CREATE TABLE "TARANTOOL_SYS_SCHEMA_NAME" ("
 			"key TEXT PRIMARY KEY, value"
 		") WITHOUT ROWID"
 	);
 
-	sql_schema_put_system_space(
-		TARANTOOL_SYS_SPACE_NAME,
+	sql_schema_put(
+		init, TARANTOOL_SYS_SPACE_NAME,
 		BOX_SPACE_ID,
 		"CREATE TABLE "TARANTOOL_SYS_SPACE_NAME" ("
 			"id INT, iid INT, name TEXT, "
@@ -114,8 +118,8 @@ sql_init()
 		") WITHOUT ROWID"
 	);
 
-	sql_schema_put_system_space(
-		TARANTOOL_SYS_INDEX_NAME,
+	sql_schema_put(
+		init, TARANTOOL_SYS_INDEX_NAME,
 		BOX_INDEX_ID,
 		"CREATE TABLE "TARANTOOL_SYS_INDEX_NAME" ("
 			"id INT, iid INT, "
@@ -591,47 +595,6 @@ cursor_advance(BtCursor *pCur, int *pRes)
 	}
 	c->tuple_last = tuple;
 	return SQLITE_OK;
-}
-
-/*********************************************************************
- * Manually add objects to SQLite in-memory schema.
- * Argv must adhere to sqlite_master format.
- * It is interpreted as follows:
- *   argv[0] = name
- *   argv[1] = pageNo
- *   argv[2] = sql
- */
-int sql_schema_put(int idb, int argc, char **argv)
-{
-	InitData init;
-	char *err_msg = NULL;
-
-	if (!db) return SQLITE_ERROR;
-
-	init.db = db;
-	init.iDb = idb;
-	init.rc = SQLITE_OK;
-	init.pzErrMsg = &err_msg;
-
-	sqlite3_mutex_enter(db->mutex);
-	sqlite3BtreeEnterAll(db);
-	db->init.busy = 1;
-	sqlite3InitCallback(&init, argc, argv, NULL);
-	db->init.busy = 0;
-	sqlite3BtreeLeaveAll(db);
-
-	/*
-	 * Overwrite argv[0] with the error message (if any), caller
-	 * should free it.
-	 */
-	if (err_msg) {
-		argv[0] = strdup(err_msg);
-		sqlite3DbFree(db, err_msg);
-	} else
-		argv[0] = NULL;
-
-	sqlite3_mutex_leave(db->mutex);
-	return init.rc;
 }
 
 /* Space_id and index_id are encoded in SQLite page number. */

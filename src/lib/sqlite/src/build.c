@@ -2057,6 +2057,14 @@ void sqlite3EndTable(
     if( p->tnum==1 ) p->tabFlags |= TF_Readonly;
   }
 
+  /*
+   * Enforce WITHOUT ROWID, but not for sqlite_master.
+   * Skip VIEWs.
+   */
+  if( !pSelect && (!db->init.busy || p->tnum!=1) ){
+    tabOpts |= TF_WithoutRowid;
+  }
+
   /* Special processing for WITHOUT ROWID Tables */
   if( tabOpts & TF_WithoutRowid ){
     if( (p->tabFlags & TF_Autoincrement) ){
@@ -2069,19 +2077,6 @@ void sqlite3EndTable(
     }else{
       p->tabFlags |= TF_WithoutRowid | TF_NoVisibleRowid;
       convertToWithoutRowidTable(pParse, p);
-    }
-  }else{
-    /*
-     * Reject CREATE TABLE-s lacking WITHOUT ROWID.
-     * Let views to pass throw (pSelect check).
-     * Also permit tables lacking WITHOUT ROWID when parsing persistent
-     * schema.  The later is necessary to suppress error when
-     * sqlite_master is defined.
-     */
-    if( !p->pSelect && !db->init.busy ){
-      sqlite3ErrorMsg(pParse,
-        "At the moment, only WITHOUT ROWID tables are supported"
-      );
     }
   }
 

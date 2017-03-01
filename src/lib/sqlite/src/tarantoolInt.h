@@ -31,6 +31,10 @@
 #define SQLITE_PAGENO_TO_INDEXID(pgno) \
   ((pgno) & 31)
 
+
+/* Load database schema from Tarantool. */
+void tarantoolSqlite3LoadSchema(InitData *init);
+
 /* Misc */
 const char *tarantoolErrorMessage();
 
