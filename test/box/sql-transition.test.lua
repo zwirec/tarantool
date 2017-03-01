@@ -66,3 +66,8 @@ box.sql.execute("CREATE TABLE without_rowid_lacking_primary_key(x) WITHOUT ROWID
 
 -- attempt to create a table lacking WITHOUT ROWID clause
 box.sql.execute("CREATE TABLE rowid(x)")
+
+-- create a table with implicit indices (used to SEGFAULT)
+box.sql.execute("CREATE TABLE implicit_indices(a PRIMARY KEY,b,c,d UNIQUE) WITHOUT ROWID")
+box.space.implicit_indices:drop()
+box.sql.execute("DROP TABLE implicit_indices")

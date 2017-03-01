@@ -1843,6 +1843,7 @@ static int makeIndexSchemaRecord(
   const char *zSql
 ){
   Vdbe *v = sqlite3GetVdbe(pParse);
+  int iP4Type;
   int iFirstCol = pParse->nMem + 1;
   pParse->nMem += 4;
 
@@ -1868,7 +1869,11 @@ static int makeIndexSchemaRecord(
     sqlite3VdbeAddOp2(v, OP_SCopy, iIndexId, iFirstCol+2);
   }
 
-  sqlite3VdbeAddOp4(v, OP_String8, 0, iFirstCol+3, 0, zSql, P4_DYNAMIC);
+  iP4Type = P4_DYNAMIC;
+  if( zSql == 0 ){
+    zSql = ""; iP4Type = P4_STATIC;
+  }
+  sqlite3VdbeAddOp4(v, OP_String8, 0, iFirstCol+3, 0, zSql, iP4Type);
   return iFirstCol;
 }
 
