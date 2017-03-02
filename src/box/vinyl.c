@@ -7024,27 +7024,32 @@ vy_rollback(struct vy_env *e, struct vy_tx *tx)
 	free(tx);
 }
 
+
+int
+vy_check_aborted(struct vy_env *e, struct vy_tx *tx)
+{
+	if (!vy_tx_is_ro(tx) && tx->is_in_read_view) {
+		tx->state = VINYL_TX_ROLLBACK;
+		e->stat->tx_conflict++;
+		diag_set(ClientError, ER_TRANSACTION_CONFLICT);
+		vy_tx_destroy(tx->manager, tx);
+		return -1;
+	}
+	return 0;
+}
+
 int
 vy_prepare(struct vy_env *e, struct vy_tx *tx)
 {
 	/* prepare transaction */
 	assert(tx->state == VINYL_TX_READY);
-	int rc = 0;
-
-	/* proceed read-only transactions */
-	if (!vy_tx_is_ro(tx) && tx->is_in_read_view) {
-		tx->state = VINYL_TX_ROLLBACK;
-		e->stat->tx_conflict++;
-		diag_set(ClientError, ER_TRANSACTION_CONFLICT);
-		rc = -1;
-	} else {
-		tx->state = VINYL_TX_COMMIT;
-		/** Abort read/write intersection */
-		struct txv *v = write_set_first(&tx->write_set);
-		for (; v != NULL; v = write_set_next(&tx->write_set, v))
-			vy_send_to_read_view(e, tx, v);
-	}
-
+	if (vy_check_aborted(e, tx) != 0)
+		return -1;
+	tx->state = VINYL_TX_COMMIT;
+	/** Abort read/write intersection */
+	struct txv *v = write_set_first(&tx->write_set);
+	for (; v != NULL; v = write_set_next(&tx->write_set, v))
+		vy_send_to_read_view(e, tx, v);
 	vy_tx_destroy(tx->manager, tx);
 
 	/*
@@ -7054,7 +7059,7 @@ vy_prepare(struct vy_env *e, struct vy_tx *tx)
 	 * Yet, it is important to maintain external
 	 * serial commit order.
 	 */
-	return rc;
+	return 0;
 }
 
 int

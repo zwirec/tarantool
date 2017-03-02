@@ -193,7 +193,6 @@ txn_write_prepare_to_wal(struct txn *txn, struct xrow_header *prepare_header)
 {
 	assert(txn->n_rows > 0);
 	assert(prepare_header->type == IPROTO_PREPARE);
-
 	struct journal_entry *req = journal_entry_new(txn->n_rows + 1);
 	if (req == NULL)
 		diag_raise();
