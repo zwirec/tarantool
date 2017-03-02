@@ -523,6 +523,7 @@ int tarantoolSqlite3IncrementMaxid(BtCursor *pCur)
 	box_tuple_ref(res);
 	c->tuple_last = res;
 	pCur->eState = CURSOR_VALID;
+	pCur->curIntKey = 0;
 	return SQLITE_OK;
 }
 
@@ -566,6 +567,7 @@ cursor_seek(BtCursor *pCur, int *pRes, enum iterator_type type,
         }
 	c->type = type;
 	pCur->eState = CURSOR_VALID;
+	pCur->curIntKey = 0;
 	return cursor_advance(pCur, pRes);
 }
 
