@@ -403,6 +403,17 @@ int tarantoolSqlite3Delete(BtCursor *pCur, u8 flags)
 	return rc == 0 ? SQLITE_OK : SQLITE_TARANTOOL_ERROR;
 }
 
+int tarantoolSqlite3ClearTable(int iTable)
+{
+  int space_id = SQLITE_PAGENO_TO_SPACEID(iTable);
+
+  if (box_truncate(space_id) != 0) {
+    return SQLITE_TARANTOOL_ERROR;
+  }
+
+  return SQLITE_OK;
+}
+
 /*
  * Performs exactly as extract_key + sqlite3VdbeCompareMsgpack,
  * only faster.
