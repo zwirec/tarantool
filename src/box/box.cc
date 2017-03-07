@@ -1391,7 +1391,7 @@ bootstrap_master(void)
 {
 	engine_bootstrap();
 
-	uint32_t replica_id = 1;
+	uint32_t replica_id = cfg_geti("server_id");
 
 	/* Unregister a local replica if it was registered by bootstrap.bin */
 	if (boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "[%u]", 1) != 0)
@@ -1399,7 +1399,6 @@ bootstrap_master(void)
 
 	/* Register the first replica in the replica set */
 	box_register_replica(replica_id, &INSTANCE_UUID);
-	assert(replica_by_uuid(&INSTANCE_UUID)->id == 1);
 
 	/* Register other cluster members */
 	replicaset_foreach(replica) {
