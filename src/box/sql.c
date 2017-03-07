@@ -210,8 +210,6 @@ cursor_seek(BtCursor *pCur, int *pRes, enum iterator_type type,
 static int
 cursor_advance(BtCursor *pCur, int *pRes);
 
-static uint32_t get_space_id(Pgno page, uint32_t *index_id);
-
 const char *tarantoolErrorMessage()
 {
 	return box_error_message(box_error_last());
@@ -344,8 +342,8 @@ int tarantoolSqlite3Count(BtCursor *pCur, i64 *pnEntry)
 {
 	assert(pCur->curFlags & BTCF_TaCursor);
 
-	uint32_t space_id, index_id;
-	space_id = get_space_id(pCur->pgnoRoot, &index_id);
+	uint32_t space_id = SQLITE_PAGENO_TO_SPACEID(pCur->pgnoRoot);
+	uint32_t index_id = SQLITE_PAGENO_TO_INDEXID(pCur->pgnoRoot);
 	*pnEntry = box_index_len(space_id, index_id);
 	return SQLITE_OK;
 }
@@ -354,7 +352,7 @@ int tarantoolSqlite3Insert(BtCursor *pCur, const BtreePayload *pX)
 {
 	assert(pCur->curFlags & BTCF_TaCursor);
 
-	if (box_replace(get_space_id(pCur->pgnoRoot, NULL),
+	if (box_replace(SQLITE_PAGENO_TO_SPACEID(pCur->pgnoRoot),
 			pX->pKey, (const char *)pX->pKey + pX->nKey,
 			NULL)
 	    != 0) {
@@ -380,7 +378,8 @@ int tarantoolSqlite3Delete(BtCursor *pCur, u8 flags)
 	assert(c->iter);
 	assert(c->tuple_last);
 
-	space_id = get_space_id(pCur->pgnoRoot, &index_id);
+	space_id = SQLITE_PAGENO_TO_SPACEID(pCur->pgnoRoot);
+	index_id = SQLITE_PAGENO_TO_INDEXID(pCur->pgnoRoot);
 	original_size = region_used(&fiber()->gc);
 	key = tuple_extract_key(c->tuple_last,
 				box_iterator_key_def(c->iter),
@@ -498,11 +497,11 @@ int tarantoolSqlite3IncrementMaxid(BtCursor *pCur)
 	assert(pCur->curFlags & BTCF_TaCursor);
 
 	struct ta_cursor *c = pCur->pTaCursor;
-	uint32_t space_id, index_id;
+	uint32_t space_id = SQLITE_PAGENO_TO_SPACEID(pCur->pgnoRoot);
+	uint32_t index_id = SQLITE_PAGENO_TO_INDEXID(pCur->pgnoRoot);
 	box_tuple_t *res;
 	int rc;
 
-	space_id = get_space_id(pCur->pgnoRoot, &index_id);
 	rc = box_update(space_id, index_id,
 		key, key + sizeof(key),
 		ops, ops + sizeof(ops),
@@ -540,9 +539,9 @@ cursor_seek(BtCursor *pCur, int *pRes, enum iterator_type type,
 	assert(pCur->curFlags & BTCF_TaCursor);
 
 	struct ta_cursor *c;
-	uint32_t space_id, index_id;
+	uint32_t space_id = SQLITE_PAGENO_TO_SPACEID(pCur->pgnoRoot);
+	uint32_t index_id = SQLITE_PAGENO_TO_INDEXID(pCur->pgnoRoot);
 
-	space_id = get_space_id(pCur->pgnoRoot, &index_id);
 
 	c = pCur->pTaCursor;
 	if (c) {
@@ -597,13 +596,6 @@ cursor_advance(BtCursor *pCur, int *pRes)
 	}
 	c->tuple_last = tuple;
 	return SQLITE_OK;
-}
-
-/* Space_id and index_id are encoded in SQLite page number. */
-static uint32_t get_space_id(Pgno page, uint32_t *index_id)
-{
-	if (index_id) *index_id = SQLITE_PAGENO_TO_INDEXID(page);
-	return SQLITE_PAGENO_TO_SPACEID(page);
 }
 
 /*********************************************************************
