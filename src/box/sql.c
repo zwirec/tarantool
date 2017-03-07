@@ -210,25 +210,6 @@ cursor_seek(BtCursor *pCur, int *pRes, enum iterator_type type,
 static int
 cursor_advance(BtCursor *pCur, int *pRes);
 
-#ifndef NDEBUG
-static enum iterator_type normalize_iter_type(BtCursor *pCur)
-{
-	struct ta_cursor *c = pCur->pTaCursor;
-	enum iterator_type t;
-	assert(pCur->curFlags & BTCF_TaCursor);
-	assert(c);
-	t = c->type;
-	if (t == ITER_GE || t == ITER_GT || t == ITER_EQ) {
-		return ITER_GE;
-	} else if (t == ITER_LE || t == ITER_LT || t == ITER_REQ) {
-		return ITER_LE;
-	} else {
-	  /*   "Unexpected iterator type" */
-		assert(0);
-	}
-}
-#endif
-
 static uint32_t get_space_id(Pgno page, uint32_t *index_id);
 
 const char *tarantoolErrorMessage()
@@ -278,13 +259,21 @@ int tarantoolSqlite3Last(BtCursor *pCur, int *pRes)
 
 int tarantoolSqlite3Next(BtCursor *pCur, int *pRes)
 {
-	assert(normalize_iter_type(pCur) == ITER_GE);
+	assert(pCur->curFlags & BTCF_TaCursor);
+	assert(pCur->pTaCursor);
+	assert(iterator_direction(
+		((struct ta_cursor *)pCur->pTaCursor)->type
+	) > 0);
 	return cursor_advance(pCur, pRes);
 }
 
 int tarantoolSqlite3Previous(BtCursor *pCur, int *pRes)
 {
-	assert(normalize_iter_type(pCur) == ITER_LE);
+	assert(pCur->curFlags & BTCF_TaCursor);
+	assert(pCur->pTaCursor);
+	assert(iterator_direction(
+		((struct ta_cursor *)pCur->pTaCursor)->type
+	) < 0);
 	return cursor_advance(pCur, pRes);
 }
 
