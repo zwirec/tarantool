@@ -711,8 +711,11 @@ static const struct Enc *get_enc(void *buf)
  * Convert SQLite affinity value to the corresponding Tarantool type
  * string which is suitable for _index.parts field.
  */
-static const char *convertSqliteAffinity(int affinity)
+static const char *convertSqliteAffinity(int affinity, bool allow_nulls)
 {
+	if (allow_nulls) {
+		return "scalar";
+	}
 	switch (affinity) {
 	default:
 		assert(false);
@@ -749,7 +752,7 @@ int tarantoolSqlite3MakeTableFormat(Table *pTable, void *buf)
 		p = enc->encode_str(p, aCol[i].zName, strlen(aCol[i].zName));
 		p = enc->encode_str(p, "type", 4);
 		t = aCol[i].affinity == SQLITE_AFF_BLOB ? "*" :
-			convertSqliteAffinity(aCol[i].affinity);
+			convertSqliteAffinity(aCol[i].affinity, aCol[i].notNull == 0);
 		p = enc->encode_str(p, t, strlen(t));
 	}
 	return (int)(p - base);
@@ -789,7 +792,7 @@ int tarantoolSqlite3MakeIdxParts(SqliteIndex *pIndex, void *buf)
 	p = enc->encode_array(base, n);
 	for (i=0; i<n; i++) {
 		int col = pIndex->aiColumn[i];
-		const char *t = convertSqliteAffinity(aCol[col].affinity);
+		const char *t = convertSqliteAffinity(aCol[col].affinity, aCol[col].notNull == 0);
 		p = enc->encode_array(p, 2),
 		p = enc->encode_uint(p, col);
 		p = enc->encode_str(p, t, strlen(t));
