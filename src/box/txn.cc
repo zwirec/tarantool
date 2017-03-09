@@ -35,6 +35,10 @@
 #include <fiber.h>
 #include "xrow.h"
 #include "iproto_constants.h"
+#include "schema.h"
+#include "assoc.h"
+#include "wal.h"
+#include "box.h"
 
 enum {
 	/**
@@ -47,6 +51,7 @@ enum {
 double too_long_threshold;
 /** Pool of transaction objects. */
 static struct mempool txn_pool;
+struct mh_i64ptr_t *transactions;
 
 void
 xrow_header_encode_2pc(struct xrow_header *header, struct txn *txn,
@@ -116,8 +121,8 @@ txn_begin(bool is_autocommit)
 	stailq_create(&txn->stmts);
 	txn->is_two_phase = false;
 	txn->in_prepare = false;
-	txn->tx_id = UINT64_MAX;
-	txn->coordinator_id = UINT32_MAX;
+	txn->tx_id = 0;
+	txn->coordinator_id = 0;
 	txn->n_rows = 0;
 	txn->is_autocommit = is_autocommit;
 	txn->has_triggers  = false;
@@ -151,6 +156,7 @@ wal_request_append_rows(struct txn *txn, struct xrow_header **rows)
 		if (stmt->row == NULL)
 			continue; /* A read (e.g. select) request */
 		*rows++ = stmt->row;
+		stmt->row->tx_id = txn->tx_id;
 	}
 }
 
@@ -202,6 +208,15 @@ txn_write_prepare_to_wal(struct txn *txn, struct xrow_header *prepare_header)
 	return txn_write_to_wal(req);
 }
 
+int
+two_phase_log_prepare_f(va_list ap)
+{
+	uint64_t tx_id = va_arg(ap, uint64_t);
+	uint32_t coordinator_id = va_arg(ap, uint32_t);
+	return boxk(IPROTO_INSERT, BOX_TRANSACTION_ID, "[%u%u%s]", tx_id,
+		    coordinator_id, "prepare");
+}
+
 void
 txn_prepare_two_phase(struct txn *txn, struct xrow_header *header)
 {
@@ -215,14 +230,23 @@ txn_prepare_two_phase(struct txn *txn, struct xrow_header *header)
 	assert(txn->is_two_phase);
 	assert(header->tx_id == txn->tx_id);
 	assert(header->coordinator_id == txn->coordinator_id);
-	txn->in_prepare = true;
 	if (txn->engine) {
+		if (wal_mode() != WAL_NONE) {
+			struct fiber *logger =
+				fiber_new_xc("two_phase.prepare",
+					     two_phase_log_prepare_f);
+			fiber_set_joinable(logger, true);
+			fiber_start(logger, txn->tx_id, txn->coordinator_id);
+			if (fiber_join(logger) != 0)
+				diag_raise();
+		}
 		txn->engine->begin_prepare_two_phase(txn);
 		int64_t signature = -1;
 		if (txn->n_rows > 0)
 			signature = txn_write_prepare_to_wal(txn, header);
 		txn->engine->end_prepare_two_phase(txn, signature);
 	}
+	txn->in_prepare = true;
 }
 
 void
@@ -303,6 +327,22 @@ txn_commit_stmt(struct txn *txn, struct request *request)
 		txn_commit(txn);
 }
 
+int
+two_phase_log_end_of_2pc_f(va_list ap)
+{
+	uint64_t tx_id = va_arg(ap, uint64_t);
+	const char *end_type = va_arg(ap, const char *);
+	return boxk(IPROTO_UPDATE, BOX_TRANSACTION_ID, "[%u][[%s%u%s]]", tx_id,
+		    "=", 2, end_type);
+}
+
+int
+two_phase_remove_2pc_log_f(va_list ap)
+{
+	uint64_t tx_id = va_arg(ap, uint64_t);
+	return boxk(IPROTO_DELETE, BOX_TRANSACTION_ID, "[%u]", tx_id);
+}
+
 /**
  * Write to WAL only COMMIT/ROLLBACK statement for correct
  * recovery of the two phase transaction..
@@ -312,16 +352,45 @@ txn_finish_2pc_to_wal(struct txn *txn, uint32_t end_type)
 {
 	assert(txn->n_rows > 0);
 	assert(txn->is_two_phase);
-	assert(txn->in_prepare);
-
+	assert(end_type == IPROTO_COMMIT || end_type == IPROTO_ROLLBACK);
+	struct fiber *logger;
 	struct journal_entry *req = journal_entry_new(1);
 	if (req == NULL)
 		diag_raise();
 	struct xrow_header header;
+	int64_t rc = 0;
+	if (end_type == IPROTO_ROLLBACK && !txn->in_prepare)
+		goto clear_transaction_state;
+	if (wal_mode() != WAL_NONE) {
+		logger = fiber_new_xc("two_phase.end_of_2pc",
+				      two_phase_log_end_of_2pc_f);
+		fiber_set_joinable(logger, true);
+		if (end_type == IPROTO_COMMIT) {
+			fiber_start(logger, txn->tx_id, "commit");
+		} else {
+			assert(end_type == IPROTO_ROLLBACK);
+			fiber_start(logger, txn->tx_id, "rollback");
+		}
+		if (fiber_join(logger) != 0)
+			diag_raise();
+	}
+
 	xrow_header_encode_2pc(&header, txn, end_type);
 	header.tm = ev_now(loop());
 	req->rows[0] = &header;
-	return txn_write_to_wal(req);
+	rc = txn_write_to_wal(req);
+	if (rc < 0)
+		diag_raise();
+clear_transaction_state:
+	if (wal_mode() == WAL_NONE)
+		return rc;
+	logger = fiber_new_xc("two_phase.remove_2pc_log",
+			      two_phase_remove_2pc_log_f);
+	fiber_set_joinable(logger, true);
+	fiber_start(logger, txn->tx_id);
+	if (fiber_join(logger) != 0)
+		diag_raise();
+	return rc;
 }
 
 /**
@@ -414,7 +483,7 @@ txn_rollback()
 	if (txn->has_triggers)
 		trigger_run(&txn->on_rollback, txn); /* must not throw. */
 	if (txn->engine) {
-		if (txn->in_prepare)
+		if (txn->is_two_phase)
 			txn_finish_2pc_to_wal(txn, IPROTO_ROLLBACK);
 		txn->engine->rollback(txn);
 	}
@@ -438,6 +507,7 @@ void
 txn_init()
 {
 	mempool_create(&txn_pool, cord_slab_cache(), sizeof(struct txn));
+	transactions = mh_i64ptr_new();
 }
 
 extern "C" {
@@ -489,6 +559,7 @@ box_txn_prepare_two_phase()
 		xrow_header_encode_2pc(&row, txn, IPROTO_PREPARE);
 		txn_prepare_two_phase(txn, &row);
 	} catch (Exception *e) {
+		box_txn_rollback();
 		return -1;
 	}
 	return 0;
