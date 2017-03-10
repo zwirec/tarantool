@@ -30,7 +30,7 @@ os.execute("rm -f *.snap *.xlog*")
 -- configuring tarantool
 box.cfg {
     listen = os.getenv("LISTEN"),
-    logger="sql.log",
+    log="sql.log",
 }
 
 os.exit(runtests())
