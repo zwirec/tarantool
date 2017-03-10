@@ -125,26 +125,17 @@ do_test select2-3.2d {
   set sqlite_search_count 0
   execsql {SELECT * FROM tbl2 WHERE 1000=f2}
   set sqlite_search_count
-} {2}
+} {1}
 do_test select2-3.2e {
   set sqlite_search_count 0
   execsql {SELECT * FROM tbl2 WHERE f2=1000}
   set sqlite_search_count
-} {2}
+} {1}
 
 # Make sure queries run faster with an index than without
 #
 do_test select2-3.3 {
-  set sql {SELECT id from _space where name="tbl2"}
-  set r {}
-  db eval $sql data {
-    set r $data(id)
-    set sql2 "SELECT iid FROM _index WHERE id=$r AND name='idx1'"
-    db eval $sql2 d2 {
-      set r [concat "[expr {$r}]_$d2(iid)_idx1"]
-    }
-  }
-  execsql "DROP INDEX '$r'"
+  execsql {DROP INDEX idx1}
   set sqlite_search_count 0
   execsql {SELECT f1 FROM tbl2 WHERE f2==2000}
   set sqlite_search_count
