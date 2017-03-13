@@ -52,6 +52,7 @@ double too_long_threshold;
 /** Pool of transaction objects. */
 static struct mempool txn_pool;
 struct mh_i64ptr_t *transactions;
+extern uint32_t instance_id;
 
 void
 xrow_header_encode_2pc(struct xrow_header *header, struct txn *txn,
@@ -213,8 +214,12 @@ two_phase_log_prepare_f(va_list ap)
 {
 	uint64_t tx_id = va_arg(ap, uint64_t);
 	uint32_t coordinator_id = va_arg(ap, uint32_t);
-	return boxk(IPROTO_INSERT, BOX_TRANSACTION_ID, "[%u%u%s]", tx_id,
-		    coordinator_id, "prepare");
+	if (coordinator_id == instance_id)
+		return boxk(IPROTO_INSERT, BOX_TRANSACTION_ID, "[%u%u%s%u]",
+			    tx_id, coordinator_id, "prepare", 0);
+	else
+		return boxk(IPROTO_INSERT, BOX_TRANSACTION_ID, "[%u%u%s]",
+			    tx_id, coordinator_id, "prepare");
 }
 
 void
@@ -530,8 +535,6 @@ box_txn_begin()
 	}
 	return 0;
 }
-
-extern uint32_t instance_id;
 
 int
 box_txn_begin_two_phase()

@@ -236,17 +236,30 @@ cluster.shard3.space.test:replace({3})
 ---
 - [3]
 ...
+box.space._transaction:select{}
+---
+- []
+...
 cluster.shard1:prepare(box.cfg.server_id)
 ---
-- true
+...
+box.space._transaction:select{}
+---
+- - [117, 1, 'prepare', 1]
 ...
 cluster.shard2:prepare(box.cfg.server_id)
 ---
-- true
+...
+box.space._transaction:select{}
+---
+- - [117, 1, 'prepare', 2]
 ...
 cluster.shard3:prepare(box.cfg.server_id)
 ---
-- true
+...
+box.space._transaction:select{}
+---
+- - [117, 1, 'prepare', 3]
 ...
 cluster.shard1:commit()
 ---

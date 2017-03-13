@@ -763,7 +763,14 @@ end
 
 function remote_methods:prepare(coordinator_id)
     local tx_id = fiber_self().id()
-    return self:remote_tx_2pc_manage('prepare', tx_id, coordinator_id)
+    self:remote_tx_2pc_manage('prepare', tx_id, coordinator_id)
+    if box.info().server.id == coordinator_id then
+        local f = fiber.create(function()
+            box.space._transaction:update({tx_id}, {{'+', 4, 1}})
+        end)
+        while f:status() ~= 'dead' do fiber.yield() end
+    end
+    return true
 end
 
 function remote_methods:begin_two_phase(coordinator_id)

@@ -119,9 +119,13 @@ cluster.shard1.space.test:replace({1})
 cluster.shard2.space.test:replace({2})
 cluster.shard3.space.test:replace({3})
 
+box.space._transaction:select{}
 cluster.shard1:prepare(box.cfg.server_id)
+box.space._transaction:select{}
 cluster.shard2:prepare(box.cfg.server_id)
+box.space._transaction:select{}
 cluster.shard3:prepare(box.cfg.server_id)
+box.space._transaction:select{}
 
 cluster.shard1:commit()
 cluster.shard2:commit()
