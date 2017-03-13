@@ -46,6 +46,7 @@ test_run:cmd("start server host3")
 ---------------- Host 1 ----------------
 
 test_run:cmd('switch host1')
+fiber = require('fiber')
 test_run:cmd("setopt delimiter ';'")
 
 box.cfg{
@@ -130,6 +131,39 @@ box.space._transaction:select{}
 cluster.shard1:commit()
 cluster.shard2:commit()
 cluster.shard3:commit()
+
+cluster.shard1.space._transaction:select{}
+cluster.shard2.space._transaction:select{}
+cluster.shard3.space._transaction:select{}
+cluster.shard1.space.test:select{}
+cluster.shard2.space.test:select{}
+cluster.shard3.space.test:select{}
+
+---------------- Fail prepare of two phase transaction ----------------
+
+cluster.shard3.space.test:replace({6})
+
+cluster.shard1:begin_two_phase(box.cfg.server_id)
+cluster.shard2:begin_two_phase(box.cfg.server_id)
+cluster.shard3:begin_two_phase(box.cfg.server_id)
+
+cluster.shard1.space.test:replace({4})
+cluster.shard2.space.test:replace({5})
+cluster.shard3.space.test:update({6}, {{'!', 2, 6}})
+
+-- Implicitly abort the subtransaction on the shard3.
+f = fiber.create(function() cluster.shard3.space.test:replace({6, 6, 6}) end)
+while f:status() ~= 'dead' do fiber.yield() end
+
+cluster.shard1:prepare(box.cfg.server_id)
+cluster.shard2:prepare(box.cfg.server_id)
+status, err = pcall(cluster.shard3.prepare, cluster.shard3, box.cfg.server_id) -- must fail
+status
+err
+
+cluster.shard1:rollback()
+cluster.shard2:rollback()
+-- cluster.shard3:rollback() -- already aborted.
 
 cluster.shard1.space._transaction:select{}
 cluster.shard2.space._transaction:select{}

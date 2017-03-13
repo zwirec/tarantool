@@ -1154,6 +1154,7 @@ tx_process_remote_txn(struct cmsg *m)
 	struct remote_txn *node = msg->txnode;
 	struct txn *txn = NULL;
 	enum iproto_type type = (enum iproto_type) msg->header.type;
+	int rc;
 
 	tx_fiber_init(msg->connection->session, msg->header.sync);
 	if (tx_check_schema(msg->header.schema_id))
@@ -1165,7 +1166,6 @@ tx_process_remote_txn(struct cmsg *m)
 			diag_set(ClientError, ER_ACTIVE_TRANSACTION);
 			goto error;
 		}
-		int rc;
 		uint32_t coordinator_id = msg->header.coordinator_id;
 		if (coordinator_id != 0) {
 			try {
@@ -1212,6 +1212,9 @@ tx_process_remote_txn(struct cmsg *m)
 			txn_prepare_two_phase(txn, &msg->header);
 		}
 		catch(Exception *e) {
+			rc = box_txn_rollback();
+			assert(rc == 0);
+			node->txn = NULL;
 			goto error;
 		}
 	}
