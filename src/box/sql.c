@@ -112,9 +112,8 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 		init, TARANTOOL_SYS_SPACE_NAME,
 		BOX_SPACE_ID,
 		"CREATE TABLE "TARANTOOL_SYS_SPACE_NAME" ("
-			"id INT, iid INT, name TEXT, "
-			"type TEXT, opts, parts, "
-			"PRIMARY KEY (id, iid)"
+			"id INT PRIMARY KEY, owner INT, name TEXT, "
+			"engine TEXT, field_count INT, opts, format"
 		") WITHOUT ROWID"
 	);
 
