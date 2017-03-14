@@ -1,12 +1,7 @@
 tkt3922.1... Ok
-tkt3922.2...
-Error: unknown error
-tkt3922.3...
-Error: unknown error
-tkt3922.4...
-Error: unknown error
+tkt3922.2... Ok
+tkt3922.3... Ok
+tkt3922.4... Ok
 tkt3922.5... Ok
-tkt3922.6...
-Error: unknown error
-4 errors out of 7 tests
-Failures on these tests: tkt3922.2 tkt3922.3 tkt3922.4 tkt3922.6
+tkt3922.6... Ok
+0 errors out of 7 tests

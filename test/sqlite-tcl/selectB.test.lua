@@ -198,8 +198,8 @@ for {set ii 1} {$ii <= 2} {incr ii} {
 
 do_test selectB-3.0 {
   execsql {
-    DROP INDEX '517_1_i1';
-    DROP INDEX '522_1_i2';
+    DROP INDEX 'i1';
+    DROP INDEX 'i2';
   }
 } {}
 

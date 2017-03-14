@@ -157,14 +157,14 @@ do_test index-4.8 {
   execsql {SELECT cnt FROM test1 WHERE power=1024}
 } {10}
 do_test index-4.9 {
-  execsql {DROP INDEX '517_1_index9'}
+  execsql {DROP INDEX 'index9'}
   execsql {SELECT power FROM test1 WHERE cnt=6}
 } {64}
 do_test index-4.10 {
   execsql {SELECT cnt FROM test1 WHERE power=1024}
 } {10}
 do_test index-4.11 {
-  execsql {DROP INDEX '517_2_indext'}
+  execsql {DROP INDEX 'indext'}
   execsql {SELECT power FROM test1 WHERE cnt=6}
 } {64}
 do_test index-4.12 {
