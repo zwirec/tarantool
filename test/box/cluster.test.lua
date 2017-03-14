@@ -2,9 +2,6 @@ fiber = require('fiber')
 test_run = require('test_run').new()
 fio = require('fio')
 
-server_id = box.info().server.id
-tx_id = fiber.id()
-
 test_run:cmd("setopt delimiter ';'")
 function create_script(name, code)
     local path = fio.pathjoin(fio.tempdir(), name)
@@ -112,20 +109,20 @@ box.cfg.cluster.shard3.state
 test_run:cmd('switch host1')
 
 cluster = box.cfg.cluster
-cluster.shard1:begin_two_phase(box.cfg.server_id)
-cluster.shard2:begin_two_phase(box.cfg.server_id)
-cluster.shard3:begin_two_phase(box.cfg.server_id)
+cluster.shard1:begin_two_phase()
+cluster.shard2:begin_two_phase()
+cluster.shard3:begin_two_phase()
 
 cluster.shard1.space.test:replace({1})
 cluster.shard2.space.test:replace({2})
 cluster.shard3.space.test:replace({3})
 
 box.space._transaction:select{}
-cluster.shard1:prepare(box.cfg.server_id)
+cluster.shard1:prepare()
 box.space._transaction:select{}
-cluster.shard2:prepare(box.cfg.server_id)
+cluster.shard2:prepare()
 box.space._transaction:select{}
-cluster.shard3:prepare(box.cfg.server_id)
+cluster.shard3:prepare()
 box.space._transaction:select{}
 
 cluster.shard1:commit()
@@ -143,9 +140,9 @@ cluster.shard3.space.test:select{}
 
 cluster.shard3.space.test:replace({6})
 
-cluster.shard1:begin_two_phase(box.cfg.server_id)
-cluster.shard2:begin_two_phase(box.cfg.server_id)
-cluster.shard3:begin_two_phase(box.cfg.server_id)
+cluster.shard1:begin_two_phase()
+cluster.shard2:begin_two_phase()
+cluster.shard3:begin_two_phase()
 
 cluster.shard1.space.test:replace({4})
 cluster.shard2.space.test:replace({5})
@@ -155,9 +152,9 @@ cluster.shard3.space.test:update({6}, {{'!', 2, 6}})
 f = fiber.create(function() cluster.shard3.space.test:replace({6, 6, 6}) end)
 while f:status() ~= 'dead' do fiber.yield() end
 
-cluster.shard1:prepare(box.cfg.server_id)
-cluster.shard2:prepare(box.cfg.server_id)
-status, err = pcall(cluster.shard3.prepare, cluster.shard3, box.cfg.server_id) -- must fail
+cluster.shard1:prepare()
+cluster.shard2:prepare()
+status, err = pcall(cluster.shard3.prepare, cluster.shard3) -- must fail
 status
 err
 

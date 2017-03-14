@@ -60,6 +60,7 @@ t
   - cfg
   - commit
   - error
+  - get_transaction_state
   - index
   - info
   - internal
@@ -329,6 +330,7 @@ t;
   - 'box.error.MORE_THAN_ONE_TUPLE : 41'
   - 'box.error.PROC_LUA : 32'
   - 'box.error.ILLEGAL_PARAMS : 1'
+  - 'box.error.SHARD_NOT_FOUND : 132'
   - 'box.error.INDEX_EXISTS : 85'
   - 'box.error.FUNCTION_LANGUAGE : 100'
   - 'box.error.ROLE_GRANTED : 90'

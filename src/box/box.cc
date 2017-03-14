@@ -36,6 +36,7 @@
 #include <scoped_guard.h>
 #include "iproto.h"
 #include "iproto_constants.h"
+#include "iproto_port.h"
 #include "recovery.h"
 #include "wal.h"
 #include "relay.h"
@@ -115,6 +116,17 @@ static struct fiber_pool tx_fiber_pool;
  * are too many messages in flight (gh-1892).
  */
 static struct cbus_endpoint tx_prio_endpoint;
+
+/**
+ * Hash of two-phase transactions, not finished in time of
+ * shutdown or failure.
+ */
+struct mh_i64ptr_t *transactions;
+
+struct two_phase_txn {
+	struct txn *txn;
+	uint32_t state;
+};
 
 static void
 box_check_writable(void)
@@ -283,14 +295,17 @@ apply_row(struct xstream *stream, struct xrow_header *row)
 	uint64_t tx_id = row->tx_id;
 	mh_int_t existing_tx;
 	struct txn *txn = NULL;
+	struct two_phase_txn *txn_state = NULL;
 	if (tx_id == 0) {
 		/* Autocommit. */
 		existing_tx = mh_end(transactions);
 	} else {
 		existing_tx = mh_i64ptr_find(transactions, tx_id, NULL);
-		if (existing_tx != mh_end(transactions))
-			txn = (struct txn *) mh_i64ptr_node(transactions,
-							    existing_tx)->val;
+		if (existing_tx != mh_end(transactions)) {
+			txn_state = (struct two_phase_txn *)
+				mh_i64ptr_node(transactions, existing_tx)->val;
+			txn = txn_state->txn;
+		}
 	}
 	struct request *request = xrow_decode_request(row);
 	if (row->type != IPROTO_PREPARE && row->type != IPROTO_COMMIT &&
@@ -312,7 +327,12 @@ apply_row(struct xstream *stream, struct xrow_header *row)
 		assert(txn != NULL);
 		assert(txn->tx_id == tx_id);
 		assert(txn->coordinator_id == row->coordinator_id);
-		const struct mh_i64ptr_node_t node = { tx_id, txn };
+		struct two_phase_txn *txn_state =
+			region_alloc_object_xc(&txn->region,
+					       struct two_phase_txn);
+		txn_state->txn = txn;
+		txn_state->state = IPROTO_PREPARE;
+		const struct mh_i64ptr_node_t node = { tx_id, txn_state };
 		mh_int_t rc = mh_i64ptr_put(transactions, &node, NULL, NULL);
 		if (rc == mh_end(transactions))
 			tnt_raise(OutOfMemory, (ssize_t) rc, "malloc", "node");
@@ -1127,6 +1147,49 @@ box_process_call(struct request *request, struct obuf *out)
 		diag_raise();
 }
 
+uint32_t
+box_get_transaction_state(uint32_t coordinator_id, uint64_t tx_id)
+{
+	struct request request;
+	struct xrow_header header;
+	request_create(&request, IPROTO_CALL);
+	memset(&header, 0, sizeof(struct xrow_header));
+	header.type = IPROTO_CALL;
+	request.header = &header;
+	char name[32];
+	char *pos = mp_encode_str(name, "box.get_transaction_state",
+				  strlen("box.get_transaction_state"));
+	request.key = name;
+	request.key_end = pos;
+	char args[32];
+	pos = mp_encode_array(args, 2);
+	pos = mp_encode_uint(pos, coordinator_id);
+	pos = mp_encode_uint(pos, tx_id);
+	request.tuple = args;
+	request.tuple_end = pos;
+	struct obuf out;
+	obuf_create(&out, cord_slab_cache(), 128);
+	if (box_lua_call(&request, &out) != 0)
+		return UINT32_MAX;
+	const char *ans = (const char *)out.iov[0].iov_base;
+	ans += sizeof(struct iproto_header_bin);
+	int rc = mp_decode_map(&ans);
+	assert(rc == 1);
+	rc = mp_decode_uint(&ans);
+	assert(rc == IPROTO_DATA);
+	rc = mp_decode_array(&ans);
+	assert(rc == 1);
+	if (mp_typeof(*ans) == MP_NIL)
+		return IPROTO_COMMIT;
+	assert(mp_typeof(*ans) == MP_STR);
+	uint32_t len;
+	ans = mp_decode_str(&ans, &len);
+	if (strncmp(ans, "abort", len) == 0)
+		return IPROTO_ROLLBACK;
+	assert(strncmp(ans, "prepare", len) == 0);
+	return IPROTO_PREPARE;
+}
+
 void
 box_process_eval(struct request *request, struct obuf *out)
 {
@@ -1584,6 +1647,8 @@ box_cfg_xc(void)
 	iproto_init();
 	wal_thread_start();
 
+	transactions = mh_i64ptr_new();
+
 	title("loading");
 
 	box_set_too_long_threshold();
@@ -1665,10 +1730,73 @@ box_cfg_xc(void)
 			}
 			box_bind();
 		}
+		fiber_set_txn(fiber(), NULL);
+		mh_int_t i;
+		mh_foreach(transactions, i) {
+			const char *state;
+			struct two_phase_txn *txn_state =
+				(struct two_phase_txn *)
+				mh_i64ptr_node(transactions, i)->val;
+			struct txn *txn = txn_state->txn;
+			uint64_t tx_id = txn->tx_id;
+			struct tuple *tx_stored_state;
+			char key[16];
+			char *key_end;
+			uint32_t remote_tx_state;
+			assert(txn->is_two_phase);
+			key_end = mp_encode_array(key, 1);
+			key_end = mp_encode_uint(key_end, tx_id);
+			if (box_index_get(BOX_TRANSACTION_ID, 0, key, key_end,
+					  &tx_stored_state) != 0)
+				diag_raise();
+			state = tuple_field_cstr_xc(tx_stored_state, 2);
+			if (strcmp(state, "abort") == 0) {
+				fiber_set_txn(fiber(), txn);
+				box_txn_rollback();
+				mh_i64ptr_del(transactions, i, NULL);
+				continue;
+			}
+			/*
+			 * Presumed commit optimization doesn't
+			 * store the commited transactions, so in
+			 * the _transaction table we store
+			 * information only about aborted and
+			 * prepared transactions.
+			 */
+			assert(strcmp(state, "prepare") == 0);
+			/* Request state from the coordinator. */
+			remote_tx_state =
+				box_get_transaction_state(txn->coordinator_id,
+							  tx_id);
+			say_warn("%s(): remote state: %u, tx_id: %llu", __func__,
+				 (unsigned) remote_tx_state,
+				 (unsigned long long) tx_id);
+			if (remote_tx_state == UINT32_MAX)
+				diag_raise();
+			if (remote_tx_state == IPROTO_PREPARE) {
+				say_warn("%s(): found the not finished "\
+					 "two-phase transaction with "\
+					 "id = %llu and coordinator "\
+					 "id = %lu", __func__,
+					 (unsigned long long) tx_id,
+					 (unsigned long) txn->coordinator_id);
+				mh_i64ptr_del(transactions, i, NULL);
+				continue;
+			}
+			fiber_set_txn(fiber(), txn);
+			if (box_txn_prepare_two_phase() != 0)
+				diag_raise();
+			txn_state->state = remote_tx_state;
+			/*
+			 * Finish the transaction when the WAL
+			 * will be activated.
+			 */
+		}
 		recovery_finalize(recovery, &wal_stream.base);
 		engine_end_recovery();
 		if (xctl_end_recovery() != 0)
 			diag_raise();
+
 
 		/** Begin listening only when the local recovery is complete. */
 		box_listen();
@@ -1721,6 +1849,25 @@ box_cfg_xc(void)
 	replicaset_foreach(replica) {
 		if (replica->applier != NULL)
 			applier_resume(replica->applier);
+	}
+
+	fiber_set_txn(fiber(), NULL);
+	mh_int_t i;
+	mh_foreach(transactions, i) {
+		struct two_phase_txn *txn_state =
+			(struct two_phase_txn *)
+			mh_i64ptr_node(transactions, i)->val;
+		struct txn *txn = txn_state->txn;
+		fiber_set_txn(fiber(), txn);
+		if (txn_state->state == IPROTO_COMMIT) {
+			if (box_txn_commit() != 0)
+				diag_raise();
+		} else {
+			assert(txn_state->state == IPROTO_ROLLBACK);
+			if (box_txn_rollback() != 0)
+				diag_raise();
+		}
+		mh_i64ptr_del(transactions, i, NULL);
 	}
 
 	title("running");

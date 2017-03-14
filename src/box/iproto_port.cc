@@ -36,34 +36,11 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-/* m_ - msgpack meta, k_ - key, v_ - value */
-struct PACKED iproto_header_bin {
-	uint8_t m_len;                          /* MP_UINT32 */
-	uint32_t v_len;                         /* length */
-	uint8_t m_header;                       /* MP_MAP */
-	uint8_t k_code;                         /* IPROTO_REQUEST_TYPE */
-	uint8_t m_code;                         /* MP_UINT32 */
-	uint32_t v_code;                        /* response status */
-	uint8_t k_sync;                         /* IPROTO_SYNC */
-	uint8_t m_sync;                         /* MP_UINT64 */
-	uint64_t v_sync;                        /* sync */
-	uint8_t k_schema_id;                    /* IPROTO_SCHEMA_ID */
-	uint8_t m_schema_id;                    /* MP_UINT32 */
-	uint32_t v_schema_id;                   /* schema_id */
-};
-
 static const struct iproto_header_bin iproto_header_bin = {
 	0xce, 0, 0x83,
 	IPROTO_REQUEST_TYPE, 0xce, 0,
 	IPROTO_SYNC, 0xcf, 0,
 	IPROTO_SCHEMA_ID, 0xce, 0
-};
-
-struct PACKED iproto_body_bin {
-	uint8_t m_body;                    /* MP_MAP */
-	uint8_t k_data;                    /* IPROTO_DATA or IPROTO_ERROR */
-	uint8_t m_data;                    /* MP_STR or MP_ARRAY */
-	uint32_t v_data_len;               /* string length of array size */
 };
 
 static const struct iproto_body_bin iproto_body_bin = {

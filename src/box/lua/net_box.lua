@@ -741,7 +741,19 @@ end
 
 function remote_methods:rollback()
     local tx_id = fiber_self().id()
-    return self:remote_tx_manage(tx_id, 'rollback')
+    self:remote_tx_manage(tx_id, 'rollback')
+    local f = fiber.create(function()
+        box.begin()
+        local res = box.space._transaction:update({tx_id}, {{'-', 4, 1}})
+        if res == nil or res[4] > 0 then
+            box.commit()
+            return 0
+        end
+        box.space._transaction:delete({tx_id})
+        box.commit()
+    end)
+    while f:status() ~= 'dead' do fiber.yield() end
+    return true
 end
 
 function remote_methods:remote_tx_2pc_manage(method, tx_id, coordinator_id)
@@ -761,21 +773,46 @@ function remote_methods:remote_tx_2pc_manage(method, tx_id, coordinator_id)
     end
 end
 
-function remote_methods:prepare(coordinator_id)
+function remote_methods:prepare()
+    local coordinator_id = box.cfg.server_id
     local tx_id = fiber_self().id()
     self:remote_tx_2pc_manage('prepare', tx_id, coordinator_id)
-    if box.info().server.id == coordinator_id then
-        local f = fiber.create(function()
-            box.space._transaction:update({tx_id}, {{'+', 4, 1}})
-        end)
-        while f:status() ~= 'dead' do fiber.yield() end
-    end
+    local f = fiber.create(function()
+        box.space._transaction:update({tx_id}, {{'+', 4, 1}})
+    end)
+    while f:status() ~= 'dead' do fiber.yield() end
     return true
 end
 
-function remote_methods:begin_two_phase(coordinator_id)
+function remote_methods:begin_two_phase()
     local tx_id = fiber_self().id()
+    local coordinator_id = box.cfg.server_id
     return self:remote_tx_2pc_manage('begin_two_phase', tx_id, coordinator_id)
+end
+
+function remote_methods:get_transaction_state(tx_id)
+    local state = self.space._transaction:get({tx_id})
+    if state == nil then
+        log.warn("state is nil")
+        return nil
+    end
+    log.warn("state is %s", state[3])
+    return state[3]
+end
+
+box.get_transaction_state = function(coordinator_id, tx_id)
+    log.warn("coordinator_id: %s, tx_id: %s", coordinator_id, tx_id)
+    for name, shard in pairs(box.cfg.cluster) do
+        log.warn("shard: %s - %s", name, shard.state)
+        if shard.state == 'active' then
+            log.warn('server_id: %s', shard:eval('return box.cfg.server_id'))
+        end
+        if shard.state == 'active' and
+           shard:eval('return box.cfg.server_id') == coordinator_id then
+            return shard:get_transaction_state(tx_id)
+        end
+    end
+    box.error(box.error.SHARD_NOT_FOUND, coordinator_id)
 end
 
 function remote_methods:wait_state(state, timeout)

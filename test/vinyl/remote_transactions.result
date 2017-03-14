@@ -371,21 +371,12 @@ server_id = box.info().server.id
 remote_space = conn.space.test
 ---
 ...
--- Wrong usage
-conn:begin_two_phase() -- fail with incorrect argument
----
-- error: 'Usage: begin_two_phase(coordinator_id)'
-...
-conn:prepare()
----
-- error: 'Usage: prepare(coordinator_id)'
-...
 -- Commit the empty transaction.
-conn:begin_two_phase(server_id)
+conn:begin_two_phase()
 ---
 - true
 ...
-conn:prepare(server_id)
+conn:prepare()
 ---
 - true
 ...
@@ -394,7 +385,7 @@ conn:commit()
 - true
 ...
 -- Try to commit not prepared transaction.
-conn:begin_two_phase(server_id)
+conn:begin_two_phase()
 ---
 - true
 ...
@@ -402,7 +393,7 @@ conn:commit() -- fail, firstly need prepare.
 ---
 - error: Can't commit the two-phase transaction before prepare
 ...
-conn:prepare(server_id)
+conn:prepare()
 ---
 - true
 ...
@@ -411,7 +402,7 @@ conn:commit() -- ok, the transaction prepared.
 - true
 ...
 -- Rollback not prepared transaction.
-conn:begin_two_phase(server_id)
+conn:begin_two_phase()
 ---
 - true
 ...
@@ -440,7 +431,7 @@ remote_space:select{}
   - [2]
 ...
 -- Rollback prepared.
-conn:begin_two_phase(server_id)
+conn:begin_two_phase()
 ---
 - true
 ...
@@ -459,7 +450,7 @@ remote_space:select{}
   - [14]
   - [15]
 ...
-conn:prepare(server_id)
+conn:prepare()
 ---
 - true
 ...
@@ -473,7 +464,7 @@ remote_space:select{}
   - [2]
 ...
 -- Modify prepared.
-conn:begin_two_phase(server_id)
+conn:begin_two_phase()
 ---
 - true
 ...
@@ -487,7 +478,7 @@ remote_space:select{}
   - [2]
   - [16]
 ...
-conn:prepare(server_id)
+conn:prepare()
 ---
 - true
 ...

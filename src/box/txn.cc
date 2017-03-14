@@ -51,7 +51,6 @@ enum {
 double too_long_threshold;
 /** Pool of transaction objects. */
 static struct mempool txn_pool;
-struct mh_i64ptr_t *transactions;
 extern uint32_t instance_id;
 
 void
@@ -348,6 +347,49 @@ two_phase_remove_2pc_log_f(va_list ap)
 	return boxk(IPROTO_DELETE, BOX_TRANSACTION_ID, "[%u]", tx_id);
 }
 
+int
+two_phase_set_2pc_aborted_f(va_list ap)
+{
+	uint64_t tx_id = va_arg(ap, uint64_t);
+	char key[32];
+	char ops[64];
+	char *key_end = key;
+	key_end = mp_encode_array(key_end, 1);
+	key_end = mp_encode_uint(key_end, tx_id);
+	char *ops_end = ops;
+	ops_end = mp_encode_array(ops_end, 1);
+
+	ops_end = mp_encode_array(ops_end, 3);
+	ops_end = mp_encode_str(ops_end, "=", 1);
+	ops_end = mp_encode_uint(ops_end, 3);
+	ops_end = mp_encode_str(ops_end, "abort", 5);
+	struct tuple *result;
+	if (box_txn_begin() != 0)
+		return -1;
+	if (box_update(BOX_TRANSACTION_ID, 0, key, key_end, ops, ops_end, 1,
+		       &result) != 0) {
+		box_txn_rollback();
+		return -1;
+	}
+	uint64_t prepared;
+	try {
+		prepared = tuple_field_u64_xc(result, 3);
+	} catch (Exception *e) {
+		box_txn_rollback();
+		return -1;
+	}
+	if (prepared > 0) {
+		box_txn_commit();
+		return 0;
+	}
+	int rc = boxk(IPROTO_DELETE, BOX_TRANSACTION_ID, "[%u]", tx_id);
+	if (rc != 0)
+		box_txn_rollback();
+	else
+		box_txn_commit();
+	return rc;
+}
+
 /**
  * Write to WAL only COMMIT/ROLLBACK statement for correct
  * recovery of the two phase transaction..
@@ -366,16 +408,17 @@ txn_finish_2pc_to_wal(struct txn *txn, uint32_t end_type)
 	int64_t rc = 0;
 	if (end_type == IPROTO_ROLLBACK && !txn->in_prepare)
 		goto clear_transaction_state;
-	if (wal_mode() != WAL_NONE) {
+	if (wal_mode() != WAL_NONE && end_type != IPROTO_COMMIT) {
+		/*
+		 * In case of commit we haven't to log the
+		 * transaction state, because of presumed commit
+		 * optimization.
+		 */
+		assert(end_type == IPROTO_ROLLBACK);
 		logger = fiber_new_xc("two_phase.end_of_2pc",
 				      two_phase_log_end_of_2pc_f);
 		fiber_set_joinable(logger, true);
-		if (end_type == IPROTO_COMMIT) {
-			fiber_start(logger, txn->tx_id, "commit");
-		} else {
-			assert(end_type == IPROTO_ROLLBACK);
-			fiber_start(logger, txn->tx_id, "rollback");
-		}
+		fiber_start(logger, txn->tx_id, "rollback");
 		if (fiber_join(logger) != 0)
 			diag_raise();
 	}
@@ -389,8 +432,13 @@ txn_finish_2pc_to_wal(struct txn *txn, uint32_t end_type)
 clear_transaction_state:
 	if (wal_mode() == WAL_NONE)
 		return rc;
-	logger = fiber_new_xc("two_phase.remove_2pc_log",
-			      two_phase_remove_2pc_log_f);
+	if (end_type == IPROTO_ROLLBACK && txn->in_prepare &&
+	    txn->coordinator_id == instance_id)
+		logger = fiber_new_xc("two_phase.abort_2pc",
+				      two_phase_set_2pc_aborted_f);
+	else
+		logger = fiber_new_xc("two_phase.remove_2pc_log",
+				      two_phase_remove_2pc_log_f);
 	fiber_set_joinable(logger, true);
 	fiber_start(logger, txn->tx_id);
 	if (fiber_join(logger) != 0)
@@ -512,7 +560,6 @@ void
 txn_init()
 {
 	mempool_create(&txn_pool, cord_slab_cache(), sizeof(struct txn));
-	transactions = mh_i64ptr_new();
 }
 
 extern "C" {

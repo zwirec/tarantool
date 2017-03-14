@@ -142,23 +142,19 @@ conn:ping()
 server_id = box.info().server.id
 remote_space = conn.space.test
 
--- Wrong usage
-conn:begin_two_phase() -- fail with incorrect argument
-conn:prepare()
-
 -- Commit the empty transaction.
-conn:begin_two_phase(server_id)
-conn:prepare(server_id)
+conn:begin_two_phase()
+conn:prepare()
 conn:commit()
 
 -- Try to commit not prepared transaction.
-conn:begin_two_phase(server_id)
+conn:begin_two_phase()
 conn:commit() -- fail, firstly need prepare.
-conn:prepare(server_id)
+conn:prepare()
 conn:commit() -- ok, the transaction prepared.
 
 -- Rollback not prepared transaction.
-conn:begin_two_phase(server_id)
+conn:begin_two_phase()
 remote_space:replace({14})
 remote_space:replace({15})
 remote_space:select{}
@@ -166,19 +162,19 @@ conn:rollback()
 remote_space:select{}
 
 -- Rollback prepared.
-conn:begin_two_phase(server_id)
+conn:begin_two_phase()
 remote_space:replace({14})
 remote_space:replace({15})
 remote_space:select{}
-conn:prepare(server_id)
+conn:prepare()
 conn:rollback()
 remote_space:select{}
 
 -- Modify prepared.
-conn:begin_two_phase(server_id)
+conn:begin_two_phase()
 remote_space:replace({16})
 remote_space:select{}
-conn:prepare(server_id)
+conn:prepare()
 remote_space:replace({17})
 conn:commit()
 remote_space:select{}
