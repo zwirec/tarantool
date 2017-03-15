@@ -114,7 +114,7 @@ do_test where2-2.2 {
   queryplan {
     SELECT * FROM t1 WHERE x=6 AND y=7396 ORDER BY random();
   }
-} {85 6 7396 7402 sort t1 517_1_i1xy}
+} {85 6 7396 7402 sort t1 i1xy}
 # do_test where2-2.3 {
 #   queryplan {
 #     SELECT * FROM t1 WHERE rowid=85 AND x=6 AND y=7396 ORDER BY random();
@@ -183,21 +183,21 @@ ifcapable subquery {
                        AND x>0 AND x<10
       ORDER BY w
     }
-  } {99 6 10000 10006 100 6 10201 10207 sort t1 517_2_i1zyx}
+  } {99 6 10000 10006 100 6 10201 10207 sort t1 i1zyx}
   do_test where2-4.2 {
     queryplan {
       SELECT * FROM t1 WHERE z IN (10207,10006) AND y=10000
                        AND x>0 AND x<10
       ORDER BY w
     }
-  } {99 6 10000 10006 sort t1 517_2_i1zyx}
+  } {99 6 10000 10006 sort t1 i1zyx}
   do_test where2-4.3 {
     queryplan {
       SELECT * FROM t1 WHERE z=10006 AND y IN (10000,10201)
                        AND x>0 AND x<10
       ORDER BY w
     }
-  } {99 6 10000 10006 sort t1 517_2_i1zyx}
+  } {99 6 10000 10006 sort t1 i1zyx}
   ifcapable compound {
     do_test where2-4.4 {
       queryplan {
@@ -206,7 +206,7 @@ ifcapable subquery {
                          AND x>0 AND x<10
         ORDER BY w
       }
-    } {99 6 10000 10006 100 6 10201 10207 sort t1 517_2_i1zyx}
+    } {99 6 10000 10006 100 6 10201 10207 sort t1 i1zyx}
     do_test where2-4.5 {
       queryplan {
         SELECT w,x,y,z FROM t1 WHERE z IN (SELECT 10207 UNION SELECT 10006)
@@ -214,7 +214,7 @@ ifcapable subquery {
                          AND x>0 AND x<10
         ORDER BY w
       }
-    } {99 6 10000 10006 100 6 10201 10207 sort t1 517_2_i1zyx}
+    } {99 6 10000 10006 100 6 10201 10207 sort t1 i1zyx}
   }
   do_test where2-4.6a {
     queryplan {
@@ -223,7 +223,7 @@ ifcapable subquery {
          AND y IN (10000,10001,10002,10003,10004,10005)
        ORDER BY x
     }
-  } {99 6 10000 10006 nosort t1 517_1_i1xy}
+  } {99 6 10000 10006 nosort t1 i1xy}
   do_test where2-4.6b {
     queryplan {
       SELECT w,x,y,z FROM t1
@@ -231,7 +231,7 @@ ifcapable subquery {
          AND y IN (10000,10001,10002,10003,10004,10005)
        ORDER BY x DESC
     }
-  } {99 6 10000 10006 nosort t1 517_1_i1xy}
+  } {99 6 10000 10006 nosort t1 i1xy}
   do_test where2-4.6c {
     queryplan {
       SELECT w,x,y,z FROM t1
@@ -239,7 +239,7 @@ ifcapable subquery {
          AND y IN (10000,10001,10002,10003,10004,10005)
        ORDER BY x, y
     }
-  } {99 6 10000 10006 nosort t1 517_1_i1xy}
+  } {99 6 10000 10006 nosort t1 i1xy}
   do_test where2-4.6d {
     queryplan {
       SELECT w,x,y,z FROM t1
@@ -247,7 +247,7 @@ ifcapable subquery {
          AND y IN (10000,10001,10002,10003,10004,10005)
        ORDER BY x, y DESC
     }
-  } {99 6 10000 10006 sort t1 517_1_i1xy}
+  } {99 6 10000 10006 sort t1 i1xy}
 
   # Duplicate entires on the RHS of an IN operator do not cause duplicate
   # output rows.
@@ -335,7 +335,7 @@ do_test where2-6.5 {
 } {6 2 49 51 | 99 6 10000 10006 | 100 6 10201 10207 | sort t1 *}
 
 set ::idx {}
-ifcapable subquery {set ::idx 517_2_i1zyx}
+ifcapable subquery {set ::idx i1zyx}
 do_test where2-6.5 {
   queryplan {
     SELECT b.w,b.x,b.y,b.z FROM t1 a, t1 b

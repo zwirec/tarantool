@@ -44,14 +44,14 @@ proc EQP {sql} {
 #
 do_execsql_test indexedby-1.2 {
   EXPLAIN QUERY PLAN select * from t1 WHERE a = 10; 
-} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_i1 (a=?)}}
+} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX i1 (a=?)}}
 do_execsql_test indexedby-1.3 {
   EXPLAIN QUERY PLAN select * from t1 ; 
 } {0 0 0 {SCAN TABLE t1}}
 do_execsql_test indexedby-1.4 {
   EXPLAIN QUERY PLAN select * from t1, t2 WHERE c = 10; 
 } {
-  0 0 1 {SEARCH TABLE t2 USING COVERING INDEX 522_1_i3 (c=?)} 
+  0 0 1 {SEARCH TABLE t2 USING COVERING INDEX i3 (c=?)}
   0 1 0 {SCAN TABLE t1}
 }
 
@@ -73,13 +73,13 @@ do_execsql_test indexedby-1.4 {
 #   execsql { SELECT * FROM main.t1 NOT INDEXED WHERE a = 'one' AND b = 'two'}
 # } {}
 do_test indexedby-2.2 {
-  execsql { SELECT * FROM t1 INDEXED BY '517_1_i1' WHERE a = 'one' AND b = 'two'}
+  execsql { SELECT * FROM t1 INDEXED BY 'i1' WHERE a = 'one' AND b = 'two'}
 } {}
 do_test indexedby-2.2b {
-  execsql { SELECT * FROM main.t1 INDEXED BY '517_1_i1' WHERE a = 'one' AND b = 'two'}
+  execsql { SELECT * FROM main.t1 INDEXED BY 'i1' WHERE a = 'one' AND b = 'two'}
 } {}
 do_test indexedby-2.3 {
-  execsql { SELECT * FROM t1 INDEXED BY '517_2_i2' WHERE a = 'one' AND b = 'two'}
+  execsql { SELECT * FROM t1 INDEXED BY 'i2' WHERE a = 'one' AND b = 'two'}
 } {}
 # EVIDENCE-OF: R-44699-55558 The INDEXED BY clause does not give the
 # optimizer hints about which index to use; it gives the optimizer a
@@ -88,14 +88,14 @@ do_test indexedby-2.3 {
 # used for the query, then the preparation of the SQL statement fails.
 #
 do_test indexedby-2.4 {
-  catchsql { SELECT * FROM t1 INDEXED BY '522_1_i3' WHERE a = 'one' AND b = 'two'}
-} {1 {no such index: 522_1_i3}}
+  catchsql { SELECT * FROM t1 INDEXED BY 'i3' WHERE a = 'one' AND b = 'two'}
+} {1 {no such index: i3}}
 
 # EVIDENCE-OF: R-62112-42456 If the query optimizer is unable to use the
 # index specified by the INDEX BY clause, then the query will fail with
 # an error.
 # do_test indexedby-2.4.1 {
-#   catchsql { SELECT b FROM t1 INDEXED BY '517_1_i1' WHERE b = 'two' }
+#   catchsql { SELECT b FROM t1 INDEXED BY 'i1' WHERE b = 'two' }
 # } {1 {no query solution}}
 
 do_test indexedby-2.5 {
@@ -105,8 +105,8 @@ do_test indexedby-2.6 {
   catchsql { SELECT * FROM t1 INDEXED BY WHERE a = 'one' AND b = 'two'}
 } {1 {near "WHERE": syntax error}}
 do_test indexedby-2.7 {
-  catchsql { SELECT * FROM v1 INDEXED BY '517_1_i1' WHERE a = 'one' }
-} {1 {no such index: 517_1_i1}}
+  catchsql { SELECT * FROM v1 INDEXED BY 'i1' WHERE a = 'one' }
+} {1 {no such index: i1}}
 
 
 # Tests for single table cases.
@@ -130,23 +130,23 @@ do_test indexedby-2.7 {
 
 do_execsql_test indexedby-3.2 {
   EXPLAIN QUERY PLAN 
-  SELECT * FROM t1 INDEXED BY '517_1_i1' WHERE a = 'one' AND b = 'two'
-} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_i1 (a=?)}}
+  SELECT * FROM t1 INDEXED BY 'i1' WHERE a = 'one' AND b = 'two'
+} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX i1 (a=?)}}
 do_execsql_test indexedby-3.3 {
   EXPLAIN QUERY PLAN 
-  SELECT * FROM t1 INDEXED BY '517_2_i2' WHERE a = 'one' AND b = 'two'
-} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_2_i2 (b=?)}}
+  SELECT * FROM t1 INDEXED BY 'i2' WHERE a = 'one' AND b = 'two'
+} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX i2 (b=?)}}
 # do_test indexedby-3.4 {
-#   catchsql { SELECT * FROM t1 INDEXED BY '517_2_i2' WHERE a = 'one' }
+#   catchsql { SELECT * FROM t1 INDEXED BY 'i2' WHERE a = 'one' }
 # } {1 {no query solution}}
 # do_test indexedby-3.5 {
-#   catchsql { SELECT * FROM t1 INDEXED BY '517_2_i2' ORDER BY a }
+#   catchsql { SELECT * FROM t1 INDEXED BY 'i2' ORDER BY a }
 # } {1 {no query solution}}
 do_test indexedby-3.6 {
-  catchsql { SELECT * FROM t1 INDEXED BY '517_1_i1' WHERE a = 'one' }
+  catchsql { SELECT * FROM t1 INDEXED BY 'i1' WHERE a = 'one' }
 } {0 {}}
 do_test indexedby-3.7 {
-  catchsql { SELECT * FROM t1 INDEXED BY '517_1_i1' ORDER BY a }
+  catchsql { SELECT * FROM t1 INDEXED BY 'i1' ORDER BY a }
 } {0 {}}
 
 # do_execsql_test indexedby-3.8 {
@@ -170,22 +170,22 @@ do_execsql_test indexedby-4.1 {
   EXPLAIN QUERY PLAN SELECT * FROM t1, t2 WHERE a = c 
 } {
   0 0 0 {SCAN TABLE t1} 
-  0 1 1 {SEARCH TABLE t2 USING COVERING INDEX 522_1_i3 (c=?)}
+  0 1 1 {SEARCH TABLE t2 USING COVERING INDEX i3 (c=?)}
 }
 do_execsql_test indexedby-4.2 {
-  EXPLAIN QUERY PLAN SELECT * FROM t1 INDEXED BY '517_1_i1', t2 WHERE a = c 
+  EXPLAIN QUERY PLAN SELECT * FROM t1 INDEXED BY 'i1', t2 WHERE a = c
 } {
   0 0 1 {SCAN TABLE t2} 
-  0 1 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_i1 (a=?)}
+  0 1 0 {SEARCH TABLE t1 USING COVERING INDEX i1 (a=?)}
 }
 # do_test indexedby-4.3 {
 #   catchsql {
-#     SELECT * FROM t1 INDEXED BY '517_1_i1', t2 INDEXED BY '522_1_i3' WHERE a=c
+#     SELECT * FROM t1 INDEXED BY 'i1', t2 INDEXED BY 'i3' WHERE a=c
 #   }
 # } {1 {no query solution}}
 # do_test indexedby-4.4 {
 #   catchsql {
-#     SELECT * FROM t2 INDEXED BY '522_1_i3', t1 INDEXED BY '517_1_i1' WHERE a=c
+#     SELECT * FROM t2 INDEXED BY 'i3', t1 INDEXED BY 'i1' WHERE a=c
 #   }
 # } {1 {no query solution}}
 
@@ -194,16 +194,16 @@ do_execsql_test indexedby-4.2 {
 # a CREATE VIEW statement is dropped and recreated.
 #
 do_execsql_test indexedby-5.1 {
-  CREATE VIEW v2 AS SELECT * FROM t1 INDEXED BY '517_1_i1' WHERE a > 5;
+  CREATE VIEW v2 AS SELECT * FROM t1 INDEXED BY 'i1' WHERE a > 5;
   EXPLAIN QUERY PLAN SELECT * FROM v2 
-} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_i1 (a>?)}}
+} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX i1 (a>?)}}
 do_execsql_test indexedby-5.2 {
   EXPLAIN QUERY PLAN SELECT * FROM v2 WHERE b = 10 
-} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_1_i1 (a>?)}}
+} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX i1 (a>?)}}
 do_test indexedby-5.3 {
-  execsql { DROP INDEX '517_1_i1' }
+  execsql { DROP INDEX 'i1' }
   catchsql { SELECT * FROM v2 }
-} {1 {no such index: 517_1_i1}}
+} {1 {no such index: i1}}
 
 # MUST_WORK_TEST
 
@@ -218,7 +218,7 @@ do_test indexedby-5.4 {
 do_test indexedby-5.5 {
   # Drop and recreate index i1 again. This time, create it so that it can
   # be used by the query.
-  execsql { DROP INDEX '517_3_i1' ; CREATE INDEX i1 ON t1(a) }
+  execsql { DROP INDEX 'i1' ; CREATE INDEX i1 ON t1(a) }
   catchsql { SELECT * FROM v2 }
 } {0 {}}
 
@@ -239,24 +239,24 @@ do_test indexedby-5.5 {
 # 
 do_execsql_test indexedby-7.1 {
   EXPLAIN QUERY PLAN DELETE FROM t1 WHERE a = 5 
-} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_3_i1 (a=?)}}
+} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX i1 (a=?)}}
 do_execsql_test indexedby-7.2 {
   EXPLAIN QUERY PLAN DELETE FROM t1 NOT INDEXED WHERE a = 5 
 } {0 0 0 {SCAN TABLE t1}}
 do_execsql_test indexedby-7.3 {
-  EXPLAIN QUERY PLAN DELETE FROM t1 INDEXED BY '517_3_i1' WHERE a = 5 
-} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_3_i1 (a=?)}}
+  EXPLAIN QUERY PLAN DELETE FROM t1 INDEXED BY 'i1' WHERE a = 5
+} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX i1 (a=?)}}
 do_execsql_test indexedby-7.4 {
-  EXPLAIN QUERY PLAN DELETE FROM t1 INDEXED BY '517_3_i1' WHERE a = 5 AND b = 10
-} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_3_i1 (a=?)}}
+  EXPLAIN QUERY PLAN DELETE FROM t1 INDEXED BY 'i1' WHERE a = 5 AND b = 10
+} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX i1 (a=?)}}
 do_execsql_test indexedby-7.5 {
-  EXPLAIN QUERY PLAN DELETE FROM t1 INDEXED BY '517_2_i2' WHERE a = 5 AND b = 10
-} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX 517_2_i2 (b=?)}}
+  EXPLAIN QUERY PLAN DELETE FROM t1 INDEXED BY 'i2' WHERE a = 5 AND b = 10
+} {0 0 0 {SEARCH TABLE t1 USING COVERING INDEX i2 (b=?)}}
 
 # MUST_WORK_TEST
 
 # do_test indexedby-7.6 {
-#   catchsql { DELETE FROM t1 INDEXED BY '517_2_i2' WHERE a = 5}
+#   catchsql { DELETE FROM t1 INDEXED BY 'i2' WHERE a = 5}
 # } {1 {no query solution}}
 
 # # Test that "INDEXED BY" can be used in an UPDATE statement.
@@ -298,12 +298,12 @@ do_test indexedby-9.1 {
 # do_test indexedby-9.2 {
 #   catchsql {
 #     select * from maintable as m inner join
-#     joinme as j indexed by '547_1_joinme_id_text_idx'
+#     joinme as j indexed by 'joinme_id_text_idx'
 #     on ( m.id  = j.id_int)
 #   }
 # } {1 {no query solution}}
 # do_test indexedby-9.3 {
-#   catchsql { select * from maintable, joinme INDEXED by '547_1_joinme_id_text_idx' }
+#   catchsql { select * from maintable, joinme INDEXED by 'joinme_id_text_idx' }
 # } {1 {no query solution}}
 
 # Make sure we can still create tables, indices, and columns whose name
@@ -319,7 +319,7 @@ do_test indexedby-10.1 {
 do_test indexedby-10.2 {
   execsql {
     CREATE INDEX i10 ON indexed(x);
-    SELECT * FROM indexed indexed by '552_1_i10' where x>0;
+    SELECT * FROM indexed indexed by 'i10' where x>0;
   }
 } {1 2}
 do_test indexedby-10.3 {
@@ -328,7 +328,7 @@ do_test indexedby-10.3 {
     CREATE TABLE t10(indexed INTEGER PRIMARY KEY);
     INSERT INTO t10 VALUES(1);
     CREATE INDEX indexed ON t10(indexed);
-    SELECT * FROM t10 indexed by '552_1_indexed' WHERE indexed>0
+    SELECT * FROM t10 indexed by 'indexed' WHERE indexed>0
   }
 } {1}
 

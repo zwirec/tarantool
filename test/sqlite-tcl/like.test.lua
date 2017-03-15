@@ -299,7 +299,7 @@ do_test like-3.15 {
   set sqlite_like_count 0
   db eval {
     PRAGMA case_sensitive_like=on;
-    DROP INDEX '517_1_i1';
+    DROP INDEX 'i1';
   }
   queryplan {
     SELECT x FROM t1 WHERE x LIKE 'abc%' ORDER BY 1;
@@ -856,7 +856,7 @@ do_test like-11.4 {
 do_test like-11.5 {
   db eval {
     PRAGMA case_sensitive_like=OFF;
-    DROP INDEX '547_1_t11b';
+    DROP INDEX 't11b';
     CREATE INDEX t11bnc ON t11(b COLLATE nocase);
   }
   queryplan {

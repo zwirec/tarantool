@@ -137,7 +137,7 @@ do_test table-2.2a {
 #   execsql {SELECT name FROM sqlite_master WHERE type!='meta' ORDER BY name}
 # } {test2 test3}
 do_test table-2.2d {
-  execsql {DROP INDEX '517_1_test3'}
+  execsql {DROP INDEX 'test3'}
   set v [catch {execsql {CREATE TABLE test3(two text primary key)}} msg]
   lappend v $msg
 } {0 {}}

@@ -189,7 +189,7 @@ do_execsql_test in4-3.26 {
 # clauses.
 #
 do_execsql_test in4-3.31 {
-  DROP INDEX '527_1_t3i1';
+  DROP INDEX 't3i1';
   CREATE UNIQUE INDEX t3xy ON t3(x,y);
 
   SELECT *, '|' FROM t3 A, t3 B

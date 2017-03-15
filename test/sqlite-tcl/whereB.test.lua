@@ -56,7 +56,7 @@ do_test whereB-1.4 {
 } {}
 do_test whereB-1.100 {
   db eval {
-    DROP INDEX '522_1_t2b';
+    DROP INDEX 't2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {}
@@ -112,7 +112,7 @@ do_test whereB-2.4 {
 } {}
 do_test whereB-2.100 {
   db eval {
-    DROP INDEX '522_1_t2b';
+    DROP INDEX 't2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {}
@@ -168,7 +168,7 @@ do_test whereB-3.4 {
 } {}
 do_test whereB-3.100 {
   db eval {
-    DROP INDEX "522_1_t2b";
+    DROP INDEX "t2b";
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {}
@@ -226,7 +226,7 @@ do_test whereB-4.4 {
 } {}
 do_test whereB-4.100 {
   db eval {
-    DROP INDEX '522_1_t2b';
+    DROP INDEX 't2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -287,7 +287,7 @@ do_test whereB-5.4 {
 } {}
 do_test whereB-5.100 {
   db eval {
-    DROP INDEX '522_1_t2b';
+    DROP INDEX 't2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -347,7 +347,7 @@ do_test whereB-6.4 {
 } {}
 do_test whereB-6.100 {
   db eval {
-    DROP INDEX "522_1_t2b";
+    DROP INDEX "t2b";
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -407,7 +407,7 @@ do_test whereB-7.4 {
 } {}
 do_test whereB-7.100 {
   db eval {
-    DROP INDEX '522_1_t2b';
+    DROP INDEX 't2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -466,7 +466,7 @@ do_test whereB-8.4 {
 } {}
 do_test whereB-8.100 {
   db eval {
-    DROP INDEX '522_1_t2b';
+    DROP INDEX 't2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}
@@ -525,7 +525,7 @@ do_test whereB-9.4 {
 } {}
 do_test whereB-9.100 {
   db eval {
-    DROP INDEX '522_1_t2b';
+    DROP INDEX 't2b';
     SELECT x, a, y=b FROM t1, t2 WHERE y=b;
   }
 } {1 2 1}

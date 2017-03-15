@@ -51,10 +51,10 @@ proc EQP {sql} {
 ifcapable explain {
   do_test tkt3442-1.2 {
     EQP { SELECT node FROM listhash WHERE id='5000' LIMIT 1; }
-  } {0 0 0 {SEARCH TABLE listhash USING COVERING INDEX 517_1_ididx (id=?)}}
+  } {0 0 0 {SEARCH TABLE listhash USING COVERING INDEX ididx (id=?)}}
   do_test tkt3442-1.3 {
     EQP { SELECT node FROM listhash WHERE id="5000" LIMIT 1; }
-  } {0 0 0 {SEARCH TABLE listhash USING COVERING INDEX 517_1_ididx (id=?)}}
+  } {0 0 0 {SEARCH TABLE listhash USING COVERING INDEX ididx (id=?)}}
 }
 
 
@@ -63,7 +63,7 @@ ifcapable explain {
 ifcapable explain {
   do_test tkt3442-1.4 {
     EQP { SELECT node FROM listhash WHERE id=5000 LIMIT 1; }
-  } {0 0 0 {SEARCH TABLE listhash USING COVERING INDEX 517_1_ididx (id=?)}}
+  } {0 0 0 {SEARCH TABLE listhash USING COVERING INDEX ididx (id=?)}}
 }
 do_test tkt3442-1.5 {
   catchsql {

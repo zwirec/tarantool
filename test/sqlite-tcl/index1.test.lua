@@ -143,7 +143,7 @@ do_test index-4.4 {
   execsql {SELECT power FROM test1 WHERE cnt=6}
 } {64}
 do_test index-4.5 {
-  execsql {DROP INDEX '517_2_indext'}
+  execsql {DROP INDEX 'indext'}
   execsql {SELECT power FROM test1 WHERE cnt=6}
 } {64}
 do_test index-4.6 {
@@ -739,12 +739,12 @@ do_test index-18.5 {
 do_test index-20.1 {
   execsql {
     CREATE INDEX "t6i2" ON t6(c);
-    DROP INDEX "542_2_t6i2";
+    DROP INDEX "t6i2";
   }
 } {}
 do_test index-20.2 {
   execsql {
-    DROP INDEX "542_1_t6i1";
+    DROP INDEX "t6i1";
   }
 } {}
 

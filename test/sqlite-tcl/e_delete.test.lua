@@ -36,10 +36,10 @@ do_execsql_test e_delete-0.0 {
 #
 do_delete_tests e_delete-0.1 {
   1  "DELETE FROM t1"                              {}
-  2  "DELETE FROM t1 INDEXED BY '517_1_i1'"                {}
+  2  "DELETE FROM t1 INDEXED BY 'i1'"                {}
   3  "DELETE FROM t1 NOT INDEXED"                  {}
   7  "DELETE FROM t1 WHERE a>2"                    {}
-  8  "DELETE FROM t1 INDEXED BY '517_1_i1' WHERE a>2"      {}
+  8  "DELETE FROM t1 INDEXED BY 'i1' WHERE a>2"      {}
   9  "DELETE FROM t1 NOT INDEXED WHERE a>2"        {}
 }
 

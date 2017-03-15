@@ -233,7 +233,7 @@ do_test update-5.6.5 {
 #
 execsql {PRAGMA synchronous=FULL}
 do_test update-6.0 {
-  execsql {DROP INDEX '517_1_idx1'}
+  execsql {DROP INDEX 'idx1'}
   execsql {CREATE INDEX idx1 ON test1(f2)}
   execsql {SELECT f1,f2 FROM test1 ORDER BY f1,f2}
 } {6 64 7 128 8 88 8 256 8 888 9 512 10 1024 77 128 777 128}

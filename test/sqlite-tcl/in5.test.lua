@@ -94,7 +94,7 @@ do_test in5-2.5.3 {
 
 do_test in5-3.1 {
   execsql {
-    DROP INDEX '532_1_t2abc';
+    DROP INDEX 't2abc';
     CREATE INDEX t2ab ON t2(a,b);
     SELECT d FROM t2 WHERE a IN t1x AND b IN t1y AND c IN t1z ORDER BY d;
   }
@@ -112,7 +112,7 @@ do_test in5-3.3 {
 
 do_test in5-4.1 {
   execsql {
-    DROP INDEX '532_1_t2ab';
+    DROP INDEX 't2ab';
     CREATE INDEX t2abcd ON t2(a,b,c,d);
     SELECT d FROM t2 WHERE a IN t1x AND b IN t1y AND c IN t1z ORDER BY d;
   }
@@ -131,7 +131,7 @@ do_test in5-4.3 {
 
 do_test in5-5.1 {
   execsql {
-    DROP INDEX '532_1_t2abcd';
+    DROP INDEX 't2abcd';
     CREATE INDEX t2cbad ON t2(c,b,a,d);
     SELECT d FROM t2 WHERE a IN t1x AND b IN t1y AND c IN t1z ORDER BY d;
   }

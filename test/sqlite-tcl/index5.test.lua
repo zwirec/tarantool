@@ -32,7 +32,7 @@ do_test 1.1 {
   execsql COMMIT
   execsql { 
     CREATE INDEX i1 ON t1(x);
-    DROP INDEX '517_1_i1';
+    DROP INDEX 'i1';
     PRAGMA main.page_size;
   }
 } {1024}

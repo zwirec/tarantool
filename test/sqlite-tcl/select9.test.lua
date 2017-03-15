@@ -260,30 +260,12 @@ foreach indexes [list {
 }
 
 do_test select9-2.0 {
-  set sql {SELECT id, iid from _index where name="i1"}
-  set r {}
-  db eval $sql data {
-    set r "DROP INDEX '[expr {$data(id)}]_[expr {$data(iid)}]_i1'"
+  execsql {
+    DROP INDEX i1;
+    DROP INDEX i2;
+    DROP INDEX i3;
+    DROP INDEX i4;
   }
-  execsql $r
-  set sql {SELECT id, iid from _index where name="i2"}
-  set r {}
-  db eval $sql data {
-    set r  "DROP INDEX '[expr {$data(id)}]_[expr {$data(iid)}]_i2'"
-  }
-  execsql $r
-  set sql {SELECT id, iid from _index where name="i3"}
-  set r {}
-  db eval $sql data {
-    set r  "DROP INDEX '[expr {$data(id)}]_[expr {$data(iid)}]_i3'"
-  }
-  execsql $r
-  set sql {SELECT id, iid from _index where name="i4"}
-  set r {}
-  db eval $sql data {
-    set r  "DROP INDEX '[expr {$data(id)}]_[expr {$data(iid)}]_i4'"
-  }
-  execsql $r
 } {}
 
 set t1_space_id {}
@@ -305,14 +287,14 @@ db collate reverse reverse
 # to them. Sometimes the WHERE clause may be satisfied using the same
 # index used for ORDER BY, sometimes not.
 #
-set recreate_i1 "DROP INDEX '[expr {$t1_space_id}]_1_i1'; CREATE INDEX i1 ON t1(b, a)"
+set recreate_i1 "DROP INDEX i1; CREATE INDEX i1 ON t1(b, a)"
 set iOuterLoop 1
 foreach indexes [list {
   /* Do not create any indexes. */
 } {
   CREATE INDEX i1 ON t1(a)
 } {
-  DROP INDEX '517_1_i1';
+  DROP INDEX 'i1';
   CREATE INDEX i1 ON t1(b,a);
 } {
   CREATE INDEX i2 ON t2(d DESC, e COLLATE REVERSE ASC);
