@@ -317,7 +317,7 @@ do_test in-9.4 {
   catchsql {
     SELECT b FROM t1 WHERE a NOT IN tb;
   }
-} {1 {only a single result allowed for a SELECT that is part of an expression}}
+} {1 {sub-select returns 2 columns - expected 1}}
 
 # MUST_WORK_TEST
 
@@ -396,28 +396,28 @@ do_test in-12.2 {
       SELECT a, b FROM t3 UNION ALL SELECT a, b FROM t2
     );
   }
-} {1 {only a single result allowed for a SELECT that is part of an expression}}
+} {1 {sub-select returns 2 columns - expected 1}}
 do_test in-12.3 {
   catchsql {
     SELECT * FROM t2 WHERE a IN (
       SELECT a, b FROM t3 UNION SELECT a, b FROM t2
     );
   }
-} {1 {only a single result allowed for a SELECT that is part of an expression}}
+} {1 {sub-select returns 2 columns - expected 1}}
 do_test in-12.4 {
   catchsql {
     SELECT * FROM t2 WHERE a IN (
       SELECT a, b FROM t3 EXCEPT SELECT a, b FROM t2
     );
   }
-} {1 {only a single result allowed for a SELECT that is part of an expression}}
+} {1 {sub-select returns 2 columns - expected 1}}
 do_test in-12.5 {
   catchsql {
     SELECT * FROM t2 WHERE a IN (
       SELECT a, b FROM t3 INTERSECT SELECT a, b FROM t2
     );
   }
-} {1 {only a single result allowed for a SELECT that is part of an expression}}
+} {1 {sub-select returns 2 columns - expected 1}}
 do_test in-12.6 {
   catchsql {
     SELECT * FROM t2 WHERE a IN (
@@ -483,7 +483,7 @@ do_test in-12.14 {
       SELECT a, b FROM t3 UNION ALL SELECT a, b FROM t2
     );
   }
-} {1 {only a single result allowed for a SELECT that is part of an expression}}
+} {1 {sub-select returns 2 columns - expected 1}}
 do_test in-12.15 {
   catchsql {
     SELECT * FROM t2 WHERE a IN (
@@ -640,7 +640,7 @@ do_test in-13.15 {
   catchsql {
     SELECT 0 WHERE (SELECT 0,0) OR (0 IN (1,2));
   }
-} {1 {only a single result allowed for a SELECT that is part of an expression}}
+} {1 {sub-select returns 2 columns - expected 1}}
 
 
 do_test in-13.X {

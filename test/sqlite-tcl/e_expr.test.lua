@@ -1809,7 +1809,7 @@ do_expr_test e_expr-35.1.6 {
 # The following block tests that errors are returned in a bunch of cases
 # where a subquery returns more than one column.
 #
-set M {only a single result allowed for a SELECT that is part of an expression}
+set M {sub-select returns 2 columns - expected 1}
 foreach {tn sql} {
   1     { SELECT (SELECT * FROM t2 UNION SELECT a+1, b+1 FROM t2) }
   2     { SELECT (SELECT * FROM t2 UNION SELECT a+1, b+1 FROM t2 ORDER BY 1) }
