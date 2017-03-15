@@ -579,11 +579,16 @@ do_test where-6.6 {
     SELECT * FROM t3 WHERE a>0 ORDER BY a LIMIT 3
   }
 } {1 100 4 2 99 9 3 98 16 nosort}
-do_test where-6.7 {
+do_test where-6.7.1 {
   cksort {
-    SELECT * FROM t3 WHERE b>0 ORDER BY a LIMIT 3
+    SELECT * FROM t3 WHERE b>0 ORDER BY a LIMIT 10
   }
-} {1 100 4 2 99 9 3 98 16 nosort}
+} {/1 100 4 2 99 9 3 98 16 .* nosort/}
+do_test where-6.7.2 {
+  cksort {
+    SELECT * FROM t3 WHERE b>0 ORDER BY a LIMIT 1
+  }
+} {1 100 4 sort}
 ifcapable subquery {
   do_test where-6.8a {
     cksort {
@@ -1176,12 +1181,12 @@ do_test where-14.1 {
   cksort {
     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, y.b
   } 
-} {1/4 1/1 4/4 4/1 nosort}
+} {1/4 1/1 4/4 4/1 sort}
 do_test where-14.2 {
   cksort {
     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, y.b DESC
   } 
-} {1/1 1/4 4/1 4/4 nosort}
+} {1/1 1/4 4/1 4/4 sort}
 do_test where-14.3 {
   cksort {
     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, x.b
@@ -1191,7 +1196,7 @@ do_test where-14.4 {
   cksort {
     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.a, x.b DESC
   } 
-} {1/4 1/1 4/4 4/1 nosort}
+} {1/4 1/1 4/4 4/1 sort}
 do_test where-14.5 {
   # This test case changed from "nosort" to "sort". See ticket 2a5629202f.
   cksort {
@@ -1218,7 +1223,7 @@ do_test where-14.7.2 {
   cksort {
     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, x.a, x.a||x.b
   } 
-} {4/4 4/1 1/4 1/1 nosort}
+} {4/4 4/1 1/4 1/1 sort}
 do_test where-14.8 {
   cksort {
     SELECT x.a || '/' || y.a FROM t8 x, t8 y ORDER BY x.b, y.a||y.b DESC

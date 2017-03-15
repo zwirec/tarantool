@@ -100,7 +100,8 @@ where-6.3... Ok
 where-6.4... Ok
 where-6.5... Ok
 where-6.6... Ok
-where-6.7... Ok
+where-6.7.1... Ok
+where-6.7.2... Ok
 where-6.8a... Ok
 where-6.8b... Ok
 where-6.9.1... Ok
@@ -185,25 +186,15 @@ where-13.9... Ok
 where-13.10... Ok
 where-13.11... Ok
 where-13.12... Ok
-where-14.1...
-Expected: [1/4 1/1 4/4 4/1 nosort]
-     Got: [1/4 1/1 4/4 4/1 sort]
-where-14.2...
-Expected: [1/1 1/4 4/1 4/4 nosort]
-     Got: [1/1 1/4 4/1 4/4 sort]
-where-14.3...
-Expected: [1/4 1/1 4/4 4/1 nosort]
-     Got: [1/1 1/4 4/1 4/4 nosort]
-where-14.4...
-Expected: [1/4 1/1 4/4 4/1 nosort]
-     Got: [1/1 1/4 4/1 4/4 sort]
+where-14.1... Ok
+where-14.2... Ok
+where-14.3... Ok
+where-14.4... Ok
 where-14.5... Ok
 where-14.6... Ok
 where-14.7... Ok
 where-14.7.1... Ok
-where-14.7.2...
-Expected: [4/4 4/1 1/4 1/1 nosort]
-     Got: [4/1 4/4 1/1 1/4 sort]
+where-14.7.2... Ok
 where-14.8... Ok
 where-14.9... Ok
 where-14.10... Ok
@@ -224,5 +215,4 @@ where-18.3... Ok
 where-18.4... Ok
 where-18.5... Ok
 where-18.6... Ok
-5 errors out of 217 tests
-Failures on these tests: where-14.1 where-14.2 where-14.3 where-14.4 where-14.7.2
+0 errors out of 218 tests
