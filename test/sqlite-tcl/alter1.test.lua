@@ -560,20 +560,20 @@ do_test alter-3.2.7 {
 # If the build does not include AUTOINCREMENT fields, omit alter-4.*.
 ifcapable autoinc {
 
-execsql {DROP TABLE IF EXISTS tbl1}
+# execsql {DROP TABLE IF EXISTS tbl1}
 
-do_test alter-4.1 {
-  execsql {
-    CREATE TABLE tbl1(a INTEGER PRIMARY KEY AUTOINCREMENT);
-    INSERT INTO tbl1 VALUES(10);
-  }
-} {}
-do_test alter-4.2 {
-  execsql {
-    INSERT INTO tbl1 VALUES(NULL);
-    SELECT a FROM tbl1;
-  }
-} {10 11}
+# do_test alter-4.1 {
+#   execsql {
+#     CREATE TABLE tbl1(a INTEGER PRIMARY KEY AUTOINCREMENT);
+#     INSERT INTO tbl1 VALUES(10);
+#   }
+# } {}
+# do_test alter-4.2 {
+#   execsql {
+#     INSERT INTO tbl1 VALUES(NULL);
+#     SELECT a FROM tbl1;
+#   }
+# } {10 11}
 
 # MUST_WORK_TEST
 
