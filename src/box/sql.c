@@ -739,7 +739,7 @@ static const struct Enc *get_enc(void *buf)
  */
 static const char *convertSqliteAffinity(int affinity, bool allow_nulls)
 {
-	if (allow_nulls) {
+	if (allow_nulls || 1) {
 		return "scalar";
 	}
 	switch (affinity) {

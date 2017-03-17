@@ -1509,8 +1509,7 @@ boundary2-2.66.le.2... Ok
 boundary2-2.66.le.3... Ok
 boundary2-2.66.le.4... Ok
 boundary2-2.66.le.5... Ok
-boundary2-3.1...
-Error: no such index: t1i1
+boundary2-3.1... Ok
 boundary2-4.1.1... Ok
 boundary2-4.1.2... Ok
 boundary2-4.1.3... Ok
@@ -3020,5 +3019,4 @@ boundary2-4.66.le.2... Ok
 boundary2-4.66.le.3... Ok
 boundary2-4.66.le.4... Ok
 boundary2-4.66.le.5... Ok
-1 errors out of 3022 tests
-Failures on these tests: boundary2-3.1
+0 errors out of 3022 tests
