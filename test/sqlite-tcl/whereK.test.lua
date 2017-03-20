@@ -35,7 +35,7 @@ do_execsql_test 1.1 {
 do_execsql_test 1.1eqp {
   EXPLAIN QUERY PLAN
   SELECT a FROM t1 WHERE b>9 OR b=9 ORDER BY +a;
-} {/SEARCH TABLE t1 USING INDEX t1bc/}
+} {/SEARCH TABLE t1 USING COVERING INDEX t1bc/}
 
 do_execsql_test 1.2 {
   SELECT a FROM t1 WHERE b>8 OR (b=8 AND c>7) ORDER BY +a;
@@ -43,7 +43,7 @@ do_execsql_test 1.2 {
 do_execsql_test 1.2eqp {
   EXPLAIN QUERY PLAN
   SELECT a FROM t1 WHERE b>8 OR (b=8 AND c>7) ORDER BY +a;
-} {/SEARCH TABLE t1 USING INDEX t1bc/}
+} {/SEARCH TABLE t1 USING COVERING INDEX t1bc/}
 
 do_execsql_test 1.3 {
   SELECT a FROM t1 WHERE (b=8 AND c>7) OR b>8 ORDER BY +a;
@@ -51,7 +51,7 @@ do_execsql_test 1.3 {
 do_execsql_test 1.3eqp {
   EXPLAIN QUERY PLAN
   SELECT a FROM t1 WHERE (b=8 AND c>7) OR b>8 ORDER BY +a;
-} {/SEARCH TABLE t1 USING INDEX t1bc/}
+} {/SEARCH TABLE t1 USING COVERING INDEX t1bc/}
 
 do_execsql_test 1.4 {
   SELECT a FROM t1 WHERE (b=8 AND c>7) OR 8<b ORDER BY +a;
@@ -59,7 +59,7 @@ do_execsql_test 1.4 {
 do_execsql_test 1.4eqp {
   EXPLAIN QUERY PLAN
   SELECT a FROM t1 WHERE (b=8 AND c>7) OR 8<b ORDER BY +a;
-} {/SEARCH TABLE t1 USING INDEX t1bc/}
+} {/SEARCH TABLE t1 USING COVERING INDEX t1bc/}
 
 do_execsql_test 1.5 {
   SELECT a FROM t1 WHERE (b=8 AND c>7) OR (b>8 AND c NOT IN (4,5,6))
@@ -69,6 +69,6 @@ do_execsql_test 1.5eqp {
   EXPLAIN QUERY PLAN
   SELECT a FROM t1 WHERE (b=8 AND c>7) OR (b>8 AND c NOT IN (4,5,6))
    ORDER BY +a;
-} {/SEARCH TABLE t1 USING INDEX t1bc/}
+} {/SEARCH TABLE t1 USING COVERING INDEX t1bc/}
 
 finish_test
