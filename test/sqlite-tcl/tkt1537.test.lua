@@ -80,9 +80,9 @@ ifcapable subquery {
 }
 
 execsql {
-  DROP INDEX '517_1_t1a1';
-  DROP INDEX '517_2_t1a2';
-  DROP INDEX '522_1_t2b';
+  DROP INDEX 't1a1';
+  DROP INDEX 't1a2';
+  DROP INDEX 't2b';
 }
 
 do_test tkt1537-2.1 {
