@@ -18,17 +18,10 @@ tkt3493-2.4.2... Ok
 tkt3493-2.5.1... Ok
 tkt3493-2.5.2... Ok
 tkt3493-3.1... Ok
-tkt3493-3.2.1...
-Expected: [1]
-     Got: [0]
-tkt3493-3.2.2...
-Expected: [1]
-     Got: [0]
-tkt3493-3.3.1...
-Expected: [0]
-     Got: [1]
+tkt3493-3.2.1... Ok
+tkt3493-3.2.2... Ok
+tkt3493-3.3.1... Ok
 tkt3493-3.3.2... Ok
 tkt3493-3.3.3... Ok
 tkt3493-3.3.4... Ok
-3 errors out of 27 tests
-Failures on these tests: tkt3493-3.2.1 tkt3493-3.2.2 tkt3493-3.3.1
+0 errors out of 27 tests
