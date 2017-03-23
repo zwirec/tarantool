@@ -30,9 +30,7 @@ with2-4.5... Ok
 with2-4.6... Ok
 with2-4.7... Ok
 with2-5.1... Ok
-with2-5.2...
-Expected: [1 {}]
-     Got: [0 {}]
+with2-5.2... Ok
 with2-5.3... Ok
 with2-5.4... Ok
 with2-5.5... Ok
@@ -58,5 +56,4 @@ with2-7.5... Ok
 with2-8.1... Ok
 with2-8.2... Ok
 with2-8.3... Ok
-1 errors out of 59 tests
-Failures on these tests: with2-5.2
+0 errors out of 59 tests
