@@ -2445,7 +2445,6 @@ case OP_Column: {
   VdbeCursor *pC;    /* The VDBE cursor */
   BtCursor *pCrsr;   /* The BTree cursor */
   u32 *aOffset;      /* aOffset[i] is offset to start of data for i-th column */
-  int flags;         /* Type of value rendered to pDest */
   int i;             /* Loop counter */
   Mem *pDest;        /* Where to write the extracted value */
   Mem sMem;          /* For storing the record being decoded */
@@ -2585,7 +2584,7 @@ case OP_Column: {
   if( sqlite3VdbeMsgpackGet(zData+aOffset[p2], pDest)==0 ) {
     /* MsgPack map, array or extension. Wrap it in a blob verbatim. */
     pDest->n = aOffset[p2+1]-aOffset[p2];
-    pDest->z = zData+aOffset[p2];
+    pDest->z = (char *)zData+aOffset[p2];
     pDest->flags = MEM_Blob|MEM_Ephem|MEM_Subtype;
     pDest->eSubtype = MSGPACK_SUBTYPE;
   }
@@ -5394,8 +5393,6 @@ case OP_ParseSchema: {
 */
 case OP_ParseSchema2: {
   int iDb;
-  const char *zMaster;
-  char *zSql;
   InitData initData;
   Mem *pRec, *pRecEnd;
   char zPgnoBuf[16];
@@ -5438,7 +5435,7 @@ case OP_ParseSchema2: {
   for( ; pRecEnd-pRec>=4 && initData.rc==SQLITE_OK; pRec+=4 ){
     argv[0] = pRec[0].z;
     /* argv[1] = */ snprintf(zPgnoBuf, sizeof(zPgnoBuf), "%d",
-      SQLITE_PAGENO_FROM_SPACEID_AND_INDEXID(pRec[1].u.i, pRec[2].u.i)
+      (int)SQLITE_PAGENO_FROM_SPACEID_AND_INDEXID(pRec[1].u.i, pRec[2].u.i)
     );
     argv[2] = pRec[3].z;
     sqlite3InitCallback(&initData, 3, argv, NULL);
