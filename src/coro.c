@@ -41,6 +41,8 @@
 #include <sanitizer/asan_interface.h>
 #endif
 
+int fiber_stack_pages = 16;
+
 int
 tarantool_coro_create(struct tarantool_coro *coro,
 		      struct slab_cache *slabc,
@@ -51,7 +53,7 @@ tarantool_coro_create(struct tarantool_coro *coro,
 	memset(coro, 0, sizeof(*coro));
 
 	/* TODO: guard pages */
-	coro->stack_size = page * 16 - slab_sizeof();
+	coro->stack_size = page * fiber_stack_pages - slab_sizeof();
 	coro->stack = (char *) slab_get(slabc, coro->stack_size)
 					+ slab_sizeof();
 

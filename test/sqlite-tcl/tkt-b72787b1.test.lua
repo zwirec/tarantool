@@ -1,4 +1,4 @@
-#!./tcltestrunner.lua
+#!./tcltestrunner-large.lua
 
 # 2011 February 21
 #

@@ -2,6 +2,7 @@
 
 # FFI
 
+fiber_stack_pages
 password_prepare
 lbox_socket_local_resolve
 lbox_socket_nonblock
