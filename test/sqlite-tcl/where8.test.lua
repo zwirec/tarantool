@@ -59,7 +59,7 @@ do_test where8-1.1 {
 
 do_test where8-1.2 { 
   execsql_status2 { SELECT c FROM t1 WHERE a = 1 OR b = 'nine' }
-} {I IX 0 0 4}
+} {I IX 0 0 3}
 
 do_test where8-1.3 { 
   execsql_status2 { SELECT c FROM t1 WHERE a > 8 OR b = 'two' }
@@ -100,7 +100,7 @@ do_test where8-1.11 {
   execsql_status2 { 
     SELECT c FROM t1 WHERE (a >= 4 AND a <= 6) OR b = 'nine' 
   }
-} {IV V VI IX 0 0 6}
+} {IV V VI IX 0 0 5}
 
 do_test where8-1.12.1 {
   execsql_status2 { 

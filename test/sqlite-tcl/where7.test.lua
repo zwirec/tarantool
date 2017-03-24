@@ -67,7 +67,7 @@ do_test where7-1.4 {
 } {2 3}
 do_test where7-1.5 {
   count_steps {
-    SELECT a FROM t1 WHERE 3=b OR c=6 ORDER BY rowid
+    SELECT a FROM t1 WHERE 3=b OR c=6 ORDER BY a
   }
 } {2 3}
 do_test where7-1.6 {

@@ -57,9 +57,7 @@ where7-2.18.2... Ok
 where7-2.19.1... Ok
 where7-2.19.2... Ok
 where7-2.20.1... Ok
-where7-2.20.2...
-Expected: [27 29 91 scan 0 sort 0]
-     Got: [27 29 scan 0 sort 0]
+where7-2.20.2... Ok
 where7-2.21.1... Ok
 where7-2.21.2... Ok
 where7-2.22.1... Ok
@@ -71,9 +69,7 @@ where7-2.24.2... Ok
 where7-2.25.1... Ok
 where7-2.25.2... Ok
 where7-2.26.1... Ok
-where7-2.26.2...
-Expected: [30 33 58 64 66 68 scan 0 sort 0]
-     Got: [30 33 64 66 scan 0 sort 0]
+where7-2.26.2... Ok
 where7-2.27.1... Ok
 where7-2.27.2... Ok
 where7-2.28.1... Ok
@@ -99,9 +95,7 @@ where7-2.37.2... Ok
 where7-2.38.1... Ok
 where7-2.38.2... Ok
 where7-2.39.1... Ok
-where7-2.39.2...
-Expected: [22 48 69 74 100 scan 0 sort 0]
-     Got: [22 48 74 100 scan 0 sort 0]
+where7-2.39.2... Ok
 where7-2.40.1... Ok
 where7-2.40.2... Ok
 where7-2.41.1... Ok
@@ -135,9 +129,7 @@ where7-2.54.2... Ok
 where7-2.55.1... Ok
 where7-2.55.2... Ok
 where7-2.56.1... Ok
-where7-2.56.2...
-Expected: [19 49 96 98 scan 0 sort 0]
-     Got: [96 98 scan 0 sort 0]
+where7-2.56.2... Ok
 where7-2.57.1... Ok
 where7-2.57.2... Ok
 where7-2.58.1... Ok
@@ -159,9 +151,7 @@ where7-2.65.2... Ok
 where7-2.66.1... Ok
 where7-2.66.2... Ok
 where7-2.67.1... Ok
-where7-2.67.2...
-Expected: [11 19 27 37 63 89 91 96 98 100 scan 0 sort 0]
-     Got: [11 27 37 63 89 91 96 98 scan 0 sort 0]
+where7-2.67.2... Ok
 where7-2.68.1... Ok
 where7-2.68.2... Ok
 where7-2.69.1... Ok
@@ -251,9 +241,7 @@ where7-2.110.2... Ok
 where7-2.111.1... Ok
 where7-2.111.2... Ok
 where7-2.112.1... Ok
-where7-2.112.2...
-Expected: [17 43 66 69 95 scan 0 sort 0]
-     Got: [17 43 69 95 scan 0 sort 0]
+where7-2.112.2... Ok
 where7-2.113.1... Ok
 where7-2.113.2... Ok
 where7-2.114.1... Ok
@@ -271,9 +259,7 @@ where7-2.119.2... Ok
 where7-2.120.1... Ok
 where7-2.120.2... Ok
 where7-2.121.1... Ok
-where7-2.121.2...
-Expected: [19 21 45 71 74 97 scan 0 sort 0]
-     Got: [19 21 45 71 97 scan 0 sort 0]
+where7-2.121.2... Ok
 where7-2.122.1... Ok
 where7-2.122.2... Ok
 where7-2.123.1... Ok
@@ -291,9 +277,7 @@ where7-2.128.2... Ok
 where7-2.129.1... Ok
 where7-2.129.2... Ok
 where7-2.130.1... Ok
-where7-2.130.2...
-Expected: [2 24 50 71 scan 0 sort 0]
-     Got: [24 50 71 scan 0 sort 0]
+where7-2.130.2... Ok
 where7-2.131.1... Ok
 where7-2.131.2... Ok
 where7-2.132.1... Ok
@@ -381,9 +365,7 @@ where7-2.172.2... Ok
 where7-2.173.1... Ok
 where7-2.173.2... Ok
 where7-2.174.1... Ok
-where7-2.174.2...
-Expected: [12 14 32 41 scan 0 sort 0]
-     Got: [32 scan 0 sort 0]
+where7-2.174.2... Ok
 where7-2.175.1... Ok
 where7-2.175.2... Ok
 where7-2.176.1... Ok
@@ -433,9 +415,7 @@ where7-2.197.2... Ok
 where7-2.198.1... Ok
 where7-2.198.2... Ok
 where7-2.199.1... Ok
-where7-2.199.2...
-Expected: [19 23 66 scan 0 sort 0]
-     Got: [19 23 scan 0 sort 0]
+where7-2.199.2... Ok
 where7-2.200.1... Ok
 where7-2.200.2... Ok
 where7-2.201.1... Ok
@@ -493,9 +473,7 @@ where7-2.226.2... Ok
 where7-2.227.1... Ok
 where7-2.227.2... Ok
 where7-2.228.1... Ok
-where7-2.228.2...
-Expected: [1 43 44 46 59 61 75 77 83 scan 0 sort 0]
-     Got: [1 43 44 46 59 61 75 77 scan 0 sort 0]
+where7-2.228.2... Ok
 where7-2.229.1... Ok
 where7-2.229.2... Ok
 where7-2.230.1... Ok
@@ -509,9 +487,7 @@ where7-2.233.2... Ok
 where7-2.234.1... Ok
 where7-2.234.2... Ok
 where7-2.235.1... Ok
-where7-2.235.2...
-Expected: [7 14 18 31 33 37 40 51 53 59 66 85 92 94 98 100 scan 0 sort 0]
-     Got: [7 14 18 31 33 40 51 53 59 66 85 92 94 98 100 scan 0 sort 0]
+where7-2.235.2... Ok
 where7-2.236.1... Ok
 where7-2.236.2... Ok
 where7-2.237.1... Ok
@@ -599,9 +575,7 @@ where7-2.277.2... Ok
 where7-2.278.1... Ok
 where7-2.278.2... Ok
 where7-2.279.1... Ok
-where7-2.279.2...
-Expected: [8 34 42 49 51 60 79 80 82 86 scan 0 sort 0]
-     Got: [8 34 42 49 51 60 80 82 86 scan 0 sort 0]
+where7-2.279.2... Ok
 where7-2.280.1... Ok
 where7-2.280.2... Ok
 where7-2.281.1... Ok
@@ -651,13 +625,9 @@ where7-2.302.2... Ok
 where7-2.303.1... Ok
 where7-2.303.2... Ok
 where7-2.304.1... Ok
-where7-2.304.2...
-Expected: [14 16 47 68 75 scan 0 sort 0]
-     Got: [14 16 47 68 scan 0 sort 0]
+where7-2.304.2... Ok
 where7-2.305.1... Ok
-where7-2.305.2...
-Expected: [10 63 scan 0 sort 0]
-     Got: [10 scan 0 sort 0]
+where7-2.305.2... Ok
 where7-2.306.1... Ok
 where7-2.306.2... Ok
 where7-2.307.1... Ok
@@ -695,9 +665,7 @@ where7-2.322.2... Ok
 where7-2.323.1... Ok
 where7-2.323.2... Ok
 where7-2.324.1... Ok
-where7-2.324.2...
-Expected: [5 22 31 57 67 69 83 scan 0 sort 0]
-     Got: [5 31 57 67 69 83 scan 0 sort 0]
+where7-2.324.2... Ok
 where7-2.325.1... Ok
 where7-2.325.2... Ok
 where7-2.326.1... Ok
@@ -731,9 +699,7 @@ where7-2.339.2... Ok
 where7-2.340.1... Ok
 where7-2.340.2... Ok
 where7-2.341.1... Ok
-where7-2.341.2...
-Expected: [1 9 23 36 37 38 44 51 53 55 63 73 78 scan 0 sort 0]
-     Got: [1 9 23 36 38 44 51 53 55 63 73 scan 0 sort 0]
+where7-2.341.2... Ok
 where7-2.342.1... Ok
 where7-2.342.2... Ok
 where7-2.343.1... Ok
@@ -775,9 +741,7 @@ where7-2.360.2... Ok
 where7-2.361.1... Ok
 where7-2.361.2... Ok
 where7-2.362.1... Ok
-where7-2.362.2...
-Expected: [20 22 24 42 44 74 97 scan 0 sort 0]
-     Got: [22 24 42 44 74 97 scan 0 sort 0]
+where7-2.362.2... Ok
 where7-2.363.1... Ok
 where7-2.363.2... Ok
 where7-2.364.1... Ok
@@ -887,9 +851,7 @@ where7-2.415.2... Ok
 where7-2.416.1... Ok
 where7-2.416.2... Ok
 where7-2.417.1... Ok
-where7-2.417.2...
-Expected: [19 27 32 55 57 scan 0 sort 0]
-     Got: [27 32 55 57 scan 0 sort 0]
+where7-2.417.2... Ok
 where7-2.418.1... Ok
 where7-2.418.2... Ok
 where7-2.419.1... Ok
@@ -911,9 +873,7 @@ where7-2.426.2... Ok
 where7-2.427.1... Ok
 where7-2.427.2... Ok
 where7-2.428.1... Ok
-where7-2.428.2...
-Expected: [56 81 84 scan 0 sort 0]
-     Got: [56 81 scan 0 sort 0]
+where7-2.428.2... Ok
 where7-2.429.1... Ok
 where7-2.429.2... Ok
 where7-2.430.1... Ok
@@ -993,13 +953,9 @@ where7-2.466.2... Ok
 where7-2.467.1... Ok
 where7-2.467.2... Ok
 where7-2.468.1... Ok
-where7-2.468.2...
-Expected: [69 81 scan 0 sort 0]
-     Got: [69 scan 0 sort 0]
+where7-2.468.2... Ok
 where7-2.469.1... Ok
-where7-2.469.2...
-Expected: [41 43 62 92 95 scan 0 sort 0]
-     Got: [41 43 92 scan 0 sort 0]
+where7-2.469.2... Ok
 where7-2.470.1... Ok
 where7-2.470.2... Ok
 where7-2.471.1... Ok
@@ -1041,9 +997,7 @@ where7-2.488.2... Ok
 where7-2.489.1... Ok
 where7-2.489.2... Ok
 where7-2.490.1... Ok
-where7-2.490.2...
-Expected: [22 34 48 74 100 scan 0 sort 0]
-     Got: [22 48 74 100 scan 0 sort 0]
+where7-2.490.2... Ok
 where7-2.491.1... Ok
 where7-2.491.2... Ok
 where7-2.492.1... Ok
@@ -1081,9 +1035,7 @@ where7-2.507.2... Ok
 where7-2.508.1... Ok
 where7-2.508.2... Ok
 where7-2.509.1... Ok
-where7-2.509.2...
-Expected: [9 35 61 86 87 scan 0 sort 0]
-     Got: [9 35 61 87 scan 0 sort 0]
+where7-2.509.2... Ok
 where7-2.510.1... Ok
 where7-2.510.2... Ok
 where7-2.511.1... Ok
@@ -1107,9 +1059,7 @@ where7-2.519.2... Ok
 where7-2.520.1... Ok
 where7-2.520.2... Ok
 where7-2.521.1... Ok
-where7-2.521.2...
-Expected: [6 15 52 61 scan 0 sort 0]
-     Got: [52 61 scan 0 sort 0]
+where7-2.521.2... Ok
 where7-2.522.1... Ok
 where7-2.522.2... Ok
 where7-2.523.1... Ok
@@ -1161,15 +1111,11 @@ where7-2.545.2... Ok
 where7-2.546.1... Ok
 where7-2.546.2... Ok
 where7-2.547.1... Ok
-where7-2.547.2...
-Expected: [13 15 41 51 67 93 scan 0 sort 0]
-     Got: [13 15 41 67 93 scan 0 sort 0]
+where7-2.547.2... Ok
 where7-2.548.1... Ok
 where7-2.548.2... Ok
 where7-2.549.1... Ok
-where7-2.549.2...
-Expected: [5 10 41 46 56 61 95 100 scan 0 sort 0]
-     Got: [5 41 46 56 95 100 scan 0 sort 0]
+where7-2.549.2... Ok
 where7-2.550.1... Ok
 where7-2.550.2... Ok
 where7-2.551.1... Ok
@@ -1189,9 +1135,7 @@ where7-2.557.2... Ok
 where7-2.558.1... Ok
 where7-2.558.2... Ok
 where7-2.559.1... Ok
-where7-2.559.2...
-Expected: [23 49 62 75 89 91 99 scan 0 sort 0]
-     Got: [23 49 62 75 89 91 scan 0 sort 0]
+where7-2.559.2... Ok
 where7-2.560.1... Ok
 where7-2.560.2... Ok
 where7-2.561.1... Ok
@@ -1211,9 +1155,7 @@ where7-2.567.2... Ok
 where7-2.568.1... Ok
 where7-2.568.2... Ok
 where7-2.569.1... Ok
-where7-2.569.2...
-Expected: [26 52 78 87 scan 0 sort 0]
-     Got: [26 52 78 scan 0 sort 0]
+where7-2.569.2... Ok
 where7-2.570.1... Ok
 where7-2.570.2... Ok
 where7-2.571.1... Ok
@@ -1223,9 +1165,7 @@ where7-2.572.2... Ok
 where7-2.573.1... Ok
 where7-2.573.2... Ok
 where7-2.574.1... Ok
-where7-2.574.2...
-Expected: [34 50 55 62 63 99 scan 0 sort 0]
-     Got: [55 62 63 99 scan 0 sort 0]
+where7-2.574.2... Ok
 where7-2.575.1... Ok
 where7-2.575.2... Ok
 where7-2.576.1... Ok
@@ -1255,9 +1195,7 @@ where7-2.587.2... Ok
 where7-2.588.1... Ok
 where7-2.588.2... Ok
 where7-2.589.1... Ok
-where7-2.589.2...
-Expected: [5 6 12 14 68 72 76 78 99 scan 0 sort 0]
-     Got: [5 12 14 72 76 78 99 scan 0 sort 0]
+where7-2.589.2... Ok
 where7-2.590.1... Ok
 where7-2.590.2... Ok
 where7-2.591.1... Ok
@@ -1273,9 +1211,7 @@ where7-2.595.2... Ok
 where7-2.596.1... Ok
 where7-2.596.2... Ok
 where7-2.597.1... Ok
-where7-2.597.2...
-Expected: [8 33 44 72 90 95 97 scan 0 sort 0]
-     Got: [8 72 95 97 scan 0 sort 0]
+where7-2.597.2... Ok
 where7-2.598.1... Ok
 where7-2.598.2... Ok
 where7-2.599.1... Ok
@@ -1299,9 +1235,7 @@ where7-2.607.2... Ok
 where7-2.608.1... Ok
 where7-2.608.2... Ok
 where7-2.609.1... Ok
-where7-2.609.2...
-Expected: [19 45 57 71 80 82 90 97 scan 0 sort 0]
-     Got: [19 45 71 80 82 97 scan 0 sort 0]
+where7-2.609.2... Ok
 where7-2.610.1... Ok
 where7-2.610.2... Ok
 where7-2.611.1... Ok
@@ -1363,9 +1297,7 @@ where7-2.638.2... Ok
 where7-2.639.1... Ok
 where7-2.639.2... Ok
 where7-2.640.1... Ok
-where7-2.640.2...
-Expected: [28 49 53 56 62 80 81 83 scan 0 sort 0]
-     Got: [49 53 56 62 80 83 scan 0 sort 0]
+where7-2.640.2... Ok
 where7-2.641.1... Ok
 where7-2.641.2... Ok
 where7-2.642.1... Ok
@@ -1459,9 +1391,7 @@ where7-2.685.2... Ok
 where7-2.686.1... Ok
 where7-2.686.2... Ok
 where7-2.687.1... Ok
-where7-2.687.2...
-Expected: [7 32 33 35 39 44 71 73 scan 0 sort 0]
-     Got: [7 33 35 71 73 scan 0 sort 0]
+where7-2.687.2... Ok
 where7-2.688.1... Ok
 where7-2.688.2... Ok
 where7-2.689.1... Ok
@@ -1509,15 +1439,11 @@ where7-2.709.2... Ok
 where7-2.710.1... Ok
 where7-2.710.2... Ok
 where7-2.711.1... Ok
-where7-2.711.2...
-Expected: [6 8 28 34 56 67 75 scan 0 sort 0]
-     Got: [6 8 28 34 67 75 scan 0 sort 0]
+where7-2.711.2... Ok
 where7-2.712.1... Ok
 where7-2.712.2... Ok
 where7-2.713.1... Ok
-where7-2.713.2...
-Expected: [41 47 69 71 scan 0 sort 0]
-     Got: [47 69 71 scan 0 sort 0]
+where7-2.713.2... Ok
 where7-2.714.1... Ok
 where7-2.714.2... Ok
 where7-2.715.1... Ok
@@ -1529,9 +1455,7 @@ where7-2.717.2... Ok
 where7-2.718.1... Ok
 where7-2.718.2... Ok
 where7-2.719.1... Ok
-where7-2.719.2...
-Expected: [25 62 64 scan 0 sort 0]
-     Got: [62 64 scan 0 sort 0]
+where7-2.719.2... Ok
 where7-2.720.1... Ok
 where7-2.720.2... Ok
 where7-2.721.1... Ok
@@ -1543,9 +1467,7 @@ where7-2.723.2... Ok
 where7-2.724.1... Ok
 where7-2.724.2... Ok
 where7-2.725.1... Ok
-where7-2.725.2...
-Expected: [52 61 75 91 scan 0 sort 0]
-     Got: [61 75 scan 0 sort 0]
+where7-2.725.2... Ok
 where7-2.726.1... Ok
 where7-2.726.2... Ok
 where7-2.727.1... Ok
@@ -1609,9 +1531,7 @@ where7-2.755.2... Ok
 where7-2.756.1... Ok
 where7-2.756.2... Ok
 where7-2.757.1... Ok
-where7-2.757.2...
-Expected: [4 79 scan 0 sort 0]
-     Got: [79 scan 0 sort 0]
+where7-2.757.2... Ok
 where7-2.758.1... Ok
 where7-2.758.2... Ok
 where7-2.759.1... Ok
@@ -1673,15 +1593,11 @@ where7-2.786.2... Ok
 where7-2.787.1... Ok
 where7-2.787.2... Ok
 where7-2.788.1... Ok
-where7-2.788.2...
-Expected: [9 11 55 75 scan 0 sort 0]
-     Got: [9 11 55 scan 0 sort 0]
+where7-2.788.2... Ok
 where7-2.789.1... Ok
 where7-2.789.2... Ok
 where7-2.790.1... Ok
-where7-2.790.2...
-Expected: [18 44 67 70 74 79 89 90 92 95 96 97 scan 0 sort 0]
-     Got: [18 44 70 74 89 90 92 95 96 97 scan 0 sort 0]
+where7-2.790.2... Ok
 where7-2.791.1... Ok
 where7-2.791.2... Ok
 where7-2.792.1... Ok
@@ -1721,9 +1637,7 @@ where7-2.808.2... Ok
 where7-2.809.1... Ok
 where7-2.809.2... Ok
 where7-2.810.1... Ok
-where7-2.810.2...
-Expected: [4 30 59 64 89 91 scan 0 sort 0]
-     Got: [30 59 64 scan 0 sort 0]
+where7-2.810.2... Ok
 where7-2.811.1... Ok
 where7-2.811.2... Ok
 where7-2.812.1... Ok
@@ -1759,9 +1673,7 @@ where7-2.826.2... Ok
 where7-2.827.1... Ok
 where7-2.827.2... Ok
 where7-2.828.1... Ok
-where7-2.828.2...
-Expected: [72 75 77 scan 0 sort 0]
-     Got: [75 77 scan 0 sort 0]
+where7-2.828.2... Ok
 where7-2.829.1... Ok
 where7-2.829.2... Ok
 where7-2.830.1... Ok
@@ -1787,9 +1699,7 @@ where7-2.839.2... Ok
 where7-2.840.1... Ok
 where7-2.840.2... Ok
 where7-2.841.1... Ok
-where7-2.841.2...
-Expected: [1 9 19 scan 0 sort 0]
-     Got: [1 scan 0 sort 0]
+where7-2.841.2... Ok
 where7-2.842.1... Ok
 where7-2.842.2... Ok
 where7-2.843.1... Ok
@@ -1809,17 +1719,13 @@ where7-2.849.2... Ok
 where7-2.850.1... Ok
 where7-2.850.2... Ok
 where7-2.851.1... Ok
-where7-2.851.2...
-Expected: [4 45 69 71 72 scan 0 sort 0]
-     Got: [4 45 69 71 scan 0 sort 0]
+where7-2.851.2... Ok
 where7-2.852.1... Ok
 where7-2.852.2... Ok
 where7-2.853.1... Ok
 where7-2.853.2... Ok
 where7-2.854.1... Ok
-where7-2.854.2...
-Expected: [19 22 44 scan 0 sort 0]
-     Got: [19 scan 0 sort 0]
+where7-2.854.2... Ok
 where7-2.855.1... Ok
 where7-2.855.2... Ok
 where7-2.856.1... Ok
@@ -1885,9 +1791,7 @@ where7-2.885.2... Ok
 where7-2.886.1... Ok
 where7-2.886.2... Ok
 where7-2.887.1... Ok
-where7-2.887.2...
-Expected: [33 35 82 scan 0 sort 0]
-     Got: [33 35 scan 0 sort 0]
+where7-2.887.2... Ok
 where7-2.888.1... Ok
 where7-2.888.2... Ok
 where7-2.889.1... Ok
@@ -1895,9 +1799,7 @@ where7-2.889.2... Ok
 where7-2.890.1... Ok
 where7-2.890.2... Ok
 where7-2.891.1... Ok
-where7-2.891.2...
-Expected: [4 6 11 31 63 68 scan 0 sort 0]
-     Got: [4 6 11 scan 0 sort 0]
+where7-2.891.2... Ok
 where7-2.892.1... Ok
 where7-2.892.2... Ok
 where7-2.893.1... Ok
@@ -1949,9 +1851,7 @@ where7-2.915.2... Ok
 where7-2.916.1... Ok
 where7-2.916.2... Ok
 where7-2.917.1... Ok
-where7-2.917.2...
-Expected: [15 57 scan 0 sort 0]
-     Got: [15 scan 0 sort 0]
+where7-2.917.2... Ok
 where7-2.918.1... Ok
 where7-2.918.2... Ok
 where7-2.919.1... Ok
@@ -2009,9 +1909,7 @@ where7-2.944.2... Ok
 where7-2.945.1... Ok
 where7-2.945.2... Ok
 where7-2.946.1... Ok
-where7-2.946.2...
-Expected: [3 5 15 24 26 52 55 56 58 76 78 99 scan 0 sort 0]
-     Got: [3 5 15 24 26 52 55 56 58 78 99 scan 0 sort 0]
+where7-2.946.2... Ok
 where7-2.947.1... Ok
 where7-2.947.2... Ok
 where7-2.948.1... Ok
@@ -2033,9 +1931,7 @@ where7-2.955.2... Ok
 where7-2.956.1... Ok
 where7-2.956.2... Ok
 where7-2.957.1... Ok
-where7-2.957.2...
-Expected: [5 7 36 scan 0 sort 0]
-     Got: [5 7 scan 0 sort 0]
+where7-2.957.2... Ok
 where7-2.958.1... Ok
 where7-2.958.2... Ok
 where7-2.959.1... Ok
@@ -2124,5 +2020,4 @@ where7-2.1000.1... Ok
 where7-2.1000.2... Ok
 where7-2.1001.1... Ok
 where7-2.1001.2... Ok
-52 errors out of 2023 tests
-Failures on these tests: where7-2.20.2 where7-2.26.2 where7-2.39.2 where7-2.56.2 where7-2.67.2 where7-2.112.2 where7-2.121.2 where7-2.130.2 where7-2.174.2 where7-2.199.2 where7-2.228.2 where7-2.235.2 where7-2.279.2 where7-2.304.2 where7-2.305.2 where7-2.324.2 where7-2.341.2 where7-2.362.2 where7-2.417.2 where7-2.428.2 where7-2.468.2 where7-2.469.2 where7-2.490.2 where7-2.509.2 where7-2.521.2 where7-2.547.2 where7-2.549.2 where7-2.559.2 where7-2.569.2 where7-2.574.2 where7-2.589.2 where7-2.597.2 where7-2.609.2 where7-2.640.2 where7-2.687.2 where7-2.711.2 where7-2.713.2 where7-2.719.2 where7-2.725.2 where7-2.757.2 where7-2.788.2 where7-2.790.2 where7-2.810.2 where7-2.828.2 where7-2.841.2 where7-2.851.2 where7-2.854.2 where7-2.887.2 where7-2.891.2 where7-2.917.2 where7-2.946.2 where7-2.957.2
+0 errors out of 2023 tests

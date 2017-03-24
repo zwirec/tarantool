@@ -71,7 +71,6 @@ do_test coalesce-1.7 {
 } {1 2 3 99 5 6 7 8}
 do_test coalesce-1.8 {
   db eval {
-pragma vdbe_listing=on;
     SELECT coalesce(
       CASE WHEN b=2 THEN 123 END,
       CASE WHEN b=3 THEN 234 END,

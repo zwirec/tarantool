@@ -33,15 +33,15 @@ do_test where4-1.0 {
   execsql {
     CREATE TABLE t1(w, x, y, primary key (w,x,y));
     INSERT INTO t1 VALUES(1,2,3);
-    INSERT INTO t1 VALUES(1,NULL,3);
+--    INSERT INTO t1 VALUES(1,NULL,3);
     INSERT INTO t1 VALUES('a','b','c');
-    INSERT INTO t1 VALUES('a',NULL,'c');
+--    INSERT INTO t1 VALUES('a',NULL,'c');
     INSERT INTO t1 VALUES(X'78',x'79',x'7a');
-    INSERT INTO t1 VALUES(X'78',NULL,X'7A');
-    INSERT INTO t1 VALUES(NULL,NULL,NULL);
+--    INSERT INTO t1 VALUES(X'78',NULL,X'7A');
+--    INSERT INTO t1 VALUES(NULL,NULL,NULL);
     SELECT count(*) FROM t1;
   }
-} {7}
+} {3}
 
 # Do an SQL statement.  Append the search count to the end of the result.
 
@@ -130,35 +130,35 @@ proc count sql {
 # the right table did not match - something the index does not know
 # about.
 #
-do_test where4-3.1 {
-  execsql {
-    CREATE TABLE t2(a primary key);
-    INSERT INTO t2 VALUES(1);
-    INSERT INTO t2 VALUES(2);
-    INSERT INTO t2 VALUES(3);
-    CREATE TABLE t3(x,y, primary key("x", 'y')); -- Goofy syntax allowed
-    INSERT INTO t3 VALUES(1,11);
-    INSERT INTO t3 VALUES(2,NULL);
+# do_test where4-3.1 {
+#   execsql {
+#     CREATE TABLE t2(a primary key);
+#     INSERT INTO t2 VALUES(1);
+#     INSERT INTO t2 VALUES(2);
+#     INSERT INTO t2 VALUES(3);
+#     CREATE TABLE t3(x,y, primary key("x", 'y')); -- Goofy syntax allowed
+#     INSERT INTO t3 VALUES(1,11);
+#     INSERT INTO t3 VALUES(2,NULL);
  
-    SELECT * FROM t2 LEFT JOIN t3 ON a=x WHERE +y IS NULL;
-  }
-} {2 2 {} 3 {} {}}
-do_test where4-3.2 {
-  execsql {
-    SELECT * FROM t2 LEFT JOIN t3 ON a=x WHERE y IS NULL;
-  }
-} {2 2 {} 3 {} {}}
-do_test where4-3.3 {
-  execsql {
-    SELECT * FROM t2 LEFT JOIN t3 ON a=x WHERE NULL is y;
-  }
-} {2 2 {} 3 {} {}}
-do_test where4-3.4 {
-  unset -nocomplain null
-  execsql {
-    SELECT * FROM t2 LEFT JOIN t3 ON a=x WHERE y IS $null;
-  }
-} {2 2 {} 3 {} {}}
+#     SELECT * FROM t2 LEFT JOIN t3 ON a=x WHERE +y IS NULL;
+#   }
+# } {2 2 {} 3 {} {}}
+# do_test where4-3.2 {
+#   execsql {
+#     SELECT * FROM t2 LEFT JOIN t3 ON a=x WHERE y IS NULL;
+#   }
+# } {2 2 {} 3 {} {}}
+# do_test where4-3.3 {
+#   execsql {
+#     SELECT * FROM t2 LEFT JOIN t3 ON a=x WHERE NULL is y;
+#   }
+# } {2 2 {} 3 {} {}}
+# do_test where4-3.4 {
+#   unset -nocomplain null
+#   execsql {
+#     SELECT * FROM t2 LEFT JOIN t3 ON a=x WHERE y IS $null;
+#   }
+# } {2 2 {} 3 {} {}}
 
 # Ticket #2189.  Probably the same bug as #2177.
 #
@@ -202,13 +202,13 @@ do_test where4-5.1 {
   execsql {
     -- Allow the 'x' syntax for backwards compatibility
     CREATE TABLE t4(x,y,z,PRIMARY KEY('x' ASC, "y" ASC));
-  }
-  execsql {
-    SELECT *
-      FROM t2 LEFT JOIN t4 b1
-              LEFT JOIN t4 b2 ON b2.x=b1.x AND b2.y IN (b1.y);
-  }
-} {1 {} {} {} {} {} {} 2 {} {} {} {} {} {} 3 {} {} {} {} {} {}}
+  } } {}
+# execsql {
+#   SELECT *
+#     FROM t2 LEFT JOIN t4 b1
+#             LEFT JOIN t4 b2 ON b2.x=b1.x AND b2.y IN (b1.y);
+# }
+# } {1 {} {} {} {} {} {} 2 {} {} {} {} {} {} 3 {} {} {} {} {} {}}
 
 # SELECT rowid FROM t4 WHERE x IN (1,9,2,5) AND y IN (1,3,NULL,2) AND z!=13;
 do_test where4-5.2 {
