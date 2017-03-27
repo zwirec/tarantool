@@ -75,12 +75,12 @@ do_test view-1.3 {
 #   }
 # } {1 2 4 5 7 8}
 # MUST_WORK_TEST
-# do_test view-1.4 {
-#   catchsql {
-#     DROP VIEW IF EXISTS v1;
-#     SELECT * FROM v1 ORDER BY a;
-#   }
-# } {1 {no such table: v1}}
+do_test view-1.4 {
+   catchsql {
+     DROP VIEW IF EXISTS v1;
+     SELECT * FROM v1 ORDER BY a;
+   }
+} {1 {no such table: v1}}
 do_test view-1.5 {
   execsql {
     CREATE VIEW v1 AS SELECT a,b FROM t1;
@@ -587,16 +587,16 @@ do_test view-12.2 {
 #     }
 #   } {1 {view v13 cannot reference objects in database two}}
 # }
-ifcapable attach {
-  do_test view-13.1 {
-    forcedelete test2.db
-    catchsql {
-      ATTACH 'test2.db' AS two;
-      CREATE TABLE two.t2(x primary key,y);
-      CREATE VIEW v13 AS SELECT y FROM two.t2;
-    }
-  } {1 {view v13 cannot reference objects in database two}}
-}
+#ifcapable attach {
+#  do_test view-13.1 {
+#    forcedelete test2.db
+#    catchsql {
+#      ATTACH 'test2.db' AS two;
+#      CREATE TABLE two.t2(x primary key,y);
+#      CREATE VIEW v13 AS SELECT y FROM two.t2;
+#    }
+#  } {1 {view v13 cannot reference objects in database two}}
+#}
 
 # Ticket #1658
 #
