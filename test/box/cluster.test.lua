@@ -169,7 +169,38 @@ cluster.shard1.space.test:select{}
 cluster.shard2.space.test:select{}
 cluster.shard3.space.test:select{}
 
-test_run:cmd('switch default')
+--
+-- Test recovery of two-phase transaction after restart of the
+-- participant in the middle of the transaction.
+--
+
+-- Recovery the commited transaction.
+
+cluster.shard1:begin_two_phase()
+cluster.shard2:begin_two_phase()
+cluster.shard3:begin_two_phase()
+
+cluster.shard1.space.test:replace({7})
+cluster.shard2.space.test:replace({8})
+cluster.shard3.space.test:replace({9})
+
+cluster.shard1:prepare()
+cluster.shard2:prepare()
+cluster.shard3:prepare()
+
+cluster.shard1:commit()
+cluster.shard2:commit()
+
+test_run:cmd('restart server host3')
+test_run:cmd('switch host1')
+-- After restarting, the host3 get the transaction state from the
+-- coordinator. Using presumed commit, the coordinator doesn't
+-- store the state of the transaction and it supposed to be
+-- commited.
+cluster.shard1.space.test:select{}
+cluster.shard2.space.test:select{}
+cluster.shard3.space.test:select{}
+
 
 test_run:cmd("stop server host1")
 test_run:cmd("cleanup server host1")
