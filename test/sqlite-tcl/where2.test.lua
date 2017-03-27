@@ -109,7 +109,7 @@ do_test where2-2.1 {
   queryplan {
     SELECT * FROM t1 WHERE w=85 ORDER BY random();
   }
-} {85 6 7396 7402 sort t1 *}
+} {85 6 7396 7402 nosort t1 *}
 do_test where2-2.2 {
   queryplan {
     SELECT * FROM t1 WHERE x=6 AND y=7396 ORDER BY random();
@@ -257,13 +257,13 @@ ifcapable subquery {
       SELECT w,x,y,z FROM t1 WHERE z IN (10207,10006,10006,10207)
       ORDER BY w
     }
-  } {99 6 10000 10006 100 6 10201 10207 nosort t1 *}
+  } {99 6 10000 10006 100 6 10201 10207 sort t1 i1zyx}
   do_test where2-4.6y {
     queryplan {
       SELECT w,x,y,z FROM t1 WHERE z IN (10207,10006,10006,10207)
       ORDER BY w DESC
     }
-  } {100 6 10201 10207 99 6 10000 10006 nosort t1 *}
+  } {100 6 10201 10207 99 6 10000 10006 sort t1 i1zyx}
   ifcapable compound {
     do_test where2-4.7 {
       queryplan {
@@ -272,7 +272,7 @@ ifcapable subquery {
            UNION ALL SELECT 10006 UNION ALL SELECT 10207)
         ORDER BY w
       }
-    } {99 6 10000 10006 100 6 10201 10207 nosort t1 *}
+    } {99 6 10000 10006 100 6 10201 10207 sort t1 i1zyx}
   }
 
 } ;# ifcapable subquery
@@ -304,35 +304,36 @@ set ::idx {}
 ifcapable subquery {set ::idx *}
 do_test where2-6.1.1 {
   queryplan {
-    SELECT w,x,y,z FROM t1 WHERE w=99 OR w=100 ORDER BY +w
+    SELECT * FROM t1 WHERE w=99 OR w=100 ORDER BY +w ;
   }
 } [list 99 6 10000 10006 100 6 10201 10207 sort t1 $::idx]
 do_test where2-6.1.2 {
   queryplan {
-    SELECT w,x,y,z FROM t1 WHERE 99=w OR 100=w ORDER BY +w
+    SELECT * FROM t1 WHERE 99=w OR 100=w ORDER BY +w
   }
 } [list 99 6 10000 10006 100 6 10201 10207 sort t1 $::idx]
 do_test where2-6.2 {
   queryplan {
-    SELECT w,x,y,z FROM t1 WHERE w=99 OR w=100 OR 6=w ORDER BY +w
+    SELECT * FROM t1 WHERE w=99 OR w=100 OR 6=w ORDER BY +w
   }
 } [list 6 2 49 51 99 6 10000 10006 100 6 10201 10207 sort t1 $::idx]
 
+ifcapable subquery {set ::idx i1zyx}
 do_test where2-6.3 {
   queryplan {
-    SELECT w,x,y,z FROM t1 WHERE w=99 OR w=100 OR 6=+w ORDER BY +w
+    SELECT * FROM t1 WHERE w=99 OR w=100 OR 6=+w ORDER BY +w
   }
-} {6 2 49 51 99 6 10000 10006 100 6 10201 10207 sort t1 *}
+} [list 6 2 49 51 99 6 10000 10006 100 6 10201 10207 sort t1 $::idx]
 do_test where2-6.4 {
   queryplan {
-    SELECT w,x,y,z, '|' FROM t1 WHERE w=99 OR +w=100 OR 6=w ORDER BY +w
+    SELECT *, '|' FROM t1 WHERE w=99 OR +w=100 OR 6=w ORDER BY +w
   }
-} {6 2 49 51 | 99 6 10000 10006 | 100 6 10201 10207 | sort t1 *}
+} [list 6 2 49 51 | 99 6 10000 10006 | 100 6 10201 10207 | sort t1 $::idx]
 do_test where2-6.5 {
   queryplan {
-    SELECT w,x,y,z, '|' FROM t1 WHERE w=99 OR y=10201 OR 6=w ORDER BY +w
+    SELECT *, '|' FROM t1 WHERE w=99 OR y=10201 OR 6=w ORDER BY +w
   }
-} {6 2 49 51 | 99 6 10000 10006 | 100 6 10201 10207 | sort t1 *}
+} [list 6 2 49 51 | 99 6 10000 10006 | 100 6 10201 10207 | sort t1 $::idx]
 
 set ::idx {}
 ifcapable subquery {set ::idx i1zyx}
@@ -725,39 +726,40 @@ ifcapable or_opt&&tclvar {
       count {
         SELECT a,b,c FROM t10 WHERE a=1 AND (b=2 OR b=3)
       }
-    } {1 2 2 1 3 3 5}
+    } {1 2 2 1 3 3 3}
   }
 }
 
 # Indices with redundant columns
 #
-do_test where2-11.1 {
-  execsql {
-    CREATE TABLE t11(id int primary key, a int,b int,c int,d int);
-    CREATE INDEX i11aba ON t11(a,b,a,c); -- column A occurs twice.
-    INSERT INTO t11 VALUES(1, 1,2,3,4);
-    INSERT INTO t11 VALUES(2, 5,6,7,8);
-    INSERT INTO t11 VALUES(3, 1,2,9,10);
-    INSERT INTO t11 VALUES(4, 5,11,12,13);
-    SELECT c FROM t11 WHERE a=1 AND b=2 ORDER BY c;
-  }
-} {3 9}
-do_test where2-11.2 {
-  execsql {
-    CREATE INDEX i11cccccccc ON t11(c,c,c,c,c,c,c,c); -- repeated column
-    SELECT d FROM t11 WHERE c=9;
-  }
-} {10}
-do_test where2-11.3 {
-  execsql {
-    SELECT d FROM t11 WHERE c IN (1,2,3,4,5);
-  }
-} {4}
-do_test where2-11.4 {
-  execsql {
-    SELECT d FROM t11 WHERE c=7 OR (a=1 AND b=2) ORDER BY d;
-  }
-} {4 8 10}
+# Tarantool doesn't allow indexes with duplicated columns. Comment the test.
+#do_test where2-11.1 {
+#  execsql {
+#    CREATE TABLE t11(id int primary key, a int,b int,c int,d int);
+#    CREATE INDEX i11aba ON t11(a,b,a,c); -- column A occurs twice.
+#    INSERT INTO t11 VALUES(1, 1,2,3,4);
+#    INSERT INTO t11 VALUES(2, 5,6,7,8);
+#    INSERT INTO t11 VALUES(3, 1,2,9,10);
+#    INSERT INTO t11 VALUES(4, 5,11,12,13);
+#    SELECT c FROM t11 WHERE a=1 AND b=2 ORDER BY c;
+#  }
+#} {3 9}
+#do_test where2-11.2 {
+#  execsql {
+#    CREATE INDEX i11cccccccc ON t11(c,c,c,c,c,c,c,c); -- repeated column
+#    SELECT d FROM t11 WHERE c=9;
+#  }
+#} {10}
+#do_test where2-11.3 {
+#  execsql {
+#    SELECT d FROM t11 WHERE c IN (1,2,3,4,5);
+#  }
+#} {4}
+#do_test where2-11.4 {
+#  execsql {
+#    SELECT d FROM t11 WHERE c=7 OR (a=1 AND b=2) ORDER BY d;
+#  }
+#} {4 8 10}
 
 # Verify that the OR clause is used in an outer loop even when
 # the OR clause scores slightly better on an inner loop.
