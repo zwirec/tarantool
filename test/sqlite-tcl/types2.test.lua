@@ -111,7 +111,7 @@ execsql {
   CREATE INDEX t2i3 ON t2(t);
   CREATE INDEX t2i4 ON t2(o);
 }
-set iter 2
+set iter 1
 foreach v $vals {
   execsql "INSERT INTO t2 VALUES($iter, $v, $v, $v, $v);"
   incr iter
@@ -338,7 +338,7 @@ ifcapable subquery {
   test_boolset types2-8.8 {o IN (SELECT t FROM t4)} {7}
   test_boolset types2-8.9 {i IN (SELECT o FROM t4)} {9 10 11 12}
   test_boolset types2-8.6 {n IN (SELECT o FROM t4)} {9 10 11 12}
-  test_boolset types2-8.7 {t IN (SELECT o FROM t4)} {9 11}
+  test_boolset types2-8.7 {t IN (SELECT o FROM t4)} {}
   test_boolset types2-8.8 {o IN (SELECT o FROM t4)} {9 10}
 }
 
