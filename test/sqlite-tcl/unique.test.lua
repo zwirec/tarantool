@@ -85,8 +85,8 @@ do_test unique-2.0 {
   execsql {
     DROP TABLE t1;
     CREATE TABLE t2(id primary key, a int, b int);
-    INSERT INTO t2(a,b) VALUES(1, 1,2);
-    INSERT INTO t2(a,b) VALUES(2, 3,4);
+    INSERT INTO t2(id, a,b) VALUES(1, 1,2);
+    INSERT INTO t2(id, a,b) VALUES(2, 3,4);
     SELECT a,b FROM t2 ORDER BY a;
   }
 } {1 2 3 4}
