@@ -236,6 +236,19 @@ opt_set(void *opts, const struct opt_def *def, const char **val)
 		memcpy(opt, str, str_len);
 		opt[str_len] = '\0';
 		break;
+	case OPT_STRPTR:
+		if (mp_typeof(**val) != MP_STR)
+			return -1;
+		str = mp_decode_str(val, &str_len);
+		/*
+		 * We assume the certain field order, namely
+		 * const char* str; size_t length;
+		 * opt pointrs to str field.
+		 * Doesn't look pretty, hopefully we remove it soon.
+		 */
+		*(const char **)opt = str;
+		*(size_t *)(1 + (char **)opt) = str_len;
+		break;
 	default:
 		unreachable();
 	}
@@ -362,7 +375,8 @@ index_opts_create(struct index_opts *opts, const char *map)
  * - types of parts in the parts array are known to the system
  * - fieldno of each part in the parts array is within limits
  */
-static struct index_def *
+extern
+struct index_def *
 index_def_new_from_tuple(struct tuple *tuple)
 {
 	bool is_166plus;
@@ -466,6 +480,7 @@ opts_encode(char *data, char *data_end, const void *opts,
 	char *p = data;
 	uint32_t n_opts = 0;
 	for (const struct opt_def *def = reg; def->name != NULL; def++) {
+		if (def->type == OPT_STRPTR) continue;
 		char *end = opt_encode(p, data_end, opts, default_opts, def);
 		if (end == data_end)
 			return end;
@@ -569,6 +584,7 @@ space_opts_create(struct space_opts *opts, struct tuple *tuple)
 /**
  * Fill space_def structure from struct tuple.
  */
+extern "C"
 void
 space_def_create_from_tuple(struct space_def *def, struct tuple *tuple,
 			    uint32_t errcode)

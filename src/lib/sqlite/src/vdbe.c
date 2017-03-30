@@ -5359,6 +5359,7 @@ case OP_ParseSchema: {
     initData.db = db;
     initData.iDb = pOp->p1;
     initData.pzErrMsg = &p->zErrMsg;
+    initData.iSqlLength = -1;
     zSql = sqlite3MPrintf(db,
        "SELECT name, rootpage, sql FROM '%q'.%s WHERE %s ORDER BY rowid",
        db->aDb[iDb].zDbSName, zMaster, pOp->p4.z);
@@ -5415,6 +5416,7 @@ case OP_ParseSchema2: {
   initData.db = db;
   initData.iDb = iDb;
   initData.pzErrMsg = &p->zErrMsg;
+  initData.iSqlLength = -1;
 
   assert( db->init.busy==0 );
   db->init.busy = 1;

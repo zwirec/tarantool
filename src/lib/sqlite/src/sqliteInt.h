@@ -3184,6 +3184,7 @@ typedef struct {
   char **pzErrMsg;    /* Error message stored here */
   int iDb;            /* 0 for main database.  1 for TEMP, 2.. for ATTACHed */
   int rc;             /* Result code stored here */
+  int iSqlLength;     /* SQL string length or -1 if NUL-terminated */
 } InitData;
 
 /*
