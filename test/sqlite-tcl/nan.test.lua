@@ -152,7 +152,7 @@ do_test nan-2.1 {
     DELETE FROM T1;
   }
   sqlite3_bind_int $::STMT 1 1
-  sqlite3_bind_double $::STMT 1 NaN
+  sqlite3_bind_double $::STMT 2 NaN
   sqlite3_step $::STMT
   sqlite3_reset $::STMT
   db eval {SELECT x, typeof(x) FROM t1}
