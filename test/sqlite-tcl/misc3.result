@@ -31,10 +31,8 @@ misc3-6.1... Ok
 misc3-6.2... Ok
 misc3-6.3... Ok
 misc3-6.10... Ok
-misc3-6.11-utf8...
-Expected: [1 1 1 1]
-     Got: [1 1 0 1]
+misc3-6.11-utf8... Ok
 misc-8.1... Ok
 misc-8.2... Ok
-1 errors out of 37 tests
-Failures on these tests: misc3-6.11-utf8
+2 errors out of 37 tests
+Failures on these tests: misc3-5.1 misc3-5.2
