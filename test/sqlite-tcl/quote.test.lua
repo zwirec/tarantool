@@ -24,7 +24,7 @@ source $testdir/tester.tcl
 # Create a table with a strange name and with strange column names.
 #
 do_test quote-1.0 {
-  catchsql {CREATE TABLE '@abc' ( '#xyz' int, '!pqr' text );}
+  catchsql {CREATE TABLE '@abc' ( '#xyz' int PRIMARY KEY, '!pqr' text );}
 } {0 {}}
 
 # Insert, update and query the table.
