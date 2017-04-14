@@ -76,9 +76,9 @@ do_test select6-1.5 {
 
 do_test select6-1.6 {
   execsql {
-    SELECT * 
-    FROM (SELECT count(*),y FROM t1 GROUP BY y) AS a,
-         (SELECT max(x),y FROM t1 GROUP BY y) as b
+    SELECT a.cnt, a.y, b.y, b.mx
+    FROM (SELECT count(*) AS cnt, y FROM t1 GROUP BY y) AS a,
+         (SELECT max(x) AS mx, y FROM t1 GROUP BY y) as b
     WHERE a.y=b.y ORDER BY a.y
   }
 } {1 1 1 1 2 2 3 2 4 3 7 3 8 4 15 4 5 5 20 5}
@@ -135,9 +135,9 @@ do_test select6-2.5 {
 
 do_test select6-2.6 {
   execsql {
-    SELECT * 
-    FROM (SELECT count(*),b FROM t2 GROUP BY b) AS a,
-         (SELECT max(a),b FROM t2 GROUP BY b) as b
+    SELECT a.cnt, a.b, b.b, b.mx
+    FROM (SELECT count(*) AS cnt, b FROM t2 GROUP BY b) AS a,
+         (SELECT max(a) AS mx, b FROM t2 GROUP BY b) as b
     WHERE a.b=b.b ORDER BY a.b
   }
 } {1 1 1 1 2 2 3 2 4 3 7 3 8 4 15 4 5 5 20 5}
