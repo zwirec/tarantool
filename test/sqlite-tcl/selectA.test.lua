@@ -682,7 +682,7 @@ do_test selectA-3.0 {
     CREATE UNIQUE INDEX t2x ON t2(x);
     CREATE UNIQUE INDEX t2y ON t2(y);
     CREATE UNIQUE INDEX t2z ON t2(z);
-    SELECT name FROM sqlite_master WHERE type='index'
+    SELECT name FROM _index WHERE name LIKE 't%';
   }
 } {t1a t1b t1c t2x t2y t2z}
 do_test selectA-3.1 {
@@ -1345,9 +1345,9 @@ do_eqp_test 4.1.2 {
   SELECT a, b FROM t4 WHERE f()==f()
   ORDER BY 1,2
 } {
-  1 0 0 {SCAN TABLE t5 USING COVERING INDEX i2}
+  1 0 0 {SCAN TABLE t5 USING INDEX i2}
   1 0 0 {USE TEMP B-TREE FOR RIGHT PART OF ORDER BY}
-  2 0 0 {SCAN TABLE t4 USING COVERING INDEX i1}
+  2 0 0 {SCAN TABLE t4 USING INDEX i1}
   2 0 0 {USE TEMP B-TREE FOR RIGHT PART OF ORDER BY}
   0 0 0 {COMPOUND SUBQUERIES 1 AND 2 (UNION ALL)}
 }
