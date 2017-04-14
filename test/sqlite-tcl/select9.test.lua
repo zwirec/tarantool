@@ -343,24 +343,11 @@ foreach indexes [list {
 }
 
 do_test select9-2.X {
-  set sql {SELECT id, iid from _index where name="i1"}
-  set r {}
-  db eval $sql data {
-    set r "DROP INDEX '[expr {$data(id)}]_[expr {$data(iid)}]_i1'"
+  execsql {
+    DROP INDEX i1;
+    DROP INDEX i2;
+    DROP INDEX i3;
   }
-  execsql $r
-  set sql {SELECT id, iid from _index where name="i2"}
-  set r {}
-  db eval $sql data {
-    set r  "DROP INDEX '[expr {$data(id)}]_[expr {$data(iid)}]_i2'"
-  }
-  execsql $r
-  set sql {SELECT id, iid from _index where name="i3"}
-  set r {}
-  db eval $sql data {
-    set r  "DROP INDEX '[expr {$data(id)}]_[expr {$data(iid)}]_i3'"
-  }
-  execsql $r
 } {}
 
 # This procedure executes the SQL.  Then it checks the generated program
