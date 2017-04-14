@@ -4,11 +4,6 @@ tkt-2a5629202f-1.3... Ok
 tkt-2a5629202f-1.4... Ok
 tkt-2a5629202f-2.1... Ok
 tkt-2a5629202f-2.2... Ok
-tkt-2a5629202f-2.3...
-Expected: [sort]
-     Got: [nosort]
-tkt-2a5629202f-2.4...
-Expected: [sort]
-     Got: [nosort]
-3 errors out of 9 tests
-Failures on these tests: tkt-2a5629202f-1.4 tkt-2a5629202f-2.3 tkt-2a5629202f-2.4
+tkt-2a5629202f-2.3... Ok
+tkt-2a5629202f-2.4... Ok
+0 errors out of 9 tests
