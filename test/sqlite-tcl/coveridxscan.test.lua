@@ -29,7 +29,7 @@ do_test 1.1 {
     SELECT a FROM t1;
   }
   # covering index used for the scan, hence values are increasing
-} {3 4 5}
+} {3 5 4}
 
 do_test 1.2 {
   db eval {
@@ -55,7 +55,7 @@ do_test 2.2 {
 } {5 3 4 2 3 1}
 do_test 2.3 {
   db eval {SELECT b FROM t1}
-} {4 8 2}
+} {2 4 8}
 
 db close
 sqlite3_shutdown
