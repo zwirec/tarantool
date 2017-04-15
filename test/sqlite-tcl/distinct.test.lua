@@ -73,7 +73,7 @@ proc do_temptables_test {tn sql temptables} {
 # is a single table in the FROM clause.
 #
 do_execsql_test 1.0 {
-  CREATE TABLE t1(a, b, c, d, PRIMARY KEY(b,c));
+  CREATE TABLE t1(id INTEGER PRIMARY KEY, a, b, c, d);
   CREATE UNIQUE INDEX i2 ON t1(d COLLATE nocase);
 
   CREATE TABLE t2(x INTEGER PRIMARY KEY, y);
@@ -81,7 +81,7 @@ do_execsql_test 1.0 {
   CREATE TABLE t3(c1 PRIMARY KEY NOT NULL, c2 NOT NULL);
   CREATE INDEX i3 ON t3(c2);
 
-  CREATE TABLE t4(a PRIMARY KEY, b NOT NULL, c NOT NULL, d NOT NULL);
+  CREATE TABLE t4(id INTEGER PRIMARY KEY, a, b NOT NULL, c NOT NULL, d NOT NULL);
   CREATE UNIQUE INDEX t4i1 ON t4(b, c);
   CREATE UNIQUE INDEX t4i2 ON t4(d COLLATE nocase);
 }
@@ -95,7 +95,7 @@ foreach {tn noop sql} {
   6   1   "SELECT DISTINCT * FROM t2"
   7   1   "SELECT DISTINCT * FROM (SELECT * FROM t2)"
 
-  8.1 0   "SELECT DISTINCT * FROM t1"
+  8.1 1   "SELECT DISTINCT * FROM t1"
   8.2 1   "SELECT DISTINCT * FROM t4"
 
   8   0   "SELECT DISTINCT a, b FROM t1"
@@ -118,7 +118,7 @@ foreach {tn noop sql} {
   17  0   { /* Technically, it would be possible to detect that DISTINCT
             ** is a no-op in cases like the following. But SQLite does not
             ** do so. */
-            SELECT DISTINCT t1.rowid FROM t1, t2 WHERE t1.rowid=t2.rowid }
+            SELECT DISTINCT t1.id FROM t1, t2 WHERE t1.id=t2.x }
 
   18  1   "SELECT DISTINCT c1, c2 FROM t3"
   19  1   "SELECT DISTINCT c1 FROM t3"
@@ -142,14 +142,14 @@ foreach {tn noop sql} {
 #
 drop_all_tables
 do_execsql_test 2.0 {
-  CREATE TABLE t1(a, b, c, PRIMARY KEY(a,b));
-
+  CREATE TABLE t1(id INTEGER PRIMARY KEY, a, b, c);
+  CREATE INDEX i1 ON t1(a, b);
   CREATE INDEX i2 ON t1(b COLLATE nocase, c COLLATE nocase);
 
-  INSERT INTO t1 VALUES('a', 'b', 'c');
-  INSERT INTO t1 VALUES('A', 'B', 'C');
-  INSERT INTO t1 VALUES('a', 'b', 'c');
-  INSERT INTO t1 VALUES('A', 'B', 'C');
+  INSERT INTO t1 VALUES(1, 'a', 'b', 'c');
+  INSERT INTO t1 VALUES(2, 'A', 'B', 'C');
+  INSERT INTO t1 VALUES(3, 'a', 'b', 'c');
+  INSERT INTO t1 VALUES(4, 'A', 'B', 'C');
 }
 
 foreach {tn sql temptables res} {
@@ -160,15 +160,15 @@ foreach {tn sql temptables res} {
   5   "b FROM t1 WHERE a = 'a'"                            {}      {b}
   6   "b FROM t1 ORDER BY +b COLLATE binary"          {btree hash} {B b}
   7   "a FROM t1"                                          {}      {A a}
-  8   "b COLLATE nocase FROM t1"                           {}      {b}
-  9   "b COLLATE nocase FROM t1 ORDER BY b COLLATE nocase" {}      {b}
+  8   "b COLLATE nocase FROM t1"                           {}      {B}
+  9   "b COLLATE nocase FROM t1 ORDER BY b COLLATE nocase" {}      {B}
 } {
   do_execsql_test    2.$tn.1 "SELECT DISTINCT $sql" $res
   do_temptables_test 2.$tn.2 "SELECT DISTINCT $sql" $temptables
 }
 
 do_execsql_test 2.A {
-  SELECT (SELECT DISTINCT o.a FROM t1 AS i) FROM t1 AS o ORDER BY rowid;
+  SELECT (SELECT DISTINCT o.a FROM t1 AS i) FROM t1 AS o ORDER BY id;
 } {a A a A}
 
 # do_test 3.0 {
