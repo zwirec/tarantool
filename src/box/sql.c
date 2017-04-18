@@ -332,7 +332,7 @@ int tarantoolSqlite3Delete(BtCursor *pCur, u8 flags)
 	index_id = SQLITE_PAGENO_TO_INDEXID(pCur->pgnoRoot);
 	original_size = region_used(&fiber()->gc);
 	key = tuple_extract_key(c->tuple_last,
-				box_iterator_key_def(c->iter),
+				&box_iterator_index_def(c->iter)->key_def,
 				&key_size);
 	if (key == NULL)
 		return SQLITE_TARANTOOL_ERROR;
@@ -362,7 +362,7 @@ int tarantoolSqlite3IdxKeyCompare(BtCursor *pCur, UnpackedRecord *pUnpacked,
 	assert(pCur->curFlags & BTCF_TaCursor);
 
 	struct ta_cursor *c = pCur->pTaCursor;
-	const struct key_def *key_def;
+	const struct index_def *index_def;
 	const struct tuple *tuple;
 	const char *base;
 	const struct tuple_format *format;
@@ -381,8 +381,8 @@ int tarantoolSqlite3IdxKeyCompare(BtCursor *pCur, UnpackedRecord *pUnpacked,
 	assert(c->iter);
 	assert(c->tuple_last);
 
-	key_def = box_iterator_key_def(c->iter);
-	n = MIN(pUnpacked->nField, key_def->part_count);
+	index_def = box_iterator_index_def(c->iter);
+	n = MIN(pUnpacked->nField, index_def->key_def.part_count);
 	tuple = c->tuple_last;
 	base = tuple_data(tuple);
 	format = tuple_format(tuple);
@@ -402,7 +402,7 @@ int tarantoolSqlite3IdxKeyCompare(BtCursor *pCur, UnpackedRecord *pUnpacked,
 		 *      is added, i.e. it is possible to encounter a
 		 *      tuple with an incomplete offset map.
 		 */
-		uint32_t fieldno = key_def->parts[i].fieldno;
+		uint32_t fieldno = index_def->key_def.parts[i].fieldno;
 		if (fieldno != next_fieldno) {
 			if (fieldno >= field_count ||
 			    format->fields[fieldno].offset_slot ==
@@ -434,7 +434,7 @@ out:
 	/* Sanity check. */
 	original_size = region_used(&fiber()->gc);
 	key = tuple_extract_key(tuple,
-				key_def,
+				&index_def->key_def,
 				&key_size);
 	if (key != NULL) {
 		rc = sqlite3VdbeRecordCompareMsgpack((int)key_size, key,
@@ -647,8 +647,8 @@ sql_schema_put(InitData *init,
 void
 space_def_create_from_tuple(struct space_def *def, struct tuple *tuple,
 			    uint32_t errcode);
-struct key_def *
-key_def_new_from_tuple(struct tuple *tuple);
+struct index_def *
+index_def_new_from_tuple(struct tuple *tuple);
 
 /* Load database schema from Tarantool. */
 void tarantoolSqlite3LoadSchema(InitData *init)
@@ -717,8 +717,8 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 	}
 
 	while (box_iterator_next(it, &tuple) == 0 && tuple != NULL) {
-		struct key_def *def;
-		def = key_def_new_from_tuple(tuple);
+		struct index_def *def;
+		def = index_def_new_from_tuple(tuple);
 		if (def->opts.sql != NULL) {
 			init->iSqlLength = (int)def->opts.sql_length;
 			sql_schema_put(
@@ -727,7 +727,7 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 				def->opts.sql
 			);
 		}
-		key_def_delete(def);
+		index_def_delete(def);
 	}
 
 	box_iterator_free(it);

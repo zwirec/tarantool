@@ -375,7 +375,7 @@ index_opts_create(struct index_opts *opts, const char *map)
  * - types of parts in the parts array are known to the system
  * - fieldno of each part in the parts array is within limits
  */
-extern
+extern "C"
 struct index_def *
 index_def_new_from_tuple(struct tuple *tuple)
 {

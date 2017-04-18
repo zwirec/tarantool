@@ -549,10 +549,10 @@ box_iterator_free(box_iterator_t *it)
 		it->free(it);
 }
 
-const struct key_def *
-box_iterator_key_def(box_iterator_t *iterator)
+const struct index_def *
+box_iterator_index_def(box_iterator_t *iterator)
 {
-	return iterator->index->key_def;
+	return iterator->index->index_def;
 }
 
 /* }}} */
