@@ -49,12 +49,53 @@ local function format(status, ...)
     return formatter.encode({{error = err }})
 end
 
+local function set_param(self, func, param, value)
+    local params = {
+        delimiter = function (value)
+            self.delimiter = value or ''
+            return
+        end,
+        language = function (value)
+        if value ~= 'lua' and value ~= 'sql' then
+                return 'Unknown language: ' .. tostring(value)
+             end
+             self.language = value
+             return
+        end
+    }
+    if params[param] == nil then
+        return 'Unknown parameter: ' .. tostring(param)
+    end
+    return params[param](value)
+end
+
+local operators = {
+    set = set_param
+}
+
+local function preprocess(self, line)
+    local items = {}
+    for item in string.gmatch(line, '([^%s]+)') do
+        items[#items + 1] = item
+    end
+    if operators[items[1]] == nil then
+        return 'Invalid console operator: ' .. tostring(items[1])
+    end
+    return operators[items[1]](self, unpack(items))
+end
+
 --
 -- Evaluate command on local instance
 --
 local function local_eval(self, line)
     if not line then
         return nil
+    end
+    if line:sub(1, 1) == '\\' then
+        return format(pcall(preprocess, self, line:sub(2)))
+    end
+    if self ~= nil and self.language == 'sql' then
+        return format(pcall(box.sql.execute, line))
     end
     --
     -- Attempt to append 'return ' before the chunk: if the chunk is
@@ -73,7 +114,7 @@ local function local_eval(self, line)
 end
 
 local function eval(line)
-    return local_eval(nil, line)
+    return local_eval(fiber.self().storage.console, line)
 end
 
 --
@@ -98,6 +139,21 @@ local function remote_eval(self, line)
     return ok and res or format(false, res)
 end
 
+local function local_check_lua(buf)
+    local fn, err = loadstring(buf)
+    if fn ~= nil or not string.find(err, " near '<eof>'$") then
+        -- valid Lua code or a syntax error not due to
+        -- an incomplete input
+        return true
+    end
+    if loadstring('return '..buf) ~= nil then
+        -- certain obscure inputs like '(42\n)' yield the
+        -- same error as incomplete statement
+        return true
+    end
+    return false
+end
+
 --
 -- Read command from stdin
 --
@@ -114,17 +170,16 @@ local function local_read(self)
             return nil
         end
         buf = buf..line
+        if buf:sub(1, 1) == '\\' then
+            break
+        end
         if delim == "" then
-            -- stop once a complete Lua statement is entered
-            local fn, err = loadstring(buf)
-            if fn ~= nil or not string.find(err, " near '<eof>'$") then
-                -- valid Lua code or a syntax error not due to
-                -- an incomplete input
-                break
-            end
-            if loadstring('return '..buf) ~= nil then
-                -- certain obscure inputs like '(42\n)' yield the
-                -- same error as incomplete statement
+            if self.language == 'lua' then
+                -- stop once a complete Lua statement is entered
+                if local_check_lua(buf) then
+                    break
+                end
+            else
                 break
             end
         elseif #buf >= #delim and buf:sub(#buf - #delim + 1) == delim then
@@ -192,6 +247,7 @@ local repl_mt = {
     __index = {
         running = false;
         delimiter = "";
+        language = "lua";
         prompt = "tarantool";
         read = local_read;
         eval = local_eval;
