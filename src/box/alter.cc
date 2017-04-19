@@ -211,6 +211,7 @@ opt_set(void *opts, const struct opt_def *def, const char **val)
 	double dval;
 	uint32_t str_len;
 	const char *str;
+	char *ptr;
 	char *opt = ((char *) opts) + def->offset;
 	switch (def->type) {
 	case OPT_BOOL:
@@ -246,7 +247,15 @@ opt_set(void *opts, const struct opt_def *def, const char **val)
 		 * opt pointrs to str field.
 		 * Doesn't look pretty, hopefully we remove it soon.
 		 */
-		*(const char **)opt = str;
+		if (str_len > 0) {
+			ptr = (char *)malloc(str_len);
+			if (ptr == NULL)
+				tnt_raise(OutOfMemory, str_len, "malloc", "ptr");
+			memcpy(ptr, str, str_len);
+		} else {
+			ptr = NULL;
+		}
+		*(const char **)opt = ptr;
 		*(size_t *)(1 + (char **)opt) = str_len;
 		break;
 	default:

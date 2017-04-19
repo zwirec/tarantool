@@ -213,7 +213,7 @@ struct index_opts {
 	/**
 	 * SQL statement that produced this index.
 	 */
-	const char *sql;
+	char *sql;
 	size_t sql_length;
 };
 

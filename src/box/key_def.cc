@@ -138,6 +138,20 @@ const struct opt_def index_opts_reg[] = {
 	{ NULL, opt_type_MAX, 0, 0 },
 };
 
+/**
+ * Destructor for struct index_opts.
+ * The only relevant action so far is to free sql field if not-null.
+ */
+static void
+index_opts_destroy(struct index_opts *opts)
+{
+	if (opts->sql) {
+		free(opts->sql);
+		opts->sql = 0;
+		opts->sql_length = 0;
+	}
+}
+
 static const char *object_type_strs[] = {
 	"unknown", "universe", "space", "function", "user", "role" };
 
@@ -235,6 +249,17 @@ index_def_new(uint32_t space_id, uint32_t iid, const char *name,
 	return def;
 }
 
+void
+index_opts_dup(struct index_opts *dst, const struct index_opts *src)
+{
+	*dst = *src;
+	if (src->sql) {
+		assert(dst->sql_length > 0);
+		dst->sql = (char*)malloc(dst->sql_length);
+		memcpy(dst->sql, src->sql, dst->sql_length);
+	}
+}
+
 struct index_def *
 index_def_dup(const struct index_def *def)
 {
@@ -246,6 +271,7 @@ index_def_dup(const struct index_def *def)
 	}
 	memcpy(dup, def, index_def_sizeof(def->key_def.part_count));
 	rlist_create(&dup->link);
+	index_opts_dup(&dup->opts, &def->opts);
 	return dup;
 }
 
@@ -253,6 +279,7 @@ index_def_dup(const struct index_def *def)
 void
 index_def_delete(struct index_def *index_def)
 {
+	index_opts_destroy(&index_def->opts);
 	free(index_def);
 }
 
