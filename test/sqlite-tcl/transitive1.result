@@ -1,12 +1,6 @@
-transitive1-100...
-Expected: [def def def]
-     Got: []
-transitive1-110...
-Expected: [def def def ghi ghi GHI]
-     Got: [def def def]
-transitive1-120...
-Expected: [abc abc Abc def def def]
-     Got: []
+transitive1-100... Ok
+transitive1-110... Ok
+transitive1-120... Ok
 transitive1-200... Ok
 transitive1-210... Ok
 transitive1-220... Ok
@@ -24,5 +18,4 @@ transitive1-401... Ok
 transitive1-402... Ok
 transitive1-403... Ok
 transitive1-410... Ok
-3 errors out of 21 tests
-Failures on these tests: transitive1-100 transitive1-110 transitive1-120
+0 errors out of 21 tests
