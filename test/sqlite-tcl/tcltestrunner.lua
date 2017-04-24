@@ -31,6 +31,7 @@ os.execute("rm -f *.snap *.xlog*")
 box.cfg {
     listen = os.getenv("LISTEN"),
     log="sql.log",
+    memtx_max_tuple_size=4000000
 }
 
 os.exit(runtests())

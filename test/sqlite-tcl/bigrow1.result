@@ -53,16 +53,9 @@ bigrow-5.2.12... Ok
 bigrow-5.2.13... Ok
 bigrow-5.2.14... Ok
 bigrow-5.2.15... Ok
-bigrow-5.3...
-Expected: [0 {}]
-     Got: [1 {unknown error}]
-bigrow-5.4...
-Expected: [1966080]
-     Got: []
+bigrow-5.3... Ok
+bigrow-5.4... Ok
 bigrow-5.5... Ok
-bigrow-5.6...
-Expected: [3932160]
-     Got: []
+bigrow-5.6... Ok
 bigrow-5.99... Ok
-3 errors out of 61 tests
-Failures on these tests: bigrow-5.3 bigrow-5.4 bigrow-5.6
+0 errors out of 61 tests
