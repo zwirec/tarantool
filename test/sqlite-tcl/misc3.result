@@ -34,5 +34,4 @@ misc3-6.10... Ok
 misc3-6.11-utf8... Ok
 misc-8.1... Ok
 misc-8.2... Ok
-2 errors out of 37 tests
-Failures on these tests: misc3-5.1 misc3-5.2
+0 errors out of 37 tests

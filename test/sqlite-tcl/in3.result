@@ -21,11 +21,8 @@ in3-4.1... Ok
 in3-4.2... Ok
 in3-4.3... Ok
 in3-4.4... Ok
-in3-4.5...
-Expected: [0 none numeric real text]
-     Got: [0]
+in3-4.5... Ok
 in3-4.6... Ok
 in3-5.1... Ok
 in3-5.2... Ok
-1 errors out of 28 tests
-Failures on these tests: in3-4.5
+0 errors out of 28 tests
