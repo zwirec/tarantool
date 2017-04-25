@@ -122,7 +122,6 @@ const struct index_opts index_opts_default = {
 	/* .run_size_ratio      = */ 3.5,
 	/* .lsn                 = */ 0,
 	/* .sql                 = */ NULL,
-	/* .sql_length          = */ 0,
 };
 
 const struct opt_def index_opts_reg[] = {
@@ -148,7 +147,6 @@ index_opts_destroy(struct index_opts *opts)
 	if (opts->sql) {
 		free(opts->sql);
 		opts->sql = 0;
-		opts->sql_length = 0;
 	}
 }
 
@@ -254,9 +252,9 @@ index_opts_dup(struct index_opts *dst, const struct index_opts *src)
 {
 	*dst = *src;
 	if (src->sql) {
-		assert(dst->sql_length > 0);
-		dst->sql = (char*)malloc(dst->sql_length);
-		memcpy(dst->sql, src->sql, dst->sql_length);
+		dst->sql = (char*)strdup(src->sql);
+		if (dst->sql == NULL)
+		  diag_set(OutOfMemory, strlen(src->sql), "sql", "char *");
 	}
 }
 
@@ -579,7 +577,6 @@ key_validate_parts(struct index_def *index_def, const char *key,
 const struct space_opts space_opts_default = {
 	/* .temporary  = */ false,
 	/* .sql        = */ NULL,
-	/* .sql_length = */ 0,
 };
 
 const struct opt_def space_opts_reg[] = {

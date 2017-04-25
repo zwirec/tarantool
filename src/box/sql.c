@@ -702,7 +702,6 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 		struct space_def def;
 		space_def_create_from_tuple(&def, tuple, 0);
 		if (def.opts.sql != NULL) {
-			init->iSqlLength = (int)def.opts.sql_length;
 			sql_schema_put(
 				init, def.name,
 				def.id, 0,
@@ -726,7 +725,6 @@ void tarantoolSqlite3LoadSchema(InitData *init)
 		struct index_def *def;
 		def = index_def_new_from_tuple(tuple);
 		if (def->opts.sql != NULL) {
-			init->iSqlLength = (int)def->opts.sql_length;
 			sql_schema_put(
 				init, def->name,
 				def->space_id, def->iid,

@@ -241,22 +241,17 @@ opt_set(void *opts, const struct opt_def *def, const char **val)
 		if (mp_typeof(**val) != MP_STR)
 			return -1;
 		str = mp_decode_str(val, &str_len);
-		/*
-		 * We assume the certain field order, namely
-		 * const char* str; size_t length;
-		 * opt pointrs to str field.
-		 * Doesn't look pretty, hopefully we remove it soon.
-		 */
 		if (str_len > 0) {
-			ptr = (char *)malloc(str_len);
+			ptr = (char *)malloc(str_len + 1);
 			if (ptr == NULL)
 				tnt_raise(OutOfMemory, str_len, "malloc", "ptr");
 			memcpy(ptr, str, str_len);
+			ptr[str_len] = '\0';
+			assert (strlen(ptr) == str_len);
 		} else {
 			ptr = NULL;
 		}
 		*(const char **)opt = ptr;
-		*(size_t *)(1 + (char **)opt) = str_len;
 		break;
 	default:
 		unreachable();

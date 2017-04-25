@@ -214,7 +214,6 @@ struct index_opts {
 	 * SQL statement that produced this index.
 	 */
 	char *sql;
-	size_t sql_length;
 };
 
 extern const struct index_opts index_opts_default;
@@ -398,7 +397,6 @@ struct space_opts {
 	 * SQL statement that produced this space.
 	 */
 	const char *sql;
-	size_t sql_length;
 };
 
 extern const struct space_opts space_opts_default;
