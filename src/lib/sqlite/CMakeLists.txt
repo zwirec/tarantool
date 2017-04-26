@@ -28,5 +28,7 @@ configure_file(config.h.cmake src/sqliteConfig.h)
 
 add_definitions(-Wno-pointer-sign -Wno-error)
 
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
+
 add_subdirectory(tool)
 add_subdirectory(src)
