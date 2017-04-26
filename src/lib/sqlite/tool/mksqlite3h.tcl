@@ -69,9 +69,6 @@ fconfigure stdout -translation lf
 
 set filelist [subst {
   $TOP/src/sqlite.h.in
-  $TOP/ext/rtree/sqlite3rtree.h
-  $TOP/ext/session/sqlite3session.h
-  $TOP/ext/fts5/fts5.h
 }]
 
 # These are the functions that accept a variable number of arguments.  They

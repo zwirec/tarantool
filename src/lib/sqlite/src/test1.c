@@ -6947,40 +6947,14 @@ static int SQLITE_TCLAPI tclLoadStaticExtensionCmd(
   int objc,
   Tcl_Obj *CONST objv[]
 ){
-  extern int sqlite3_amatch_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_carray_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_closure_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_csv_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_eval_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_fileio_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_fuzzer_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_ieee_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_nextchar_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_percentile_init(sqlite3*,char**,const sqlite3_api_routines*);
   extern int sqlite3_regexp_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_remember_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_series_init(sqlite3*,char**,const sqlite3_api_routines*);
-  extern int sqlite3_spellfix_init(sqlite3*,char**,const sqlite3_api_routines*);
   extern int sqlite3_totype_init(sqlite3*,char**,const sqlite3_api_routines*);
   extern int sqlite3_wholenumber_init(sqlite3*,char**,const sqlite3_api_routines*);
   static const struct {
     const char *zExtName;
     int (*pInit)(sqlite3*,char**,const sqlite3_api_routines*);
   } aExtension[] = {
-    { "amatch",                sqlite3_amatch_init               },
-    { "carray",                sqlite3_carray_init               },
-    { "closure",               sqlite3_closure_init              },
-    { "csv",                   sqlite3_csv_init                  },
-    { "eval",                  sqlite3_eval_init                 },
-    { "fileio",                sqlite3_fileio_init               },
-    { "fuzzer",                sqlite3_fuzzer_init               },
-    { "ieee754",               sqlite3_ieee_init                 },
-    { "nextchar",              sqlite3_nextchar_init             },
-    { "percentile",            sqlite3_percentile_init           },
     { "regexp",                sqlite3_regexp_init               },
-    { "remember",              sqlite3_remember_init             },
-    { "series",                sqlite3_series_init               },
-    { "spellfix",              sqlite3_spellfix_init             },
     { "totype",                sqlite3_totype_init               },
     { "wholenumber",           sqlite3_wholenumber_init          },
   };

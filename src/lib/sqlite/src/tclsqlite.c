@@ -4133,8 +4133,6 @@ static void init_all(Tcl_Interp *interp){
 #if defined(SQLITE_ENABLE_SESSION) && defined(SQLITE_ENABLE_PREUPDATE_HOOK)
     extern int TestSession_Init(Tcl_Interp*);
 #endif
-    extern int Fts5tcl_Init(Tcl_Interp *);
-    extern int SqliteRbu_Init(Tcl_Interp*);
     extern int Sqlitetesttcl_Init(Tcl_Interp*);
 #if defined(SQLITE_ENABLE_FTS3) || defined(SQLITE_ENABLE_FTS4)
     extern int Sqlitetestfts3_Init(Tcl_Interp *interp);
@@ -4181,8 +4179,6 @@ static void init_all(Tcl_Interp *interp){
 #if defined(SQLITE_ENABLE_SESSION) && defined(SQLITE_ENABLE_PREUPDATE_HOOK)
     TestSession_Init(interp);
 #endif
-    Fts5tcl_Init(interp);
-    SqliteRbu_Init(interp);
     Sqlitetesttcl_Init(interp);
 
 #if defined(SQLITE_ENABLE_FTS3) || defined(SQLITE_ENABLE_FTS4)

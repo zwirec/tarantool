@@ -5,7 +5,7 @@ add_custom_command(OUTPUT keywordhash.h
     COMMAND ../tool/mkkeywordhash > keywordhash.h)
 
 add_custom_command(OUTPUT parse.h parse.c
-    COMMAND lemon -T${SRCDIR}/../tool/lempar.c -oparse. ${SRCDIR}/parse.y
+    COMMAND lemon -DSQLITE_OMIT_VACUUM -T${SRCDIR}/../tool/lempar.c -oparse. ${SRCDIR}/parse.y
     COMMAND mv -f parse.h parse.h.tmp
     COMMAND ${TCLSH} ${SRCDIR}/../tool/addopcodes.tcl parse.h.tmp > parse.h
     COMMAND rm -f parse.h.tmp
@@ -27,6 +27,8 @@ add_custom_command(OUTPUT sqlite3.h
 )
 
 add_definitions(-D_HAVE_SQLITE_CONFIG_H=1)
+add_definitions(-DSQLITE_MAX_WORKER_THREADS=0)
+add_definitions(-DSQLITE_OMIT_VACUUM=1)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 add_custom_target(generate_sqlite3_files DEPENDS
@@ -104,14 +106,12 @@ add_library(trnsqlite
     select.c
     status.c
     table.c
-    threads.c
     tokenize.c
     treeview.c
     trigger.c
     utf.c
     update.c
     util.c
-    vacuum.c
     vdbe.c
     vdbeapi.c
     vdbeaux.c
@@ -172,29 +172,8 @@ add_library(testfixture SHARED
     test_vfs.c
     test_windirent.c
     test_wsd.c
-    ../ext/fts3/fts3_term.c
-    ../ext/fts3/fts3_test.c
-    ../ext/rbu/test_rbu.c
 
-    # Statically linked extensions
-    #
-    ../ext/misc/amatch.c
-    ../ext/misc/carray.c
-    ../ext/misc/csv.c
-    ../ext/misc/closure.c
-    ../ext/misc/eval.c
-    ../ext/misc/fileio.c
-    ../ext/misc/fuzzer.c
-    ../ext/fts5/fts5_tcl.c
-    ../ext/fts5/fts5_test_mi.c
-    ../ext/misc/ieee754.c
-    ../ext/misc/json1.c
-    ../ext/misc/nextchar.c
-    ../ext/misc/percentile.c
     ../ext/misc/regexp.c
-    ../ext/misc/remember.c
-    ../ext/misc/series.c
-    ../ext/misc/spellfix.c
     ../ext/misc/totype.c
     ../ext/misc/wholenumber.c
 
