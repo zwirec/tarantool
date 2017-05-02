@@ -8,7 +8,7 @@ end
 local ffi = require('ffi')
 local builddir = string.gsub(tarantool, 'tarantool$', 'lib/sqlite/src')
 local libpath = string.format('%s/?.so;%s/?.dylib', builddir, builddir)
-local lib = ffi.load(package.searchpath('libtestfixture', libpath))
+local lib = ffi.load(package.searchpath('libtestfixture', libpath), true)
 if not lib then
     error('libtestfixture missing')
 end
