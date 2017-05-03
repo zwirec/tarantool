@@ -1,5 +1,3 @@
-local json = require('json')
-local yaml = require('yaml')
 local tap = require('tap')
 
 local test = tap.test("errno")
@@ -20,6 +18,26 @@ local function flatten(arr)
     return result
 end
 
+-- Goal of this routine is to update expected result
+-- to be comparable with expected.
+-- Right now it converts logical values to numbers.
+-- Input must be a table.
+local function fix_result(arr)
+    for i, v in ipairs(arr) do
+	if type(v) == 'table' then
+	    fix_expect(v)
+	else
+	    if type(v) == 'boolean' then
+		if v then
+		    arr[i] = 1
+		else
+		    arr[i] = 0
+		end
+	    end
+	end
+    end
+end
+
 local function finish_test()
     test:check()
     os.exit()
@@ -29,6 +47,8 @@ test.finish_test = finish_test
 local function do_test(self, label, func, expect)
     local ok, result = pcall(func)
     if ok then
+	-- Convert all trues and falses to 1s and 0s
+	fix_result(result)
 	-- If expected result is single line of a form '/ ... /' - then
 	-- search for string in the result
 	if table.getn(expect) == 1
@@ -54,16 +74,15 @@ test.do_test = do_test
 
 local function execsql(self, sql)
     local result = box.sql.execute(sql)
-    -- print(result[1][4])
     if type(result) ~= 'table' then return end
 
-    r = flatten(result)
-    for i, c in ipairs(r) do
+    result = flatten(result)
+    for i, c in ipairs(result) do
 	if c == nil then
-	    r[i] = ""
+	    result[i] = ""
 	end
     end
-    return r
+    return result
 end
 test.execsql = execsql
 
@@ -136,6 +155,26 @@ local function db(cmd, ...)
     end
 end
 test.db = db
+
+local function lsearch(self, input, seed)
+    local result = 0
+
+    local function search(arr)
+	if type(arr) == 'table' then
+	    for _, v in ipairs(arr) do
+		search(v)
+	    end
+	else
+	    if type(arr) == 'string' and arr:find(seed) ~= nil then
+		result = result + 1
+	    end
+	end
+    end
+
+    search(input)
+    return result
+end
+test.lsearch = lsearch
 
 --function capable()
 --    return true
