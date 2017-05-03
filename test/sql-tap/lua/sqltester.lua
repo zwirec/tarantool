@@ -5,20 +5,19 @@ local tap = require('tap')
 local test = tap.test("errno")
 
 local function flatten(arr)
-   local result = { }
+    local result = { }
 
-   local function flatten(arr)
-      for _, v in ipairs(arr) do
-	 if type(v) == "table" then
-	    flatten(v)
-	 else
-	    table.insert(result, v)
-	 end
-      end
-   end
-
-   flatten(arr)
-   return result
+    local function flatten(arr)
+	for _, v in ipairs(arr) do
+	    if type(v) == "table" then
+		flatten(v)
+	    else
+		table.insert(result, v)
+	    end
+	end
+    end
+    flatten(arr)
+    return result
 end
 
 local function finish_test()
@@ -29,27 +28,42 @@ test.finish_test = finish_test
 
 local function do_test(self, label, func, expect)
     local ok, result = pcall(func)
-   if ok then
-      -- do_compare(label, result, expect)
-      self:is_deeply(result, expect, label)
-   else
-       self:fail(label)
-      --io.stderr:write(string.format('%s: ERROR\n', label))
-   end
+    if ok then
+	-- If expected result is single line of a form '/ ... /' - then
+	-- search for string in the result
+	if table.getn(expect) == 1
+	    and string.sub(expect[1], 1, 1) == '/'
+	    and string.sub(expect[1], -1) == '/' then
+	    local exp = expect[1]
+	    local exp_trimmed = string.sub(exp, 2, string.len(exp) - 2)
+	    for _, v in ipairs(result) do
+		if string.find(v, exp_trimmed) then
+		    return test:ok(self, label)
+		end
+	    end
+	    return test:fail(self, label)
+	else
+	    self:is_deeply(result, expect, label)
+	end
+    else
+	self:fail(label)
+       --io.stderr:write(string.format('%s: ERROR\n', label))
+    end
 end
 test.do_test = do_test
 
 local function execsql(self, sql)
-   local result = box.sql.execute(sql)
-   if type(result) ~= 'table' then return end
+    local result = box.sql.execute(sql)
+    -- print(result[1][4])
+    if type(result) ~= 'table' then return end
 
-   r = flatten(result)
-   for i, c in ipairs(r) do
-       if c == nil then
-	   r[i] = ""
-       end
-   end
-   return r
+    r = flatten(result)
+    for i, c in ipairs(r) do
+	if c == nil then
+	    r[i] = ""
+	end
+    end
+    return r
 end
 test.execsql = execsql
 
