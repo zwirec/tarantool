@@ -47,6 +47,7 @@ test.finish_test = finish_test
 local function do_test(self, label, func, expect)
     local ok, result = pcall(func)
     if ok then
+	if result == nil then result = { } end
 	-- Convert all trues and falses to 1s and 0s
 	fix_result(result)
 	-- If expected result is single line of a form '/ ... /' - then
@@ -149,9 +150,9 @@ local function catchsql2(self, sql)
 end
 test.catchsql2 = catchsql2
 
-local function db(cmd, ...)
+local function db(self, cmd, ...)
     if cmd == 'eval' then
-        return box.sql.execute(...)
+        return execsql(self, ...)
     end
 end
 test.db = db
