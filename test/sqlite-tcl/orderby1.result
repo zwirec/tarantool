@@ -1,7 +1,43 @@
+orderby1-1.0... Ok
+orderby1-1.1a... Ok
+orderby1-1.1b... Ok
+orderby1-1.2a... Ok
+orderby1-1.2b... Ok
+orderby1-1.3a... Ok
+orderby1-1.3b... Ok
+orderby1-1.4a... Ok
+orderby1-1.4b... Ok
+orderby1-1.4c... Ok
+orderby1-1.5a... Ok
+orderby1-1.5b... Ok
+orderby1-1.5c... Ok
+orderby1-1.6a... Ok
+orderby1-1.6b... Ok
+orderby1-1.6c... Ok
+orderby1-3.0... Ok
+orderby1-3.1a... Ok
+orderby1-3.1b... Ok
+orderby1-3.2a... Ok
+orderby1-3.2b... Ok
+orderby1-3.3a... Ok
+orderby1-3.3b... Ok
+orderby1-3.4a... Ok
+orderby1-3.4b... Ok
+orderby1-3.4c... Ok
+orderby1-3.5a... Ok
+orderby1-3.5b... Ok
+orderby1-3.5c... Ok
+orderby1-3.6a... Ok
+orderby1-3.6b... Ok
+orderby1-3.6c... Ok
+orderby1-4.0... Ok
+orderby1-5.0... Ok
+orderby1-5.1... Ok
+orderby1-5.2... Ok
+orderby1-5.3... Ok
 orderby1-6.0... Ok
 orderby1-8.0... Ok
-orderby1-8.1...
-Expected: [0 0 0 {SCAN TABLE t1 USING INDEX i1} 0 0 0 {USE TEMP B-TREE FOR RIGHT PART OF ORDER BY}]
-     Got: [0 0 0 {SCAN TABLE t1}]
-1 errors out of 4 tests
-Failures on these tests: orderby1-8.1
+orderby1-8.1... Ok
+orderby1-8.2... Ok
+orderby1-8.3... Ok
+0 errors out of 43 tests

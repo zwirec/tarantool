@@ -278,7 +278,7 @@ outofmem:
 void
 box_lua_sqlite_init(struct lua_State *L)
 {
-	static const struct luaL_reg module_funcs [] = {
+	static const struct luaL_Reg module_funcs [] = {
 		{"execute", lua_sql_execute},
 		{NULL, NULL}
 	};
