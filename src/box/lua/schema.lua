@@ -403,6 +403,7 @@ end
 -- This is the map.
 local index_options = {
     unique = 'boolean',
+    partial = 'boolean',
     dimension = 'number',
     distance = 'string',
     run_count_per_level = 'number',
@@ -499,6 +500,7 @@ box.schema.index.create = function(space_id, name, options)
     local index_opts = {
             dimension = options.dimension,
             unique = options.unique,
+            partial = options.partial,
             distance = options.distance,
             page_size = options.page_size,
             range_size = options.range_size,

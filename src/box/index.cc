@@ -80,8 +80,8 @@ key_validate(struct index_def *index_def, enum iterator_type type, const char *k
 		}
 		if (part_count == 1) {
 			enum mp_type mp_type = mp_typeof(*key);
-			if (key_mp_type_validate(FIELD_TYPE_ARRAY, mp_type,
-						 ER_KEY_PART_TYPE, 0))
+			if (key_mp_type_validate(FIELD_TYPE_ARRAY, false,
+						 mp_type, ER_KEY_PART_TYPE, 0))
 				return -1;
 			uint32_t array_size = mp_decode_array(&key);
 			if (array_size != d && array_size != d * 2) {
@@ -93,7 +93,7 @@ key_validate(struct index_def *index_def, enum iterator_type type, const char *k
 				enum mp_type mp_type = mp_typeof(*key);
 				mp_next(&key);
 				if (key_mp_type_validate(FIELD_TYPE_NUMBER,
-							 mp_type,
+							 false, mp_type,
 							 ER_KEY_PART_TYPE, 0))
 					return -1;
 			}
@@ -102,7 +102,7 @@ key_validate(struct index_def *index_def, enum iterator_type type, const char *k
 				enum mp_type mp_type = mp_typeof(*key);
 				mp_next(&key);
 				if (key_mp_type_validate(FIELD_TYPE_NUMBER,
-							 mp_type,
+							 false, mp_type,
 							 ER_KEY_PART_TYPE,
 							 part))
 					return -1;

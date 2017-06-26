@@ -51,6 +51,7 @@ tuple_format_create(struct tuple_format *format, struct key_def **keys,
 	for (uint32_t i = 0; i < format->field_count; i++) {
 		format->fields[i].type = FIELD_TYPE_ANY;
 		format->fields[i].offset_slot = TUPLE_OFFSET_SLOT_NIL;
+		format->fields[i].is_partial = false;
 	}
 
 	int current_slot = 0;
@@ -105,6 +106,40 @@ tuple_format_create(struct tuple_format *format, struct key_def **keys,
 	}
 	format->field_map_size = field_map_size;
 	return 0;
+}
+
+/**
+ * Set some fields as is_partial if they participate only in partial indexes.
+ * Is necessary to call after creating a new format in case when there are
+ * partial indexes, not necessary otherwise.
+ * @param format - format to setup.
+ * @param key_list - list of index_defs under consideration.
+ */
+void
+tuple_format_setup_partial(struct tuple_format *format, struct rlist *key_list)
+{
+	struct index_def *index_def;
+	/* Set the flag for all fields that participates in partial indexes. */
+	rlist_foreach_entry(index_def, key_list, link) {
+		if (!index_def->opts.is_partial)
+			continue;
+		for (uint32_t i = 0; i < index_def->key_def.part_count; i++) {
+			uint32_t fieldno = index_def->key_def.parts[i].fieldno;
+			format->fields[fieldno].is_partial = true;
+		}
+	}
+	/*
+	 * Clear back the flag for all fields that doesn't participate
+	 * in partial indexes.
+	 */
+	rlist_foreach_entry(index_def, key_list, link) {
+		if (index_def->opts.is_partial)
+			continue;
+		for (uint32_t i = 0; i < index_def->key_def.part_count; i++) {
+			uint32_t fieldno = index_def->key_def.parts[i].fieldno;
+			format->fields[fieldno].is_partial = false;
+		}
+	}
 }
 
 static int
@@ -171,7 +206,7 @@ tuple_format_alloc(struct key_def **keys, uint16_t key_count)
 	uint32_t total = sizeof(struct tuple_format) +
 			 field_count * sizeof(struct tuple_field_format);
 
-	struct tuple_format *format = (struct tuple_format *) malloc(total);
+	struct tuple_format *format = (struct tuple_format *) calloc(1, total);
 	if (format == NULL) {
 		diag_set(OutOfMemory, sizeof(struct tuple_format), "malloc",
 			 "tuple format");
@@ -262,14 +297,16 @@ tuple_init_field_map(const struct tuple_format *format, uint32_t *field_map,
 
 	/* first field is simply accessible, so we do not store offset to it */
 	enum mp_type mp_type = mp_typeof(*pos);
-	if (key_mp_type_validate(format->fields[0].type, mp_type, ER_FIELD_TYPE,
-				 TUPLE_INDEX_BASE))
+	if (key_mp_type_validate(format->fields[0].type,
+				 format->fields[0].is_partial,
+				 mp_type, ER_FIELD_TYPE, TUPLE_INDEX_BASE))
 		return -1;
 	mp_next(&pos);
 	/* other fields...*/
 	for (uint32_t i = 1; i < format->field_count; i++) {
 		mp_type = mp_typeof(*pos);
-		if (key_mp_type_validate(format->fields[i].type, mp_type,
+		if (key_mp_type_validate(format->fields[i].type,
+					 format->fields[i].is_partial, mp_type,
 					 ER_FIELD_TYPE, i + TUPLE_INDEX_BASE))
 			return -1;
 		if (format->fields[i].offset_slot != TUPLE_OFFSET_SLOT_NIL)

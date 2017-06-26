@@ -81,6 +81,13 @@ struct tuple_field_format {
 	 */
 	enum field_type type;
 	/**
+	 * The field participates only in partial indexes.
+	 * Thus the field is allowed to be NULL (in msgpack terms),
+	 * and that NULL has a special meaning - the tuple is not to
+	 * be inserted into index.
+	 */
+	bool is_partial;
+	/**
 	 * Offset slot in field map in tuple.
 	 * Normally tuple stores field map - offsets of all fields
 	 * participating in indexes. This allows quick access to most
@@ -197,6 +204,16 @@ tuple_format_ref(struct tuple_format *format, int count)
 struct tuple_format *
 tuple_format_new(struct tuple_format_vtab *vtab, struct key_def **keys,
 		 uint16_t key_count, uint16_t extra_size);
+
+/**
+ * Set some fields as is_partial if they participate only in partial indexes.
+ * Is necessary to call after creating a new format in case when there are
+ * partial indexes, not necessary otherwise.
+ * @param format - format to setup.
+ * @param key_list - list of index_defs under consideration.
+ */
+void
+tuple_format_setup_partial(struct tuple_format *format, struct rlist *key_list);
 
 /**
  * Register the duplicate of the specified format.

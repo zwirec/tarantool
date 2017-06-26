@@ -187,6 +187,11 @@ struct index_opts {
 	 */
 	bool is_unique;
 	/**
+	 * Is partial - allow tuples to have box.NULL in the index part
+	 * fields and skip those tuple in the index.
+	 */
+	bool is_partial;
+	/**
 	 * RTREE index dimension.
 	 */
 	int64_t dimension;
@@ -227,6 +232,8 @@ index_opts_cmp(const struct index_opts *o1, const struct index_opts *o2)
 {
 	if (o1->is_unique != o2->is_unique)
 		return o1->is_unique < o2->is_unique ? -1 : 1;
+	if (o1->is_partial != o2->is_partial)
+		return o1->is_partial < o2->is_partial ? -1 : 1;
 	if (o1->dimension != o2->dimension)
 		return o1->dimension < o2->dimension ? -1 : 1;
 	if (o1->distance != o2->distance)
@@ -652,19 +659,23 @@ extern const uint32_t key_mp_type[];
 
 /**
  * @brief Checks if \a field_type (MsgPack) is compatible \a type (KeyDef).
- * @param type KeyDef type
- * @param field_type MsgPack type
+ * @param key_type KeyDef type
+ * @param allow_nil - is true when mp_type is allowed to be MP_NIL
+ * @param mp_type MsgPack type
+ * @param err - error code to be (diag) set if an error occurs
  * @param field_no - a field number (is used to store an error message)
  *
  * @retval 0  mp_type is valid.
  * @retval -1 mp_type is invalid.
  */
 static inline int
-key_mp_type_validate(enum field_type key_type, enum mp_type mp_type,
-	       int err, uint32_t field_no)
+key_mp_type_validate(enum field_type key_type, bool allow_nil,
+		     enum mp_type mp_type, int err, uint32_t field_no)
 {
 	assert(key_type < field_type_MAX);
 	assert((size_t) mp_type < CHAR_BIT * sizeof(*key_mp_type));
+	if (allow_nil && mp_type == MP_NIL)
+		return 0;
 	if (unlikely((key_mp_type[key_type] & (1U << mp_type)) == 0)) {
 		diag_set(ClientError, err, field_no, field_type_strs[key_type]);
 		return -1;

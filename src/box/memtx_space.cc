@@ -108,6 +108,23 @@ memtx_replace_primary_key(struct txn_stmt *stmt, struct space *space,
 	stmt->bsize_change = space_bsize_update(space, stmt->old_tuple, stmt->new_tuple);
 }
 
+static void
+secondary_index_replace(Index *index,
+			struct tuple *old_tuple, struct tuple *new_tuple)
+{
+	if (index->index_def->opts.is_partial) {
+		if (old_tuple != NULL &&
+		    tuple_is_patrial(old_tuple, &index->index_def->key_def))
+			old_tuple = NULL;
+		if (new_tuple != NULL &&
+		    tuple_is_patrial(new_tuple, &index->index_def->key_def))
+			new_tuple = NULL;
+		if (old_tuple == NULL && new_tuple == NULL)
+			return;
+	}
+	index->replace(old_tuple, new_tuple, DUP_INSERT);
+}
+
 /**
  * @brief A single method to handle REPLACE, DELETE and UPDATE.
  *
@@ -210,6 +227,7 @@ memtx_replace_all_keys(struct txn_stmt *stmt, struct space *space,
 		/* Update the primary key */
 		Index *pk = index_find_xc(space, 0);
 		assert(pk->index_def->opts.is_unique);
+		assert(!pk->index_def->opts.is_partial);
 		/*
 		 * If old_tuple is not NULL, the index
 		 * has to find and delete it, or raise an
@@ -221,13 +239,13 @@ memtx_replace_all_keys(struct txn_stmt *stmt, struct space *space,
 		/* Update secondary keys. */
 		for (i++; i < space->index_count; i++) {
 			Index *index = space->index[i];
-			index->replace(old_tuple, new_tuple, DUP_INSERT);
+			secondary_index_replace(index, old_tuple, new_tuple);
 		}
 	} catch (Exception *e) {
 		/* Rollback all changes */
 		for (; i > 0; i--) {
 			Index *index = space->index[i-1];
-			index->replace(new_tuple, old_tuple, DUP_INSERT);
+			secondary_index_replace(index, new_tuple, old_tuple);
 		}
 		throw;
 	}

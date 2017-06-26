@@ -137,6 +137,8 @@ space_new(struct space_def *def, struct rlist *key_list)
 	space->format = tuple_format_new(engine->format, keys, index_count, 0);
 	if (space->format == NULL)
 		diag_raise();
+	tuple_format_setup_partial(space->format, key_list);
+
 	tuple_format_ref(space->format, 1);
 	space->format->exact_field_count = def->exact_field_count;
 	/* init space engine instance */

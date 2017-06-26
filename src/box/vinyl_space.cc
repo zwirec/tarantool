@@ -164,6 +164,12 @@ VinylSpace::checkIndexDef(struct space *space, struct index_def *index_def)
 		          index_def->name,
 			  space_name(space));
 	}
+	if (index_def->opts.is_partial) {
+		tnt_raise(ClientError, ER_MODIFY_INDEX,
+			  index_def->name,
+			  space_name(space),
+			  "Vinyl index cannot be partial");
+	}
 }
 
 Index *

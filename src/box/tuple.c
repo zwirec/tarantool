@@ -67,6 +67,7 @@ tuple_validate_raw(struct tuple_format *format, const char *tuple)
 	/* Check field types */
 	for (uint32_t i = 0; i < format->field_count; i++) {
 		if (key_mp_type_validate(format->fields[i].type,
+					 format->fields[i].is_partial,
 					 mp_typeof(*tuple), ER_FIELD_TYPE,
 					 i + TUPLE_INDEX_BASE))
 			return -1;
@@ -304,6 +305,30 @@ tuple_extract_key_set(struct key_def *key_def)
 		key_def->tuple_extract_key = tuple_extract_key_slowpath;
 		key_def->tuple_extract_key_raw = tuple_extract_key_slowpath_raw;
 	}
+}
+
+/**
+ * Check that the tuple is partial - one of its key fields is NULL (MP_NIL).
+ * @param tuple - tuple to check
+ * @param key_def - key definition that describes set of fields
+ * @return true if the key is partial (contains NULLs), false otherwise.
+ */
+bool
+tuple_is_patrial(const struct tuple *tuple, const struct key_def *key_def)
+{
+	const char *field = NULL;
+	uint32_t prev_field_no = 0;
+	for (uint32_t i = 0; i < key_def->part_count; i++) {
+		uint32_t field_no = key_def->parts[i].fieldno;
+		if (field != NULL && field_no == prev_field_no + 1)
+			mp_next(&field);
+		else
+			field = tuple_field(tuple, field_no);
+		prev_field_no = field_no;
+		if (mp_typeof(*field) == MP_NIL)
+			return true;
+	}
+	return false;
 }
 
 void

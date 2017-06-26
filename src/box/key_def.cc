@@ -113,6 +113,7 @@ const char *opt_type_strs[] = {
 
 const struct index_opts index_opts_default = {
 	/* .unique              = */ true,
+	/* .is_partial		= */ false,
 	/* .dimension           = */ 2,
 	/* .distancebuf         = */ { '\0' },
 	/* .distance            = */ RTREE_INDEX_DISTANCE_TYPE_EUCLID,
@@ -126,6 +127,7 @@ const struct index_opts index_opts_default = {
 
 const struct opt_def index_opts_reg[] = {
 	OPT_DEF("unique", OPT_BOOL, struct index_opts, is_unique),
+	OPT_DEF("partial", OPT_BOOL, struct index_opts, is_partial),
 	OPT_DEF("dimension", OPT_INT, struct index_opts, dimension),
 	OPT_DEF("distance", OPT_STR, struct index_opts, distancebuf),
 	OPT_DEF("range_size", OPT_INT, struct index_opts, range_size),
@@ -325,6 +327,7 @@ index_def_change_requires_rebuild(struct index_def *old_index_def,
 	if (old_index_def->iid != new_index_def->iid ||
 	    old_index_def->type != new_index_def->type ||
 	    old_index_def->opts.is_unique != new_index_def->opts.is_unique ||
+	    old_index_def->opts.is_partial != new_index_def->opts.is_partial ||
 	    key_part_cmp(old_index_def->key_def.parts,
 			 old_index_def->key_def.part_count,
 			 new_index_def->key_def.parts,
@@ -387,6 +390,12 @@ index_def_check(struct index_def *index_def, const char *space_name)
 			  index_def->name,
 			  space_name,
 			  "primary key must be unique");
+	}
+	if (index_def->iid == 0 && index_def->opts.is_partial == true) {
+		tnt_raise(ClientError, ER_MODIFY_INDEX,
+			  index_def->name,
+			  space_name,
+			  "primary key must not be partial");
 	}
 	if (index_def->key_def.part_count == 0) {
 		tnt_raise(ClientError, ER_MODIFY_INDEX,
@@ -623,8 +632,8 @@ key_validate_parts(struct key_def *key_def, const char *key,
 		enum mp_type mp_type = mp_typeof(*key);
 		mp_next(&key);
 
-		if (key_mp_type_validate(key_def->parts[part].type, mp_type,
-					 ER_KEY_PART_TYPE, part))
+		if (key_mp_type_validate(key_def->parts[part].type, false,
+					 mp_type, ER_KEY_PART_TYPE, part))
 			return -1;
 	}
 	return 0;

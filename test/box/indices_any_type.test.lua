@@ -134,3 +134,157 @@ s5:select()
 s5:truncate()
 
 s5:drop()
+
+-- partial index
+-- tree index
+s = box.schema.space.create('test')
+i1 = s:create_index('i1', {type = 'tree', parts = {1, 'uint'}, partial = true}) -- error
+i1 = s:create_index('i1', {type = 'hash', parts = {1, 'uint'}, partial = true}) -- error
+i1 = s:create_index('i1', {type = 'tree', parts = {1, 'uint'}})
+i2 = s:create_index('i2', {type = 'tree', parts = {2, 'uint'}, partial = true})
+
+s:insert{1, 2}
+s:insert{4, 3}
+s:insert{8, 0}
+i2:select{}
+i2:select{2}
+i2:select{3}
+i2:select{0}
+
+s:replace{box.NULL, 0} -- error
+s:replace{8, box.NULL, 18}
+
+i1:select{}
+i2:select{}
+i2:select{2}
+i2:select{3}
+i2:select{0}
+
+s:replace{9, box.NULL, 19 }
+i1:select{}
+i2:select{}
+
+s:delete{1}
+s:delete{8}
+i1:select{}
+i2:select{}
+collectgarbage('collect')
+i1:select{}
+i2:select{}
+
+s:drop()
+
+-- hash index
+s = box.schema.space.create('test')
+i1 = s:create_index('i1', {type = 'tree', parts = {1, 'uint'}})
+i2 = s:create_index('i2', {type = 'hash', parts = {2, 'uint'}, partial = true})
+
+s:insert{1, 2}
+s:insert{4, 3}
+s:insert{8, 0}
+i2:select{}
+i2:select{2}
+i2:select{3}
+i2:select{0}
+
+s:replace{8, box.NULL, 18}
+
+i1:select{}
+i2:select{}
+i2:select{2}
+i2:select{3}
+i2:select{0}
+
+s:replace{9, box.NULL, 19 }
+i1:select{}
+i2:select{}
+
+s:delete{1}
+s:delete{8}
+i1:select{}
+i2:select{}
+collectgarbage('collect')
+i1:select{}
+i2:select{}
+
+s:drop()
+
+-- rtree index
+s = box.schema.space.create('test')
+i1 = s:create_index('i1', {type = 'tree', parts = {1, 'uint'}})
+i2 = s:create_index('i2', {type = 'rtree', parts = {2, 'array'}, partial = true})
+
+s:insert{1, box.NULL, 2}
+s:insert{2, {1, 1, 2, 2}, 3}
+s:insert{3, box.NULL, 4}
+s:insert{4, {2, 2, 3, 3}, 5}
+
+i1:select{}
+i2:select{}
+i2:select{1, 1, 2, 2}
+
+s:delete{1}
+s:delete{2}
+
+i1:select{}
+i2:select{}
+
+s:drop()
+
+-- bitset index
+s = box.schema.space.create('test')
+i1 = s:create_index('i1', {type = 'tree', parts = {1, 'uint'}})
+i2 = s:create_index('i2', {type = 'bitset', parts = {2, 'uint'}, partial = true})
+
+s:insert{1, box.NULL, 2}
+s:insert{2, 1, 3}
+s:insert{3, box.NULL, 4}
+s:insert{4, 3, 5}
+
+i1:select{}
+i2:select{}
+i2:select{1}
+
+s:delete{1}
+s:delete{2}
+
+i1:select{}
+i2:select{}
+i2:select{1}
+
+s:drop()
+
+-- several indexes
+s = box.schema.space.create('test')
+i1 = s:create_index('i1', {type = 'tree', parts = {1, 'uint', 2, 'uint'}})
+i2 = s:create_index('i2', {type = 'tree', parts = {2, 'uint', 3, 'uint'}, partial = true})
+i3 = s:create_index('i3', {type = 'tree', parts = {5, 'uint'}, unique = false})
+i4 = s:create_index('i4', {type = 'tree', parts = {3, 'uint', 4, 'uint', 5, 'uint'}, partial = true})
+
+s:insert{1, 2, 3, 4, 5 }
+s:insert{2, box.NULL, 4, 5, 6} -- fail
+s:insert{3, 4, box.NULL, 6, 7} -- ok
+s:insert{4, 5, 6, box.NULL, 7} -- ok
+s:insert{6, 7, 8, 9, box.NULL, 11} -- fail
+
+i1:select{}
+i2:select{}
+i3:select{}
+i4:select{}
+
+s:delete{1, 2}
+s:delete{3, 4}
+
+i1:select{}
+i2:select{}
+i3:select{}
+i4:select{}
+
+s:drop()
+
+-- vinyl
+s = box.schema.space.create('test', {engine = 'vinyl'})
+i1 = s:create_index('i1', {type = 'tree', parts = {1, 'uint'}})
+i2 = s:create_index('i2', {type = 'hash', parts = {2, 'uint'}, partial = true})
+s:drop()
+

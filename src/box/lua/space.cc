@@ -174,6 +174,9 @@ lbox_fillspace(struct lua_State *L, struct space *space, int i)
 			lua_setfield(L, -2, "dimension");
 		}
 
+		lua_pushboolean(L, index_def->opts.is_partial);
+		lua_setfield(L, -2, "partial");
+
 		lua_pushstring(L, index_type_strs[index_def->type]);
 		lua_setfield(L, -2, "type");
 

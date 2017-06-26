@@ -594,15 +594,16 @@ s.index.pk:alter({parts={1, 'num', 2, 'num'}})
 s.index.pk
 ---
 - unique: true
+  partial: false
+  id: 0
+  type: TREE
   parts:
   - type: unsigned
     fieldno: 1
   - type: unsigned
     fieldno: 2
-  id: 0
-  space_id: 731
   name: pk
-  type: TREE
+  space_id: 731
 ...
 s:select{}
 ---
@@ -625,24 +626,26 @@ s:select{}
 s.index.pk
 ---
 - unique: true
+  partial: false
+  id: 0
+  type: TREE
   parts:
   - type: unsigned
     fieldno: 1
-  id: 0
-  space_id: 731
   name: pk
-  type: TREE
+  space_id: 731
 ...
 s.index.secondary
 ---
 - unique: true
+  partial: false
+  id: 1
+  type: TREE
   parts:
   - type: unsigned
     fieldno: 2
-  id: 1
-  space_id: 731
   name: secondary
-  type: TREE
+  space_id: 731
 ...
 s.index.secondary:select{}
 ---

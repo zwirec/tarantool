@@ -381,6 +381,15 @@ tuple_extract_key_raw(const char *data, const char *data_end,
 }
 
 /**
+ * Check that the tuple is partial - one of its key fields is NULL (MP_NIL).
+ * @param tuple - tuple to check
+ * @param key_def - key definition that describes set of fields
+ * @return true if the key is partial (contains NULLs), false otherwise.
+ */
+bool
+tuple_is_patrial(const struct tuple *tuple, const struct key_def *key_def);
+
+/**
  * Get the format of the tuple.
  * @param tuple Tuple.
  * @retval Tuple format instance.
