@@ -464,13 +464,16 @@ tuple_format(const struct tuple *tuple)
 /**
  * Return extra data saved in tuple metadata.
  * @param tuple tuple
+ * @param field a field to retrieve
  * @return a pointer to extra data saved in tuple metadata.
  */
-static inline const char *
-tuple_extra(const struct tuple *tuple)
+static inline const void *
+tuple_extra(const struct tuple *tuple, enum tuple_format_extra field)
 {
 	struct tuple_format *format = tuple_format(tuple);
-	return tuple_data(tuple) - tuple_format_meta_size(format);
+	assert(format->extra_mask & (1ull << field));
+	return tuple_data(tuple) - tuple_format_meta_size(format) +
+	       format->extra_offsets[field];
 }
 
 /**

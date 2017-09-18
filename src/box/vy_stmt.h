@@ -173,19 +173,14 @@ vy_stmt_set_type(struct tuple *stmt, enum iproto_type type)
 static inline uint8_t
 vy_stmt_n_upserts(const struct tuple *stmt)
 {
-	assert(tuple_format(stmt)->extra_size == sizeof(uint8_t));
-	return *((const uint8_t *) tuple_extra(stmt));
+	return *((const uint8_t *) tuple_extra(stmt, FMT_EXT_N_UPSERTS));
 }
 
 /** Set upserts count of the vinyl statement. */
 static inline void
 vy_stmt_set_n_upserts(struct tuple *stmt, uint8_t n)
 {
-	struct tuple_format *format = tuple_format(stmt);
-	assert(format->extra_size == sizeof(uint8_t));
-	char *extra = (char *) stmt + stmt->data_offset -
-		      tuple_format_meta_size(format);
-	*((uint8_t *) extra) = n;
+	* (uint8_t *) tuple_extra(stmt, FMT_EXT_N_UPSERTS) = n;
 }
 
 /** Get the column mask of the specified tuple. */
@@ -195,9 +190,9 @@ vy_stmt_column_mask(const struct tuple *tuple)
 	enum iproto_type type = vy_stmt_type(tuple);
 	assert(type == IPROTO_REPLACE || type == IPROTO_DELETE);
 	(void) type;
-	if (tuple_format(tuple)->extra_size == sizeof(uint64_t)) {
+	if (tuple_format(tuple)->extra_mask & FMT_EXT_MASK_COLUMN_MASK) {
 		/* Tuple has column mask */
-		const char *extra = tuple_extra(tuple);
+		const void *extra = tuple_extra(tuple, FMT_EXT_COLUMN_MASK);
 		return load_u64(extra);
 	}
 	return UINT64_MAX; /* return default value */
@@ -213,9 +208,8 @@ vy_stmt_set_column_mask(struct tuple *tuple, uint64_t column_mask)
 {
 	enum iproto_type type = vy_stmt_type(tuple);
 	assert(type == IPROTO_REPLACE || type == IPROTO_DELETE);
-	assert(tuple_format(tuple)->extra_size == sizeof(uint64_t));
 	(void) type;
-	char *extra = (char *) tuple_extra(tuple);
+	void *extra = (void *) tuple_extra(tuple, FMT_EXT_COLUMN_MASK);
 	store_u64(extra, column_mask);
 }
 
@@ -539,7 +533,7 @@ vy_upsert_data_range(const struct tuple *tuple, uint32_t *p_size)
 {
 	assert(vy_stmt_type(tuple) == IPROTO_UPSERT);
 	/* UPSERT must have the n_upserts field. */
-	assert(tuple_format(tuple)->extra_size == sizeof(uint8_t));
+	assert(tuple_format(tuple)->extra_mask & FMT_EXT_MASK_N_UPSERTS);
 	const char *mp = tuple_data(tuple);
 	assert(mp_typeof(*mp) == MP_ARRAY);
 	const char *mp_end = mp;

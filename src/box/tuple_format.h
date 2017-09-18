@@ -40,6 +40,29 @@ extern "C" {
 #endif /* defined(__cplusplus) */
 
 /**
+ * Fixed size optional tuple fields.
+ */
+enum tuple_format_extra {
+	/*
+	 * sic:
+	 * If one change the order of these constants, he must change
+	 * fmt_ext_size array definition in tuple_format.cc appropriately.
+	 */
+	/** Column mask (uint64_t) */
+	FMT_EXT_COLUMN_MASK = 0,
+	/* Size of upsert stack (uint8_t) */
+	FMT_EXT_N_UPSERTS = 1,
+	/* Count of constants above */
+	FMT_EXT_MAX = 2
+};
+
+/**
+ * Bit masks that corresponds to all extra fields.
+ */
+static const uint64_t FMT_EXT_MASK_COLUMN_MASK = 1ull << FMT_EXT_COLUMN_MASK;
+static const uint64_t FMT_EXT_MASK_N_UPSERTS = 1ull << FMT_EXT_N_UPSERTS;
+
+/**
  * Destroy tuple format subsystem and free resourses
  */
 void
@@ -82,12 +105,16 @@ struct tuple_format {
 	uint16_t id;
 	/** Reference counter */
 	int refs;
+	/** Mask of extra tuple fields. */
+	uint64_t extra_mask;
 	/**
 	 * The number of extra bytes to reserve in tuples before
 	 * field map.
 	 * \sa struct tuple
 	 */
 	uint16_t extra_size;
+	/** Offsets of extra fields starting from extra region */
+	uint16_t extra_offsets[FMT_EXT_MAX];
 	/**
 	 * Size of field map of tuple in bytes.
 	 * \sa struct tuple
@@ -106,7 +133,7 @@ struct tuple_format {
 
 extern struct tuple_format **tuple_formats;
 
-static inline uint32_t
+static inline uint16_t
 tuple_format_id(const struct tuple_format *format)
 {
 	assert(tuple_formats[format->id] == format);
@@ -143,7 +170,8 @@ tuple_format_unref(struct tuple_format *format)
  * @param vtab Virtual function table for specific engines.
  * @param keys Array of key_defs of a space.
  * @param key_count The number of keys in @a keys array.
- * @param extra_size Extra bytes to reserve in tuples metadata.
+ * @param extra_fields_mask Bitmask of extra tuple fields.
+ *  @sa enum tuple_format_extra
  * @param space_fields Array of fields, defined in a space format.
  * @param space_field_count Length of @a space_fields.
  *
@@ -152,7 +180,7 @@ tuple_format_unref(struct tuple_format *format)
  */
 struct tuple_format *
 tuple_format_new(struct tuple_format_vtab *vtab, struct key_def **keys,
-		 uint16_t key_count, uint16_t extra_size,
+		 uint16_t key_count, uint64_t extra_fields_mask,
 		 struct field_def *space_fields, uint32_t space_field_count);
 
 /**
@@ -172,6 +200,14 @@ tuple_format_eq(const struct tuple_format *a, const struct tuple_format *b);
  */
 struct tuple_format *
 tuple_format_dup(const struct tuple_format *src);
+
+/**
+ * Set extra_mask field of a format and recalculate dependent fields.
+ * @param fmt format.
+ * @param extra_mask new extra_mask.
+ */
+void
+tuple_format_set_extra_mask(struct tuple_format *fmt, uint64_t extra_mask);
 
 /**
  * Returns the total size of tuple metadata of this format.

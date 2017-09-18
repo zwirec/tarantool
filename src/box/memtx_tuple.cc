@@ -134,7 +134,7 @@ memtx_tuple_new(struct tuple_format *format, const char *data, const char *end)
 	tuple->format_id = tuple_format_id(format);
 	tuple_format_ref(format);
 	/*
-	 * Data offset is calculated from the begin of the struct
+	 * Data offset is calculated from the beginning of the struct
 	 * tuple base, not from memtx_tuple, because the struct
 	 * tuple is not the first field of the memtx_tuple.
 	 */

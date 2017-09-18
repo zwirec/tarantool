@@ -29,12 +29,21 @@
  * SUCH DAMAGE.
  */
 #include "tuple_format.h"
+#include "trivia/util.h"
 
 /** Global table of tuple formats */
 struct tuple_format **tuple_formats;
 static intptr_t recycled_format_ids = FORMAT_ID_NIL;
 
 static uint32_t formats_size = 0, formats_capacity = 0;
+
+/**
+ * Sizes of all possible tuple extra fields.
+ */
+static const uint16_t format_extra_sizes[] = {8, 1};
+static_assert(FMT_EXT_MAX ==
+	      sizeof(format_extra_sizes) / sizeof(format_extra_sizes[0]),
+	      "Wrong fmt_ext_size size");
 
 /**
  * Extract all available type info from keys and field
@@ -214,9 +223,24 @@ tuple_format_delete(struct tuple_format *format)
 	free(format);
 }
 
+void
+tuple_format_set_extra_mask(struct tuple_format *fmt, uint64_t extra_mask)
+{
+	fmt->extra_size = 0;
+	fmt->extra_mask = extra_mask;
+	for (uint64_t i = 0; i < FMT_EXT_MAX; i++) {
+		if (fmt->extra_mask & (1ull << i)) {
+			fmt->extra_offsets[i] = fmt->extra_size;
+			fmt->extra_size += format_extra_sizes[i];
+		} else {
+			fmt->extra_offsets[i] = UINT16_MAX;
+		}
+	}
+}
+
 struct tuple_format *
 tuple_format_new(struct tuple_format_vtab *vtab, struct key_def **keys,
-		 uint16_t key_count, uint16_t extra_size,
+		 uint16_t key_count, uint64_t extra_mask,
 		 struct field_def *space_fields, uint32_t space_field_count)
 {
 	struct tuple_format *format =
@@ -225,7 +249,7 @@ tuple_format_new(struct tuple_format_vtab *vtab, struct key_def **keys,
 	if (format == NULL)
 		return NULL;
 	format->vtab = *vtab;
-	format->extra_size = extra_size;
+	tuple_format_set_extra_mask(format, extra_mask);
 	if (tuple_format_register(format) < 0) {
 		tuple_format_delete(format);
 		return NULL;
