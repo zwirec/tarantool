@@ -50,17 +50,23 @@ enum tuple_format_extra {
 	 */
 	/** Column mask (uint64_t) */
 	FMT_EXT_COLUMN_MASK = 0,
+	/** Lsn of a statement */
+	FMT_EXT_LSN = 1,
 	/* Size of upsert stack (uint8_t) */
-	FMT_EXT_N_UPSERTS = 1,
+	FMT_EXT_N_UPSERTS = 2,
+	/* Type of a statement (uint8_t): IPROTO_SELECT/REPLACE/UPSERT/DELETE */
+	FMT_EXT_STMT_TYPE = 3,
 	/* Count of constants above */
-	FMT_EXT_MAX = 2
+	FMT_EXT_MAX = 4
 };
 
 /**
  * Bit masks that corresponds to all extra fields.
  */
 static const uint64_t FMT_EXT_MASK_COLUMN_MASK = 1ull << FMT_EXT_COLUMN_MASK;
+static const uint64_t FMT_EXT_MASK_LSN = 1ull << FMT_EXT_LSN;
 static const uint64_t FMT_EXT_MASK_N_UPSERTS = 1ull << FMT_EXT_N_UPSERTS;
+static const uint64_t FMT_EXT_MASK_STMT_TYPE = 1ull << FMT_EXT_STMT_TYPE;
 
 /**
  * Destroy tuple format subsystem and free resourses

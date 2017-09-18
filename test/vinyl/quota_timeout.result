@@ -49,7 +49,7 @@ s:count()
 ...
 box.info.vinyl().memory.used
 ---
-- 748241
+- 748228
 ...
 -- Since the following operation requires more memory than configured
 -- and dump is disabled, it should fail with ER_VY_QUOTA_TIMEOUT.
@@ -63,7 +63,7 @@ s:count()
 ...
 box.info.vinyl().memory.used
 ---
-- 748241
+- 748228
 ...
 s:drop()
 ---
@@ -95,7 +95,7 @@ _ = s1:auto_increment{}
 ...
 box.info.vinyl().memory.used
 ---
-- 49186
+- 49173
 ...
 pad = string.rep('x', box.cfg.vinyl_memory)
 ---

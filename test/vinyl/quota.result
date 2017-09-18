@@ -31,7 +31,7 @@ space:insert({1, 1})
 ...
 box.info.vinyl().memory.used
 ---
-- 98343
+- 98330
 ...
 space:insert({1, 1})
 ---
@@ -39,7 +39,7 @@ space:insert({1, 1})
 ...
 box.info.vinyl().memory.used
 ---
-- 98343
+- 98330
 ...
 space:update({1}, {{'!', 1, 100}}) -- try to modify the primary key
 ---
@@ -47,7 +47,7 @@ space:update({1}, {{'!', 1, 100}}) -- try to modify the primary key
 ...
 box.info.vinyl().memory.used
 ---
-- 98343
+- 98330
 ...
 space:insert({2, 2})
 ---
@@ -63,7 +63,7 @@ space:insert({4, 4})
 ...
 box.info.vinyl().memory.used
 ---
-- 98460
+- 98408
 ...
 box.snapshot()
 ---
@@ -89,7 +89,7 @@ _ = space:replace{1, 1, string.rep('a', 1024 * 1024 * 5)}
 ...
 box.info.vinyl().memory.used
 ---
-- 5341228
+- 5341215
 ...
 space:drop()
 ---

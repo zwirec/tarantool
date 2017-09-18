@@ -47,7 +47,6 @@ extern "C" {
 #endif /* defined(__cplusplus) */
 
 struct vy_mem;
-struct vy_stmt;
 struct lsregion;
 
 /** @cond false */

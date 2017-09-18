@@ -126,7 +126,8 @@ VinylEngine::createSpace(struct rlist *key_list, struct field_def *fields,
 			keys[key_no++] = index_def->key_def;
 
 	struct tuple_format *format =
-		tuple_format_new(&vy_tuple_format_vtab, keys, index_count, 0,
+		tuple_format_new(&vy_tuple_format_vtab, keys, index_count,
+				 FMT_EXT_MASK_LSN | FMT_EXT_MASK_STMT_TYPE,
 				 fields, field_count);
 	if (format == NULL)
 		diag_raise();

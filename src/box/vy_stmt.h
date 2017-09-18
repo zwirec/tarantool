@@ -124,8 +124,6 @@ vy_stmt_env_destroy(struct vy_stmt_env *env);
  */
 struct vy_stmt {
 	struct tuple base;
-	int64_t lsn;
-	uint8_t  type; /* IPROTO_SELECT/REPLACE/UPSERT/DELETE */
 	/**
 	 * Number of UPSERT statements for the same key preceding
 	 * this statement. Used to trigger upsert squashing in the
@@ -145,28 +143,29 @@ struct vy_stmt {
 static inline int64_t
 vy_stmt_lsn(const struct tuple *stmt)
 {
-	return ((const struct vy_stmt *) stmt)->lsn;
+	return load_u64(tuple_extra(stmt, FMT_EXT_LSN));
 }
 
 /** Set LSN of the vinyl statement. */
 static inline void
 vy_stmt_set_lsn(struct tuple *stmt, int64_t lsn)
 {
-	((struct vy_stmt *) stmt)->lsn = lsn;
+	store_u64((void *)tuple_extra(stmt, FMT_EXT_LSN), lsn);
 }
 
 /** Get type of the vinyl statement. */
 static inline enum iproto_type
 vy_stmt_type(const struct tuple *stmt)
 {
-	return (enum iproto_type)((const struct vy_stmt *) stmt)->type;
+	uint8_t t = *((const uint8_t *) tuple_extra(stmt, FMT_EXT_STMT_TYPE));
+	return (enum iproto_type)t;
 }
 
 /** Set type of the vinyl statement. */
 static inline void
 vy_stmt_set_type(struct tuple *stmt, enum iproto_type type)
 {
-	((struct vy_stmt *) stmt)->type = type;
+	* (uint8_t *) tuple_extra(stmt, FMT_EXT_STMT_TYPE) = type;
 }
 
 /** Get upserts count of the vinyl statement. */
