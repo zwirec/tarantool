@@ -272,3 +272,9 @@ test_run:cmd("clear filter")
 -- test test_run:grep_log()
 require('log').info('Incorrect password supplied')
 test_run:grep_log("default", "password")
+
+-- gh-988 : atime
+t = box.tuple.new{1, 2, 3}
+t:atime()
+t:atime64()
+t = nil

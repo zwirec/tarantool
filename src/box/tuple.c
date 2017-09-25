@@ -98,6 +98,8 @@ tuple_new(struct tuple_format *format, const char *data, const char *end)
 		runtime_tuple_delete(format, tuple);
 		return NULL;
 	}
+	if (format->extra_mask & FMT_EXT_MASK_ATIME)
+		*(float *)tuple_extra(tuple, FMT_EXT_ATIME) = 0;
 	say_debug("%s(%zu) = %p", __func__, data_len, tuple);
 	return tuple;
 }
@@ -495,6 +497,26 @@ box_tuple_bsize(const box_tuple_t *tuple)
 {
 	assert(tuple != NULL);
 	return tuple->bsize;
+}
+
+double
+box_tuple_atime(const box_tuple_t *tuple)
+{
+	const struct tuple_format *format = tuple_format(tuple);
+	if ((format->extra_mask & FMT_EXT_MASK_ATIME) == 0)
+		return 0;
+	float atime = *(float *)tuple_extra(tuple, FMT_EXT_ATIME);
+	return (double)atime;
+}
+
+uint64_t
+box_tuple_atime64(const box_tuple_t *tuple)
+{
+	const struct tuple_format *format = tuple_format(tuple);
+	if ((format->extra_mask & FMT_EXT_MASK_ATIME) == 0)
+		return 0;
+	double atime = *(float *)tuple_extra(tuple, FMT_EXT_ATIME);
+	return (uint64_t)(atime * 1e6 + 0.5);
 }
 
 ssize_t

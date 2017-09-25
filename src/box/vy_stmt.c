@@ -243,6 +243,7 @@ vy_stmt_new_with_ops(struct tuple_format *format, const char *tuple_begin,
 		     int op_count, enum iproto_type type)
 {
 	mp_tuple_assert(tuple_begin, tuple_end);
+	assert((format->extra_mask & FMT_EXT_MASK_ATIME) == 0);
 
 	const char *tmp = tuple_begin;
 	uint32_t field_count = mp_decode_array(&tmp);
@@ -354,6 +355,7 @@ vy_stmt_new_surrogate_from_key(const char *key, enum iproto_type type,
 			       const struct key_def *cmp_def,
 			       struct tuple_format *format)
 {
+	assert((format->extra_mask & FMT_EXT_MASK_ATIME) == 0);
 	/**
 	 * UPSERT can't be surrogate. Also any not UPSERT tuple
 	 * mustn't have the n_upserts field.

@@ -31,6 +31,12 @@ box_tuple_field_count(const box_tuple_t *tuple);
 size_t
 box_tuple_bsize(const box_tuple_t *tuple);
 
+double
+box_tuple_atime(const box_tuple_t *tuple);
+
+uint64_t
+box_tuple_atime64(const box_tuple_t *tuple);
+
 ssize_t
 box_tuple_to_buf(const box_tuple_t *tuple, char *buf, size_t size);
 
@@ -276,6 +282,16 @@ local function tuple_bsize(tuple)
     return tonumber(builtin.box_tuple_bsize(tuple))
 end
 
+local function tuple_atime(tuple)
+    tuple_check(tuple, "tuple:atime()");
+    return builtin.box_tuple_atime(tuple)
+end
+
+local function tuple_atime64(tuple)
+    tuple_check(tuple, "tuple:atime64()");
+    return builtin.box_tuple_atime64(tuple)
+end
+
 msgpackffi.on_encode(const_tuple_ref_t, tuple_to_msgpack)
 
 
@@ -292,6 +308,8 @@ local methods = {
     ["update"]      = tuple_update;
     ["upsert"]      = tuple_upsert;
     ["bsize"]       = tuple_bsize;
+    ["atime"]       = tuple_atime;
+    ["atime64"]     = tuple_atime64;
     ["__serialize"] = tuple_totable; -- encode hook for msgpack/yaml/json
 }
 

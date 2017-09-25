@@ -994,3 +994,18 @@ test_run:grep_log("default", "password")
 ---
 - password
 ...
+-- gh-988 : atime
+t = box.tuple.new{1, 2, 3}
+---
+...
+t:atime()
+---
+- 0
+...
+t:atime64()
+---
+- 0
+...
+t = nil
+---
+...

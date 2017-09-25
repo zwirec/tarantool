@@ -146,6 +146,8 @@ memtx_tuple_new(struct tuple_format *format, const char *data, const char *end)
 		memtx_tuple_delete(format, tuple);
 		return NULL;
 	}
+	if (format->extra_mask & FMT_EXT_MASK_ATIME)
+		*(float *)tuple_extra(tuple, FMT_EXT_ATIME) = 0;
 	say_debug("%s(%zu) = %p", __func__, tuple_len, memtx_tuple);
 	return tuple;
 }

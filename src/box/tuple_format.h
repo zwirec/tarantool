@@ -52,12 +52,14 @@ enum tuple_format_extra {
 	FMT_EXT_COLUMN_MASK = 0,
 	/** Lsn of a statement */
 	FMT_EXT_LSN = 1,
+	/* Last access unixtime of the tuple (float) */
+	FMT_EXT_ATIME = 2,
 	/* Size of upsert stack (uint8_t) */
-	FMT_EXT_N_UPSERTS = 2,
+	FMT_EXT_N_UPSERTS = 3,
 	/* Type of a statement (uint8_t): IPROTO_SELECT/REPLACE/UPSERT/DELETE */
-	FMT_EXT_STMT_TYPE = 3,
+	FMT_EXT_STMT_TYPE = 4,
 	/* Count of constants above */
-	FMT_EXT_MAX = 4
+	FMT_EXT_MAX = 5
 };
 
 /**
@@ -65,6 +67,7 @@ enum tuple_format_extra {
  */
 static const uint64_t FMT_EXT_MASK_COLUMN_MASK = 1ull << FMT_EXT_COLUMN_MASK;
 static const uint64_t FMT_EXT_MASK_LSN = 1ull << FMT_EXT_LSN;
+static const uint64_t FMT_EXT_MASK_ATIME = 1ull << FMT_EXT_ATIME;
 static const uint64_t FMT_EXT_MASK_N_UPSERTS = 1ull << FMT_EXT_N_UPSERTS;
 static const uint64_t FMT_EXT_MASK_STMT_TYPE = 1ull << FMT_EXT_STMT_TYPE;
 

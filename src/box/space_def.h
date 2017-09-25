@@ -48,6 +48,11 @@ struct space_opts {
 	 * - changes are not part of a snapshot
 	 */
 	bool temporary;
+	/**
+	 * Tuples of the space has additional hidden field 'atime'
+	 * that holds last access time of the tuple.
+	 */
+	bool atime;
 };
 
 extern const struct space_opts space_opts_default;

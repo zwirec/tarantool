@@ -130,6 +130,22 @@ size_t
 box_tuple_bsize(const box_tuple_t *tuple);
 
 /**
+ * Return last access time of a tuple (or 0 if the tuple does
+ * not hold thid filed) in fiber_time() units.
+ * \param tuple a tuple
+ */
+double
+box_tuple_atime(const box_tuple_t *tuple);
+
+/**
+ * Return last access time of a tuple (or 0 if the tuple does
+ * not hold thid filed) in fiber_time64() units.
+ * \param tuple a tuple
+ */
+uint64_t
+box_tuple_atime64(const box_tuple_t *tuple);
+
+/**
  * Dump raw MsgPack data to the memory byffer \a buf of size \a size.
  *
  * Store tuple fields in the memory buffer.
