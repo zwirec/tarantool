@@ -278,3 +278,27 @@ t = box.tuple.new{1, 2, 3}
 t:atime()
 t:atime64()
 t = nil
+
+s = box.schema.space.create('tweedledum', {engine = 'vinyl', atime = true})
+
+s = box.schema.space.create('tweedledum', {engine = 'memtx', atime = true})
+s:drop()
+
+-- atime() for space w/o aime:
+s = box.schema.space.create('tweedledum', {engine = 'memtx', atime = false})
+_ = s:create_index('test')
+s:replace{1, 2}
+s:replace{3, 4}
+str = ''
+test_run:cmd("setopt delimiter ';'")
+for k,v in pairs(s:select{}) do
+  str = str .. tostring(v:atime()) .. ' '
+  str = str ..  tostring(v:atime64()) .. ' '
+end
+for k,v in s:pairs{} do
+  str = str .. tostring(v:atime()) .. ' '
+  str = str ..  tostring(v:atime64()) .. ' '
+end
+test_run:cmd("setopt delimiter ''");
+str;
+s:drop()

@@ -34,10 +34,12 @@
 
 const struct space_opts space_opts_default = {
 	/* .temporary = */ false,
+	/* .atime = */ false,
 };
 
 const struct opt_def space_opts_reg[] = {
 	OPT_DEF("temporary", OPT_BOOL, struct space_opts, temporary),
+	OPT_DEF("atime", OPT_BOOL, struct space_opts, atime),
 	OPT_END,
 };
 

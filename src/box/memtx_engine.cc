@@ -296,9 +296,12 @@ Handler *MemtxEngine::createSpace(struct rlist *key_list,
 	rlist_foreach_entry(index_def, key_list, link)
 			keys[key_no++] = index_def->key_def;
 
+	uint64_t extra_fields_mask = 0;
+	if (def->opts.atime)
+		extra_fields_mask |= FMT_EXT_MASK_ATIME;
 	struct tuple_format *format =
-		tuple_format_new(&memtx_tuple_format_vtab, keys, index_count, 0,
-				 fields, field_count);
+		tuple_format_new(&memtx_tuple_format_vtab, keys, index_count,
+				 extra_fields_mask, fields, field_count);
 	if (format == NULL)
 		diag_raise();
 	tuple_format_ref(format);

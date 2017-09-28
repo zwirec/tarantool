@@ -125,6 +125,7 @@ VinylEngine::createSpace(struct rlist *key_list, struct field_def *fields,
 	rlist_foreach_entry(index_def, key_list, link)
 			keys[key_no++] = index_def->key_def;
 
+	assert(!def->opts.atime);
 	struct tuple_format *format =
 		tuple_format_new(&vy_tuple_format_vtab, keys, index_count,
 				 FMT_EXT_MASK_LSN | FMT_EXT_MASK_STMT_TYPE,
@@ -278,5 +279,9 @@ VinylEngine::checkSpaceDef(struct space_def *def)
 	if (def->opts.temporary) {
 		tnt_raise(ClientError, ER_ALTER_SPACE,
 			  def->name, "engine does not support temporary flag");
+	}
+	if (def->opts.atime) {
+		tnt_raise(ClientError, ER_ALTER_SPACE,
+			  def->name, "engine does not support atime flag");
 	}
 }

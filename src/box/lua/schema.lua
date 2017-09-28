@@ -327,11 +327,11 @@ box.schema.space.create = function(name, options)
         user = 'string, number',
         format = 'table',
         temporary = 'boolean',
+        atime = 'boolean',
     }
     local options_defaults = {
         engine = 'memtx',
         field_count = 0,
-        temporary = false,
     }
     check_param_table(options, options_template)
     options = update_param_table(options, options_defaults)
@@ -368,6 +368,7 @@ box.schema.space.create = function(name, options)
     -- filter out global parameters from the options array
     local space_options = setmap({
         temporary = options.temporary and true or nil,
+        atime = options.atime and true or nil,
     })
     _space:insert{id, uid, name, options.engine, options.field_count,
         space_options, format}
