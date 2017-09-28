@@ -112,8 +112,7 @@ space_new(struct space_def *def, struct rlist *key_list,
 	Engine *engine = engine_find(def->engine_name);
 	/* init space engine instance */
 	space->handler = engine->createSpace(key_list, fields, field_count,
-					     index_count,
-					     def->exact_field_count);
+					     index_count, def);
 	rlist_foreach_entry(index_def, key_list, link) {
 		space->index_map[index_def->iid] =
 			space->handler->createIndex(space, index_def);
