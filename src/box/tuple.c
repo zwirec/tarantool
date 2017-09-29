@@ -519,6 +519,12 @@ box_tuple_atime64(const box_tuple_t *tuple)
 	return (uint64_t)(atime * 1e6 + 0.5);
 }
 
+void
+tuple_update_atime(struct tuple *tuple)
+{
+	*(float *)tuple_extra(tuple, FMT_EXT_ATIME) = fiber_time();
+}
+
 ssize_t
 tuple_to_buf(const struct tuple *tuple, char *buf, size_t size)
 {

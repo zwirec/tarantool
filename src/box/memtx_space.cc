@@ -497,7 +497,7 @@ MemtxSpace::executeSelect(struct txn *, struct space *space,
 		diag_raise();
 
 	struct iterator *it = index->position();
-	index->initIterator(it, type, key, part_count);
+	index->initIterator(it, type, key, part_count, 0);
 
 	struct tuple *tuple;
 	while ((tuple = it->next(it)) != NULL) {
@@ -698,7 +698,7 @@ MemtxSpace::buildSecondaryKey(struct space *old_space,
 	/* Now deal with any kind of add index during normal operation. */
 	struct iterator *it = pk->allocIterator();
 	IteratorGuard guard(it);
-	pk->initIterator(it, ITER_ALL, NULL, 0);
+	pk->initIterator(it, ITER_ALL, NULL, 0, 0);
 
 	/*
 	 * The index has to be built tuple by tuple, since
@@ -753,7 +753,7 @@ memtx_prune_space(struct space *space)
 		return;
 
 	struct iterator *it = index->position();
-	index->initIterator(it, ITER_ALL, NULL, 0);
+	index->initIterator(it, ITER_ALL, NULL, 0, ITERATOR_NOATIME);
 	struct tuple *tuple;
 	while ((tuple = it->next(it)) != NULL)
 		tuple_unref(tuple);

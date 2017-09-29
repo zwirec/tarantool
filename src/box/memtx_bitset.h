@@ -59,7 +59,8 @@ public:
 	virtual void initIterator(struct iterator *iterator,
 				  enum iterator_type type,
 				  const char *key,
-				  uint32_t part_count) const override;
+				  uint32_t part_count,
+				  uint32_t options) const override;
 #ifndef OLD_GOOD_BITSET
 	void registerTuple(struct tuple *tuple);
 	void unregisterTuple(struct tuple *tuple);

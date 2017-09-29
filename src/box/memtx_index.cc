@@ -58,7 +58,7 @@ struct tuple *
 MemtxIndex::min(const char *key, uint32_t part_count) const
 {
 	struct iterator *it = position();
-	initIterator(it, ITER_GE, key, part_count);
+	initIterator(it, ITER_GE, key, part_count, ITERATOR_NOATIME);
 	return it->next(it);
 }
 
@@ -66,7 +66,7 @@ struct tuple *
 MemtxIndex::max(const char *key, uint32_t part_count) const
 {
 	struct iterator *it = position();
-	initIterator(it, ITER_LE, key, part_count);
+	initIterator(it, ITER_LE, key, part_count, ITERATOR_NOATIME);
 	return it->next(it);
 }
 
@@ -77,7 +77,7 @@ MemtxIndex::count(enum iterator_type type, const char *key,
 	if (type == ITER_ALL)
 		return size(); /* optimization */
 	struct iterator *it = position();
-	initIterator(it, type, key, part_count);
+	initIterator(it, type, key, part_count, ITERATOR_NOATIME);
 	size_t count = 0;
 	struct tuple *tuple = NULL;
 	while ((tuple = it->next(it)) != NULL)
@@ -101,7 +101,7 @@ index_build(MemtxIndex *index, MemtxIndex *pk)
 	}
 
 	struct iterator *it = pk->position();
-	pk->initIterator(it, ITER_ALL, NULL, 0);
+	pk->initIterator(it, ITER_ALL, NULL, 0, 0);
 	struct tuple *tuple;
 	while ((tuple = it->next(it)))
 		index->buildNext(tuple);

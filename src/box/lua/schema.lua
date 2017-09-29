@@ -21,6 +21,7 @@ assert(tuple_encode ~= nil and tuple_bless ~= nil and is_tuple ~= nil)
 
 local INT64_MIN = tonumber64('-9223372036854775808')
 local INT64_MAX = tonumber64('9223372036854775807')
+local ITERATOR_NOATIME = 1
 
 ffi.cdef[[
     struct space *space_by_id(uint32_t id);
@@ -34,7 +35,7 @@ ffi.cdef[[
     /** \cond public */
     box_iterator_t *
     box_index_iterator(uint32_t space_id, uint32_t index_id, int type,
-                       const char *key, const char *key_end);
+                       const char *key, const char *key_end, uint32_t options);
     int
     box_iterator_next(box_iterator_t *itr, box_tuple_t **result);
     void
@@ -914,11 +915,12 @@ function box.schema.space.bless(space)
         check_index_arg(index, 'pairs')
         local pkey, pkey_end = tuple_encode(key)
         local itype = check_iterator_type(opts, pkey + 1 >= pkey_end);
+        local noatime = type(opts) == 'table' and opts.noatime and true or false
 
         local keybuf = ffi.string(pkey, pkey_end - pkey)
         local pkeybuf = ffi.cast('const char *', keybuf)
         local cdata = builtin.box_index_iterator(index.space_id, index.id,
-            itype, pkeybuf, pkeybuf + #keybuf);
+            itype, pkeybuf, pkeybuf + #keybuf, noatime and ITERATOR_NOATIME or 0);
         if cdata == nil then
             box.error()
         end
@@ -929,9 +931,11 @@ function box.schema.space.bless(space)
         check_index_arg(index, 'pairs')
         key = keify(key)
         local itype = check_iterator_type(opts, #key == 0);
+        local noatime = type(opts) == 'table' and opts.noatime and true or false
         local keymp = msgpack.encode(key)
         local keybuf = ffi.string(keymp, #keymp)
-        local cdata = internal.iterator(index.space_id, index.id, itype, keymp);
+        local cdata = internal.iterator(index.space_id, index.id, itype, keymp,
+                                        noatime);
         return fun.wrap(iterator_gen_luac, keybuf,
             ffi.gc(cdata, builtin.box_iterator_free))
     end

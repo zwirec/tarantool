@@ -118,7 +118,7 @@ space_foreach(void (*func)(struct space *sp, void *udata), void *udata)
 	if (pk) {
 		struct iterator *it = pk->allocIterator();
 		auto scoped_guard = make_scoped_guard([=] { it->free(it); });
-		pk->initIterator(it, ITER_GE, key, 1);
+		pk->initIterator(it, ITER_GE, key, 1, ITERATOR_NOATIME);
 
 		struct tuple *tuple;
 		while ((tuple = it->next(it))) {
@@ -231,7 +231,7 @@ schema_find_id(uint32_t system_space_id, uint32_t index_id,
 	mp_encode_str(key, name, len);
 
 	struct iterator *it = index->position();
-	index->initIterator(it, ITER_EQ, key, 1);
+	index->initIterator(it, ITER_EQ, key, 1, ITERATOR_NOATIME);
 
 	struct tuple *tuple = it->next(it);
 	if (tuple) {
@@ -442,7 +442,7 @@ schema_find_grants(const char *type, uint32_t id)
 	char key[GRANT_NAME_MAX + 10];
 	assert(strlen(type) <= GRANT_NAME_MAX);
 	mp_encode_uint(mp_encode_str(key, type, strlen(type)), id);
-	index->initIterator(it, ITER_EQ, key, 2);
+	index->initIterator(it, ITER_EQ, key, 2, ITERATOR_NOATIME);
 	return it->next(it);
 }
 

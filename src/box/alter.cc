@@ -685,7 +685,7 @@ space_has_data(uint32_t id, uint32_t iid, uint32_t uid)
 	mp_encode_uint(key, uid);
 	struct iterator *it = index->position();
 
-	index->initIterator(it, ITER_EQ, key, 1);
+	index->initIterator(it, ITER_EQ, key, 1, ITERATOR_NOATIME);
 	if (it->next(it))
 		return true;
 	return false;

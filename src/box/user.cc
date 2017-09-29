@@ -285,7 +285,7 @@ user_reload_privs(struct user *user)
 		mp_encode_uint(key, user->def->uid);
 
 		struct iterator *it = index->position();
-		index->initIterator(it, ITER_EQ, key, 1);
+		index->initIterator(it, ITER_EQ, key, 1, ITERATOR_NOATIME);
 
 		struct tuple *tuple;
 		while ((tuple = it->next(it))) {

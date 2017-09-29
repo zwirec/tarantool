@@ -53,7 +53,8 @@ public:
 	virtual void initIterator(struct iterator *iterator,
 				  enum iterator_type type,
 				  const char *key,
-				  uint32_t part_count) const override;
+				  uint32_t part_count,
+				  uint32_t options) const override;
 
 	/**
 	 * Create an ALL iterator with personal read view so further

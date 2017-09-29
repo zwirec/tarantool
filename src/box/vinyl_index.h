@@ -63,7 +63,8 @@ public:
 	virtual void
 	initIterator(struct iterator *iterator,
 		     enum iterator_type type,
-		     const char *key, uint32_t part_count) const override;
+		     const char *key, uint32_t part_count,
+		     uint32_t options) const override;
 
 	virtual size_t
 	bsize() const override;
