@@ -302,3 +302,107 @@ end
 test_run:cmd("setopt delimiter ''");
 str;
 s:drop()
+
+-- atime and noatime
+fiber = require('fiber')
+msgpackffi = require('msgpackffi')
+test_run:cmd("setopt delimiter ';'")
+function check(s)
+    local res = {}
+    for k,t in s:pairs({}, {noatime = true}) do
+        if t:atime() == 0 and t:atime64() == 0 then
+            table.insert(res, {t, "untoched"})
+        elseif t:atime() ~= 0 and t:atime64() ~= 0 then
+            table.insert(res, {t, "fresh"})
+        else
+            table.insert(res, {t, "error", t:atime(), t:atime64(),
+                               fiber.time(), fiber.time64()})
+        end
+    end
+    for k,v in pairs(res) do
+        res[k] = setmetatable(v, msgpackffi.array_mt)
+    end
+    return res
+end
+test_run:cmd("setopt delimiter ''");
+
+s = box.schema.space.create('tweedledum', {engine = 'memtx', atime = true})
+_ = s:create_index('test', {type = 'tree', parts = {1, 'uint', 2, 'uint'}})
+s:replace{1, 1}
+s:replace{2, 1}
+s:replace{3, 1}
+s:replace{4, 1}
+s:replace{4, 2}
+s:replace{5, 1}
+s:replace{6, 1}
+s:replace{6, 2}
+s:replace{7, 1}
+s.index.test:min() -- does not touch tuples
+s.index.test:max() -- does not touch tuples
+check(s)
+s:get{2, 1}
+s:select{4}
+for k,v in s:pairs({6}, {iterator = 'EQ'}) do end
+check(s)
+s:drop()
+
+s = box.schema.space.create('tweedledum', {engine = 'memtx', atime = true})
+_ = s:create_index('primary', {type = 'tree', parts = {1, 'uint'}})
+_ = s:create_index('test', {type = 'hash', parts = {2, 'uint'}})
+s:replace{1, 7}
+s:replace{2, 6}
+s:replace{3, 5}
+s:replace{4, 4}
+s:replace{5, 3}
+s:replace{6, 2}
+s:replace{7, 1}
+check(s)
+s.index.test:get{2}
+s.index.test:select{4}
+for k,v in s.index.test:pairs({6}, {iterator = 'EQ'}) do end
+for k,v in s.index.test:pairs({}, {noatime = true}) do end
+check(s)
+s:drop()
+
+s = box.schema.space.create('tweedledum', {engine = 'memtx', atime = true})
+_ = s:create_index('primary', {type = 'tree', parts = {1, 'uint'}})
+_ = s:create_index('test', {type = 'rtree', parts = {2, 'array'}})
+s:replace{1, {1, 1}}
+s:replace{2, {2, 2}}
+s:replace{3, {3, 3}}
+s:replace{4, {4, 4}}
+s:replace{5, {5, 5}}
+s:replace{6, {6, 6}}
+s:replace{7, {7, 7}}
+s:replace{8, {8, 8}}
+s:replace{9, {9, 9}}
+check(s)
+s.index.test:select{2, 2}
+s.index.test:select({3.5, 3.5, 4.5, 4.5}, {iterator='LE'})
+o = {}
+for k,v in s.index.test:pairs({7, 7}, {iterator='neighbor'}) do table.insert(o, v) if #o == 3 then break end end
+o
+for k,v in s.index.test:pairs({}, {noatime = true}) do end
+check(s)
+s:drop()
+
+s = box.schema.space.create('tweedledum', {engine = 'memtx', atime = true})
+_ = s:create_index('primary', {type = 'tree', parts = {1, 'uint'}})
+_ = s:create_index('test', {type = 'bitset', parts = {2, 'uint'}})
+s:replace{0, 128}
+s:replace{1, 1}
+s:replace{2, 3}
+s:replace{3, 7}
+s:replace{4, 14}
+s:replace{5, 28}
+s:replace{6, 56}
+s:replace{7, 112}
+s:replace{8, 224}
+check(s)
+s.index.test:select{1}
+s.index.test:select({4}, {iterator = 'bits_any_set'})
+s.index.test:select({128 + 15}, {iterator = 'bits_all_not_set'})
+for k,v in s.index.test:pairs({}, {noatime = true}) do end
+check(s)
+s:drop()
+

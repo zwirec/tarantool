@@ -51,9 +51,10 @@ public:
 	virtual size_t bsize() const override;
 	virtual struct iterator *allocIterator() const override;
 	virtual void initIterator(struct iterator *iterator,
-                                  enum iterator_type type,
-                                  const char *key,
-				  uint32_t part_count) const override;
+				  enum iterator_type type,
+				  const char *key,
+				  uint32_t part_count,
+				  uint32_t options) const override;
 
 protected:
 	unsigned m_dimension;

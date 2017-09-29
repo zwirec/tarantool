@@ -242,9 +242,10 @@ box_index_init_iterator_types(struct lua_State *L, int idx)
 static int
 lbox_index_iterator(lua_State *L)
 {
-	if (lua_gettop(L) != 4 || !lua_isnumber(L, 1) || !lua_isnumber(L, 2) ||
-	    !lua_isnumber(L, 3))
-		return luaL_error(L, "usage index.iterator(space_id, index_id, type, key)");
+	if (lua_gettop(L) < 4 || lua_gettop(L) > 5 || !lua_isnumber(L, 1) ||
+		!lua_isnumber(L, 2) || !lua_isnumber(L, 3) ||
+		(!lua_isnil(L, 5) && !lua_isboolean(L, 5)))
+		return luaL_error(L, "usage index.iterator(space_id, index_id, type, key, noatime)");
 
 	uint32_t space_id = lua_tonumber(L, 1);
 	uint32_t index_id = lua_tonumber(L, 2);
@@ -252,8 +253,10 @@ lbox_index_iterator(lua_State *L)
 	size_t mpkey_len;
 	const char *mpkey = lua_tolstring(L, 4, &mpkey_len); /* Key encoded by Lua */
 	/* const char *key = lbox_encode_tuple_on_gc(L, 4, key_len); */
+	bool noatime = lua_isnil(L, 5) ? false : lua_toboolean(L, 5);
 	struct iterator *it = box_index_iterator(space_id, index_id, iterator,
-						 mpkey, mpkey + mpkey_len);
+						 mpkey, mpkey + mpkey_len,
+						 noatime ? ITERATOR_NOATIME : 0);
 	if (it == NULL)
 		return luaT_error(L);
 

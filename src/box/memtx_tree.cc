@@ -104,6 +104,9 @@ tree_iterator_next(struct iterator *iterator)
 	}
 	it->current_tuple = *res;
 	tuple_ref(it->current_tuple);
+	if (it->current_tuple != NULL &&
+	    (iterator->options & ITERATOR_NOATIME) == 0)
+		tuple_touch(it->current_tuple);
 	return *res;
 }
 
@@ -127,6 +130,9 @@ tree_iterator_prev(struct iterator *iterator)
 	}
 	it->current_tuple = *res;
 	tuple_ref(it->current_tuple);
+	if (it->current_tuple != NULL &&
+	    (iterator->options & ITERATOR_NOATIME) == 0)
+		tuple_touch(it->current_tuple);
 	return *res;
 }
 
@@ -153,6 +159,9 @@ tree_iterator_next_equal(struct iterator *iterator)
 	}
 	it->current_tuple = *res;
 	tuple_ref(it->current_tuple);
+	if (it->current_tuple != NULL &&
+	    (iterator->options & ITERATOR_NOATIME) == 0)
+		tuple_touch(it->current_tuple);
 	return *res;
 }
 
@@ -178,6 +187,9 @@ tree_iterator_prev_equal(struct iterator *iterator)
 	}
 	it->current_tuple = *res;
 	tuple_ref(it->current_tuple);
+	if (it->current_tuple != NULL &&
+	    (iterator->options & ITERATOR_NOATIME) == 0)
+		tuple_touch(it->current_tuple);
 	return *res;
 }
 
@@ -259,6 +271,9 @@ tree_iterator_start(struct iterator *iterator)
 		return NULL;
 	it->current_tuple = *res;
 	tuple_ref(it->current_tuple);
+	if (it->current_tuple != NULL &&
+	    (iterator->options & ITERATOR_NOATIME) == 0)
+		tuple_touch(it->current_tuple);
 	tree_iterator_set_next_method(it);
 	return *res;
 }
@@ -316,6 +331,8 @@ MemtxTree::findByKey(const char *key, uint32_t part_count) const
 	key_data.key = key;
 	key_data.part_count = part_count;
 	struct tuple **res = memtx_tree_find(&tree, &key_data);
+	if (res != NULL && *res != NULL)
+		tuple_touch(*res);
 	return res ? *res : 0;
 }
 
@@ -375,13 +392,16 @@ MemtxTree::allocIterator() const
 
 void
 MemtxTree::initIterator(struct iterator *iterator, enum iterator_type type,
-			const char *key, uint32_t part_count) const
+			const char *key, uint32_t part_count,
+			uint32_t options) const
 {
+	iterator->options = options;
 	assert(part_count == 0 || key != NULL);
 	struct tree_iterator *it = tree_iterator(iterator);
 
 	if (type < 0 || type > ITER_GT) /* Unsupported type */
-		return Index::initIterator(iterator, type, key, part_count);
+		return Index::initIterator(iterator, type, key, part_count,
+					   options);
 
 	if (part_count == 0) {
 		/*

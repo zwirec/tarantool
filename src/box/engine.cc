@@ -194,7 +194,7 @@ Handler::executeSelect(struct txn *, struct space *space,
 
 	struct iterator *it = index->allocIterator();
 	IteratorGuard guard(it);
-	index->initIterator(it, type, key, part_count);
+	index->initIterator(it, type, key, part_count, 0);
 
 	struct tuple *tuple;
 	while (found < limit && (tuple = it->next(it)) != NULL) {

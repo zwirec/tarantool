@@ -100,7 +100,8 @@ SysviewIndex::allocIterator() const
 void
 SysviewIndex::initIterator(struct iterator *iterator,
 			   enum iterator_type type,
-			   const char *key, uint32_t part_count) const
+			   const char *key, uint32_t part_count,
+			   uint32_t options) const
 {
 	assert(iterator->free == sysview_iterator_free);
 	struct sysview_iterator *it = sysview_iterator(iterator);
@@ -122,7 +123,7 @@ SysviewIndex::initIterator(struct iterator *iterator,
 		it->source = pk->allocIterator();
 		it->source->schema_version = ::schema_version;
 	}
-	pk->initIterator(it->source, type, key, part_count);
+	pk->initIterator(it->source, type, key, part_count, options);
 	iterator->index = (Index *) this;
 	iterator->next = sysview_iterator_next;
 	it->space = source;

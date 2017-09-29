@@ -38,6 +38,10 @@
 extern "C" {
 #endif /* defined(__cplusplus) */
 
+enum iterator_options {
+	ITERATOR_NOATIME = 1,
+};
+
 typedef struct tuple box_tuple_t;
 
 /** \cond public */
@@ -61,7 +65,7 @@ typedef struct iterator box_iterator_t;
  */
 box_iterator_t *
 box_index_iterator(uint32_t space_id, uint32_t index_id, int type,
-		   const char *key, const char *key_end);
+		   const char *key, const char *key_end, uint32_t options);
 /**
  * Retrive the next item from the \a iterator.
  *
@@ -221,6 +225,7 @@ struct iterator {
 	uint32_t schema_version;
 	uint32_t space_id;
 	uint32_t index_id;
+	uint32_t options;
 	struct Index *index;
 };
 
@@ -330,7 +335,8 @@ public:
 	virtual struct iterator *allocIterator() const = 0;
 	virtual void initIterator(struct iterator *iterator,
 				  enum iterator_type type,
-				  const char *key, uint32_t part_count) const = 0;
+				  const char *key, uint32_t part_count,
+				  uint32_t options) const = 0;
 
 	/**
 	 * Create an ALL iterator with personal read view so further

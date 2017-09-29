@@ -179,10 +179,13 @@ bitset_index_iterator_next(struct iterator *iterator)
 		return NULL;
 
 #ifndef OLD_GOOD_BITSET
-	return it->bitset_index->valueToTuple((uint32_t)value);
+	struct tuple *res = it->bitset_index->valueToTuple((uint32_t)value);
 #else /* #ifndef OLD_GOOD_BITSET */
-	return value_to_tuple(value);
+	struct tuple *res = value_to_tuple(value);
 #endif /* #ifndef OLD_GOOD_BITSET */
+	if (((iterator->options & ITERATOR_NOATIME) == 0) && res != NULL)
+		tuple_touch(res);
+	return res;
 }
 
 MemtxBitset::MemtxBitset(struct index_def *index_def_arg)
@@ -325,8 +328,10 @@ MemtxBitset::replace(struct tuple *old_tuple, struct tuple *new_tuple,
 
 void
 MemtxBitset::initIterator(struct iterator *iterator, enum iterator_type type,
-			  const char *key, uint32_t part_count) const
+			  const char *key, uint32_t part_count,
+			  uint32_t options) const
 {
+	iterator->options = options;
 	assert(iterator->free == bitset_index_iterator_free);
 	assert(part_count == 0 || key != NULL);
 	(void) part_count;
@@ -370,7 +375,7 @@ MemtxBitset::initIterator(struct iterator *iterator, enum iterator_type type,
 			break;
 		default:
 			return Index::initIterator(iterator, type, key,
-						   part_count);
+						   part_count, options);
 		}
 
 		if (rc != 0) {

@@ -121,7 +121,7 @@ VinylIndex::min(const char *key, uint32_t part_count) const
 {
 	struct iterator *it = allocIterator();
 	auto guard = make_scoped_guard([=]{it->free(it);});
-	initIterator(it, ITER_GE, key, part_count);
+	initIterator(it, ITER_GE, key, part_count, 0);
 	return it->next(it);
 }
 
@@ -130,7 +130,7 @@ VinylIndex::max(const char *key, uint32_t part_count) const
 {
 	struct iterator *it = allocIterator();
 	auto guard = make_scoped_guard([=]{it->free(it);});
-	initIterator(it, ITER_LE, key, part_count);
+	initIterator(it, ITER_LE, key, part_count, 0);
 	return it->next(it);
 }
 
@@ -140,7 +140,7 @@ VinylIndex::count(enum iterator_type type, const char *key,
 {
 	struct iterator *it = allocIterator();
 	auto guard = make_scoped_guard([=]{it->free(it);});
-	initIterator(it, type, key, part_count);
+	initIterator(it, type, key, part_count, 0);
 	size_t count = 0;
 	struct tuple *tuple = NULL;
 	while ((tuple = it->next(it)) != NULL)
@@ -210,8 +210,9 @@ VinylIndex::allocIterator() const
 
 void
 VinylIndex::initIterator(struct iterator *ptr,
-                         enum iterator_type type,
-                         const char *key, uint32_t part_count) const
+			 enum iterator_type type,
+			 const char *key, uint32_t part_count,
+			 uint32_t options) const
 {
 	assert(part_count == 0 || key != NULL);
 	struct vinyl_iterator *it = (struct vinyl_iterator *) ptr;
@@ -221,7 +222,7 @@ VinylIndex::initIterator(struct iterator *ptr,
 	it->env = this->env;
 	ptr->next = iterator_next;
 	if (type > ITER_GT || type < 0)
-		return Index::initIterator(ptr, type, key, part_count);
+		return Index::initIterator(ptr, type, key, part_count, options);
 
 	it->cursor = vy_cursor_new(env, tx, db, key, part_count, type);
 	if (it->cursor == NULL)

@@ -257,12 +257,14 @@ Index::bsize() const
 
 void
 Index::initIterator(struct iterator *ptr, enum iterator_type type,
-		    const char *key, uint32_t part_count) const
+		    const char *key, uint32_t part_count,
+		    uint32_t options) const
 {
 	(void) ptr;
 	(void) type;
 	(void) key;
 	(void) part_count;
+	(void) options;
 	tnt_raise(UnsupportedIndexFeature, this, "requested iterator type");
 }
 
@@ -450,7 +452,7 @@ box_index_count(uint32_t space_id, uint32_t index_id, int type,
 
 box_iterator_t *
 box_index_iterator(uint32_t space_id, uint32_t index_id, int type,
-                   const char *key, const char *key_end)
+                   const char *key, const char *key_end, uint32_t options)
 {
 	assert(key != NULL && key_end != NULL);
 	mp_tuple_assert(key, key_end);
@@ -465,7 +467,7 @@ box_index_iterator(uint32_t space_id, uint32_t index_id, int type,
 		if (key_validate(index->index_def, itype, key, part_count))
 			diag_raise();
 		it = index->allocIterator();
-		index->initIterator(it, itype, key, part_count);
+		index->initIterator(it, itype, key, part_count, options);
 		it->schema_version = schema_version;
 		it->space_id = space_id;
 		it->index_id = index_id;

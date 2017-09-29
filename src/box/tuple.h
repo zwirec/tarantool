@@ -493,6 +493,27 @@ tuple_extra(const struct tuple *tuple, enum tuple_format_extra field)
 }
 
 /**
+ * Update atime extra field of a tuple with current time.
+ * @param tuple - tuple to update, must not be NULL and must have
+ *  FMT_EXT_ATIME extra field.
+ */
+void
+tuple_update_atime(struct tuple *tuple);
+
+/**
+ * Update atime extra field of a tuple with current time if the tuple
+ * supports atime.
+ * @param tuple - tuple to update.
+ */
+static inline void
+tuple_touch(struct tuple *tuple)
+{
+	struct tuple_format *format = tuple_format(tuple);
+	if ((format->extra_mask & FMT_EXT_MASK_ATIME) != 0)
+		tuple_update_atime(tuple);
+}
+
+/**
  * Instantiate a new engine-independent tuple from raw MsgPack Array data
  * using runtime arena. Use this function to create a standalone tuple
  * from Lua or C procedures.

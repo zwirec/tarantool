@@ -1044,7 +1044,7 @@ box_on_join(const tt_uuid *instance_uuid)
 	struct space *space = space_cache_find(BOX_CLUSTER_ID);
 	class MemtxIndex *index = index_find_system(space, 0);
 	struct iterator *it = index->position();
-	index->initIterator(it, ITER_ALL, NULL, 0);
+	index->initIterator(it, ITER_ALL, NULL, 0, ITERATOR_NOATIME);
 	struct tuple *tuple;
 	/** Assign a new replica id. */
 	uint32_t replica_id = 1;

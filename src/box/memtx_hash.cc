@@ -87,6 +87,9 @@ hash_iterator_ge(struct iterator *ptr)
 	struct hash_iterator *it = (struct hash_iterator *) ptr;
 	struct tuple **res = light_index_iterator_get_and_next(it->hash_table,
 							       &it->iterator);
+	if (res != NULL && *res != NULL &&
+	    (ptr->options & ITERATOR_NOATIME) == 0)
+		tuple_touch(*res);
 	return res ? *res : 0;
 }
 
@@ -102,6 +105,9 @@ hash_iterator_gt(struct iterator *ptr)
 		return 0;
 	res = light_index_iterator_get_and_next(it->hash_table,
 						&it->iterator);
+	if (res != NULL && *res != NULL &&
+	    (ptr->options & ITERATOR_NOATIME) == 0)
+		tuple_touch(*res);
 	return res ? *res : 0;
 }
 
@@ -182,8 +188,10 @@ MemtxHash::findByKey(const char *key, uint32_t part_count) const
 	struct tuple *ret = NULL;
 	uint32_t h = key_hash(key, index_def->key_def);
 	uint32_t k = light_index_find_key(hash_table, h, key);
-	if (k != light_index_end)
+	if (k != light_index_end) {
 		ret = light_index_get(hash_table, k);
+		tuple_touch(ret);
+	}
 	return ret;
 }
 
@@ -257,12 +265,14 @@ MemtxHash::allocIterator() const
 
 void
 MemtxHash::initIterator(struct iterator *ptr, enum iterator_type type,
-			const char *key, uint32_t part_count) const
+			const char *key, uint32_t part_count,
+			uint32_t options) const
 {
 	assert(part_count == 0 || key != NULL);
 	(void) part_count;
 	assert(ptr->free == hash_iterator_free);
 
+	ptr->options = options;
 	struct hash_iterator *it = (struct hash_iterator *) ptr;
 
 	switch (type) {
@@ -287,7 +297,7 @@ MemtxHash::initIterator(struct iterator *ptr, enum iterator_type type,
 		it->base.next = hash_iterator_eq;
 		break;
 	default:
-		return Index::initIterator(ptr, type, key, part_count);
+		return Index::initIterator(ptr, type, key, part_count, options);
 	}
 }
 

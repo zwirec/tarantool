@@ -146,7 +146,10 @@ static struct tuple *
 index_rtree_iterator_next(struct iterator *i)
 {
 	struct index_rtree_iterator *itr = (struct index_rtree_iterator *)i;
-	return (struct tuple *)rtree_iterator_next(&itr->impl);
+	struct tuple *res = (struct tuple *)rtree_iterator_next(&itr->impl);
+	if (res != NULL && (i->options & ITERATOR_NOATIME) == 0)
+		tuple_touch(res);
+	return res;
 }
 
 /* }}} */
@@ -252,8 +255,10 @@ MemtxRTree::allocIterator() const
 
 void
 MemtxRTree::initIterator(struct iterator *iterator, enum iterator_type type,
-			 const char *key, uint32_t part_count) const
+			 const char *key, uint32_t part_count,
+			 uint32_t options) const
 {
+	iterator->options = options;
 	index_rtree_iterator *it = (index_rtree_iterator *)iterator;
 
 	struct rtree_rect rect;
@@ -295,7 +300,8 @@ MemtxRTree::initIterator(struct iterator *iterator, enum iterator_type type,
 		op = SOP_NEIGHBOR;
 		break;
 	default:
-		return Index::initIterator(iterator, type, key, part_count);
+		return Index::initIterator(iterator, type, key, part_count,
+					   options);
 	}
 	rtree_search(&m_tree, &rect, op, &it->impl);
 }
