@@ -86,6 +86,12 @@ struct space {
 	 */
 	struct Index **index_map;
 	/**
+	 * If a space has LRU option, the member below holds a list
+	 * of tuples in order of access time (first item is the most
+	 * recent accessed).
+	 */
+	struct rlist lru_list;
+	/**
 	 * Dense array of indexes defined on the space, in order
 	 * of index id. Initially stores only the primary key at
 	 * position 0, and is fully built by

@@ -43,6 +43,7 @@ extern "C" {
 
 struct slab_arena;
 struct quota;
+struct space;
 
 /** Initialize tuple library */
 int
@@ -499,6 +500,22 @@ tuple_extra(const struct tuple *tuple, enum tuple_format_extra field)
  */
 void
 tuple_update_atime(struct tuple *tuple);
+
+/**
+ * Move the tuple in LRU list to the top (even it's not in the list).
+ * @param tuple - tuple to update, must not be NULL and must have
+ *  FMT_EXT_LRU extra field.
+ */
+void
+tuple_lru_update(struct space *space, struct tuple *tuple);
+
+/**
+ * Remove the tuple from LRU list.
+ * @param tuple - tuple to update, must not be NULL and must have
+ *  FMT_EXT_LRU extra field.
+ */
+void
+tuple_lru_remove(struct tuple *tuple);
 
 /**
  * Update atime extra field of a tuple with current time if the tuple

@@ -38,6 +38,7 @@
 #include "small/small.h"
 
 #include "tuple_update.h"
+#include "space.h"
 
 static struct mempool tuple_iterator_pool;
 static struct small_alloc runtime_alloc;
@@ -523,6 +524,23 @@ void
 tuple_update_atime(struct tuple *tuple)
 {
 	*(float *)tuple_extra(tuple, FMT_EXT_ATIME) = fiber_time();
+}
+
+void
+tuple_lru_update(struct space *space, struct tuple *tuple)
+{
+	struct rlist *list =
+		(struct rlist *)tuple_extra(tuple, FMT_EXT_LRU);
+	rlist_del(list);
+	rlist_add(&space->lru_list, list);
+}
+
+void
+tuple_lru_remove(struct tuple *tuple)
+{
+	struct rlist *list =
+		(struct rlist *)tuple_extra(tuple, FMT_EXT_LRU);
+	rlist_del(list);
 }
 
 ssize_t

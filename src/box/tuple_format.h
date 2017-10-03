@@ -48,24 +48,27 @@ enum tuple_format_extra {
 	 * If one change the order of these constants, he must change
 	 * fmt_ext_size array definition in tuple_format.cc appropriately.
 	 */
+	/** List entry in lru list (struct rlist) */
+	FMT_EXT_LRU = 0,
 	/** Column mask (uint64_t) */
-	FMT_EXT_COLUMN_MASK = 0,
+	FMT_EXT_COLUMN_MASK = 1,
 	/** Lsn of a statement */
-	FMT_EXT_LSN = 1,
+	FMT_EXT_LSN = 2,
 	/* Last access unixtime of the tuple (float) */
-	FMT_EXT_ATIME = 2,
+	FMT_EXT_ATIME = 3,
 	/* Size of upsert stack (uint8_t) */
-	FMT_EXT_N_UPSERTS = 3,
+	FMT_EXT_N_UPSERTS = 4,
 	/* Type of a statement (uint8_t): IPROTO_SELECT/REPLACE/UPSERT/DELETE */
-	FMT_EXT_STMT_TYPE = 4,
+	FMT_EXT_STMT_TYPE = 5,
 	/* Count of constants above */
-	FMT_EXT_MAX = 5
+	FMT_EXT_MAX = 6
 };
 
 /**
  * Bit masks that corresponds to all extra fields.
  */
 static const uint64_t FMT_EXT_MASK_COLUMN_MASK = 1ull << FMT_EXT_COLUMN_MASK;
+static const uint64_t FMT_EXT_MASK_LRU = 1ull << FMT_EXT_LRU;
 static const uint64_t FMT_EXT_MASK_LSN = 1ull << FMT_EXT_LSN;
 static const uint64_t FMT_EXT_MASK_ATIME = 1ull << FMT_EXT_ATIME;
 static const uint64_t FMT_EXT_MASK_N_UPSERTS = 1ull << FMT_EXT_N_UPSERTS;

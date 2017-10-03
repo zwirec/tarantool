@@ -30,6 +30,7 @@
  */
 #include "tuple_format.h"
 #include "trivia/util.h"
+#include "small/rlist.h"
 
 /** Global table of tuple formats */
 struct tuple_format **tuple_formats;
@@ -41,7 +42,7 @@ static uint32_t formats_size = 0, formats_capacity = 0;
  * Sizes of all possible tuple extra fields.
  */
 static const uint16_t
-	format_extra_sizes[] = {8, 8, sizeof(float), 1, 1};
+	format_extra_sizes[] = {sizeof(struct rlist), 8, 8, sizeof(float), 1, 1};
 static_assert(FMT_EXT_MAX ==
 	      sizeof(format_extra_sizes) / sizeof(format_extra_sizes[0]),
 	      "Wrong fmt_ext_size size");

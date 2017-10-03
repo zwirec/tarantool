@@ -120,6 +120,7 @@ space_new(struct space_def *def, struct rlist *key_list,
 	space_fill_index_map(space);
 	space->run_triggers = true;
 	scoped_guard.is_active = false;
+	rlist_create(&space->lru_list);
 	return space;
 }
 
