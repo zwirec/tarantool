@@ -34,6 +34,7 @@
 #include "coio_buf.h"
 #include "error.h"
 #include "msgpuck/msgpuck.h"
+#include "errinj.h"
 
 void
 coio_read_xrow(struct ev_io *coio, struct ibuf *in, struct xrow_header *row)
@@ -98,6 +99,12 @@ coio_write_xrow(struct ev_io *coio, const struct xrow_header *row)
 {
 	struct iovec iov[XROW_IOVMAX];
 	int iovcnt = xrow_to_iovec_xc(row, iov);
+	ERROR_INJECT(ERRINJ_COIO_PARTIAL_WRITE_ROW, {
+		iovcnt = 1;
+		iov[0].iov_len /= 2;
+		coio_writev(coio, iov, iovcnt, 0);
+		tnt_raise(SocketError, coio->fd, "errinj partial write");
+	});
 	coio_writev(coio, iov, iovcnt, 0);
 }
 

@@ -159,6 +159,46 @@ box.space.test.index[0]:count()
 ---
 - 50
 ...
+--
+-- Partial write of an iproto packet and then timeout error.
+-- In such a case an applier must not read old data after
+-- reconnection. Old data is partial and corrupted. The fix was
+-- to hard reset ibuf on applier disconnection.
+--
+errinj.set("ERRINJ_COIO_PARTIAL_WRITE_ROW", true)
+---
+- ok
+...
+box.space.test:replace{1, 2, 3}
+---
+- [1, 2, 3]
+...
+test_run:cmd("switch replica")
+---
+- true
+...
+while box.info.replication[1].upstream.status ~= 'disconnected' do fiber.sleep(0.0001) end
+---
+...
+test_run:cmd("switch default")
+---
+- true
+...
+errinj.set("ERRINJ_COIO_PARTIAL_WRITE_ROW", false)
+---
+- ok
+...
+test_run:cmd("switch replica")
+---
+- true
+...
+while box.info.replication[1].upstream.status ~= 'follow' do fiber.sleep(0.0001) end
+---
+...
+test_run:cmd("switch default")
+---
+- true
+...
 -- Check that master doesn't stall on WALs without EOF (gh-2294).
 errinj.set("ERRINJ_WAL_WRITE_EOF", true)
 ---

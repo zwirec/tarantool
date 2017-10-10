@@ -445,6 +445,8 @@ applier_disconnect(struct applier *applier, enum applier_state state)
 	}
 
 	coio_close(loop(), &applier->io);
+	/* Force ibuf reset. */
+	applier->iobuf->in.rpos = applier->iobuf->in.wpos;
 	iobuf_reset(applier->iobuf);
 	applier_set_state(applier, state);
 	fiber_gc();

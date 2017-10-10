@@ -18,6 +18,8 @@ errinj.info()
     state: false
   ERRINJ_VY_SCHED_TIMEOUT:
     state: 0
+  ERRINJ_COIO_PARTIAL_WRITE_ROW:
+    state: false
   ERRINJ_WAL_WRITE_PARTIAL:
     state: -1
   ERRINJ_VY_GC:
