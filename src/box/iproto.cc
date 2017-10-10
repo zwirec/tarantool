@@ -1099,6 +1099,7 @@ tx_process_join_subscribe(struct cmsg *m)
 {
 	struct iproto_msg *msg = (struct iproto_msg *) m;
 	struct iproto_connection *con = msg->connection;
+	msg->close_connection = false;
 
 	tx_fiber_init(con->session, msg->header.sync);
 
@@ -1125,7 +1126,7 @@ tx_process_join_subscribe(struct cmsg *m)
 			unreachable();
 		}
 	} catch (SocketError *e) {
-		throw; /* don't write error response to prevent SIGPIPE */
+		msg->close_connection = true;
 	} catch (Exception *e) {
 		iproto_write_error_blocking(con->input.fd, e, msg->header.sync);
 	}
@@ -1154,6 +1155,11 @@ net_end_join_subscribe(struct cmsg *m)
 {
 	struct iproto_msg *msg = (struct iproto_msg *) m;
 	struct iproto_connection *con = msg->connection;
+	if (msg->close_connection) {
+		iproto_connection_close(con);
+		iproto_msg_delete(msg);
+		return;
+	}
 
 	msg->p_ibuf->rpos += msg->len;
 	iproto_msg_delete(msg);
