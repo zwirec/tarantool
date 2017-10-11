@@ -328,7 +328,7 @@ applier_join(struct applier *applier)
 		if (iproto_type_is_dml(row.type)) {
 			vclock_follow(&replicaset_vclock, row.replica_id,
 				      row.lsn);
-			xstream_write_xc(applier->subscribe_stream, &row);
+			xstream_write_xc(&applier->subscribe_stream, &row);
 		} else if (row.type == IPROTO_OK) {
 			/*
 			 * Current vclock. This is not used now,
@@ -355,7 +355,7 @@ finish:
 static void
 applier_subscribe(struct applier *applier)
 {
-	assert(applier->subscribe_stream != NULL);
+	assert(applier->subscribe_stream.write != NULL);
 
 	/* Send SUBSCRIBE request */
 	struct ev_io *coio = &applier->io;
@@ -428,7 +428,7 @@ applier_subscribe(struct applier *applier)
 			 */
 			vclock_follow(&replicaset_vclock, row.replica_id,
 				      row.lsn);
-			xstream_write_xc(applier->subscribe_stream, &row);
+			xstream_write_xc(&applier->subscribe_stream, &row);
 		}
 		fiber_cond_signal(&applier->writer_cond);
 		iobuf_reset(iobuf);
@@ -588,7 +588,7 @@ applier_new(const char *uri, struct xstream *join_stream,
 	(void) rc;
 
 	applier->join_stream = join_stream;
-	applier->subscribe_stream = subscribe_stream;
+	applier->subscribe_stream = *subscribe_stream;
 	applier->last_row_time = ev_monotonic_now(loop());
 	rlist_create(&applier->on_state);
 	fiber_channel_create(&applier->pause, 0);

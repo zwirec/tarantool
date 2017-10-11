@@ -41,7 +41,7 @@
 #include "trivia/util.h"
 #include "tt_uuid.h"
 #include "uri.h"
-
+#include "xstream.h"
 #include "vclock.h"
 
 /** Network timeout */
@@ -112,7 +112,7 @@ struct applier {
 	/** xstream to process rows during initial JOIN */
 	struct xstream *join_stream;
 	/** xstream to process rows during final JOIN and SUBSCRIBE */
-	struct xstream *subscribe_stream;
+	struct xstream subscribe_stream;
 };
 
 /**

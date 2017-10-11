@@ -112,7 +112,6 @@ static double replication_cfg_timeout = 1.0; /* seconds */
 
 /* Use the shared instance of xstream for all appliers */
 static struct xstream join_stream;
-static struct xstream subscribe_stream;
 
 /**
  * The pool of fibers in the transaction processor thread
@@ -484,11 +483,12 @@ cfg_get_replication(int *p_count)
 		tnt_raise(ClientError, ER_CFG, "replication",
 				"too many replicas");
 	}
+	struct xstream subscribe_stream;
+	xstream_create(&subscribe_stream, apply_row, NULL, NULL, NULL);
 
 	for (int i = 0; i < count; i++) {
 		const char *source = cfg_getarr_elem("replication", i);
-		struct applier *applier = applier_new(source,
-						      &join_stream,
+		struct applier *applier = applier_new(source, &join_stream,
 						      &subscribe_stream);
 		if (applier == NULL) {
 			/* Delete created appliers */
@@ -1608,7 +1608,6 @@ box_cfg_xc(void)
 	box_set_too_long_threshold();
 	box_set_replication_timeout();
 	xstream_create(&join_stream, apply_initial_join_row, NULL, NULL, NULL);
-	xstream_create(&subscribe_stream, apply_row, NULL, NULL, NULL);
 
 	struct vclock last_checkpoint_vclock;
 	int64_t last_checkpoint_lsn = checkpoint_last(&last_checkpoint_vclock);
