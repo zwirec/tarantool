@@ -143,7 +143,7 @@ relay_create(struct relay *relay, int fd, uint64_t sync,
 	     xstream_write_f stream_write)
 {
 	memset(relay, 0, sizeof(*relay));
-	xstream_create(&relay->stream, stream_write);
+	xstream_create(&relay->stream, stream_write, NULL, NULL, NULL);
 	coio_create(&relay->io, fd);
 	relay->sync = sync;
 	fiber_cond_create(&relay->reader_cond);

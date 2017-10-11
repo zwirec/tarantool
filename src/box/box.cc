@@ -312,7 +312,7 @@ apply_wal_row(struct xstream *stream, struct xrow_header *row)
 static void
 wal_stream_create(struct wal_stream *ctx, size_t wal_max_rows)
 {
-	xstream_create(&ctx->base, apply_wal_row);
+	xstream_create(&ctx->base, apply_wal_row, NULL, NULL, NULL);
 	ctx->rows = 0;
 	/**
 	 * Make the yield logic covered by the functional test
@@ -1607,8 +1607,8 @@ box_cfg_xc(void)
 	box_set_checkpoint_count();
 	box_set_too_long_threshold();
 	box_set_replication_timeout();
-	xstream_create(&join_stream, apply_initial_join_row);
-	xstream_create(&subscribe_stream, apply_row);
+	xstream_create(&join_stream, apply_initial_join_row, NULL, NULL, NULL);
+	xstream_create(&subscribe_stream, apply_row, NULL, NULL, NULL);
 
 	struct vclock last_checkpoint_vclock;
 	int64_t last_checkpoint_lsn = checkpoint_last(&last_checkpoint_vclock);

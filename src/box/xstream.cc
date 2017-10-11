@@ -42,3 +42,15 @@ xstream_write(struct xstream *stream, struct xrow_header *row)
 	}
 	return 0;
 }
+
+int
+xstream_commit(struct xstream *stream)
+{
+	try {
+		if (stream->commit != NULL)
+			stream->commit(stream);
+	} catch (Exception *e) {
+		return -1;
+	}
+	return 0;
+}

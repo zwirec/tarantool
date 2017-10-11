@@ -42,19 +42,30 @@ struct xrow_header;
 struct xstream;
 
 typedef void (*xstream_write_f)(struct xstream *, struct xrow_header *);
+typedef void (*xstream_tx_f)(struct xstream *);
 
 struct xstream {
 	xstream_write_f write;
+	xstream_tx_f begin;
+	xstream_tx_f commit;
+	xstream_tx_f rollback;
 };
 
 static inline void
-xstream_create(struct xstream *xstream, xstream_write_f write)
+xstream_create(struct xstream *xstream, xstream_write_f write,
+	       xstream_tx_f begin, xstream_tx_f commit, xstream_tx_f rollback)
 {
 	xstream->write = write;
+	xstream->begin = begin;
+	xstream->commit = commit;
+	xstream->rollback = rollback;
 }
 
 int
 xstream_write(struct xstream *stream, struct xrow_header *row);
+
+int
+xstream_commit(struct xstream *stream);
 
 #if defined(__cplusplus)
 } /* extern C */
@@ -62,8 +73,28 @@ xstream_write(struct xstream *stream, struct xrow_header *row);
 static inline void
 xstream_write_xc(struct xstream *stream, struct xrow_header *row)
 {
-	if (xstream_write(stream, row) != 0)
-		diag_raise();
+	stream->write(stream, row);
+}
+
+static inline void
+xstream_begin_xc(struct xstream *stream)
+{
+	if (stream->begin != NULL)
+		stream->begin(stream);
+}
+
+static inline void
+xstream_commit_xc(struct xstream *stream)
+{
+	if (stream->commit != NULL)
+		stream->commit(stream);
+}
+
+static inline void
+xstream_rollback_xc(struct xstream *stream)
+{
+	if (stream->rollback != NULL)
+		stream->rollback(stream);
 }
 
 #endif /* defined(__cplusplus) */
