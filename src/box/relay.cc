@@ -52,6 +52,7 @@
 #include "xrow_io.h"
 #include "xstream.h"
 #include "wal.h"
+#include "scoped_guard.h"
 
 /** Network timeout */
 double relay_timeout;
@@ -138,8 +139,8 @@ static void
 relay_send_row(struct xstream *stream, struct xrow_header *row);
 
 static inline void
-relay_init(struct relay *relay, int fd, uint64_t sync,
-	   void (*stream_write)(struct xstream *, struct xrow_header *))
+relay_create(struct relay *relay, int fd, uint64_t sync,
+	     xstream_write_f stream_write)
 {
 	memset(relay, 0, sizeof(*relay));
 	xstream_create(&relay->stream, stream_write);
@@ -147,6 +148,15 @@ relay_init(struct relay *relay, int fd, uint64_t sync,
 	relay->sync = sync;
 	fiber_cond_create(&relay->reader_cond);
 	diag_create(&relay->diag);
+}
+
+static inline void
+relay_destroy(struct relay *relay)
+{
+	if (relay->r != NULL)
+		recovery_delete(relay->r);
+	fiber_cond_destroy(&relay->reader_cond);
+	diag_destroy(&relay->diag);
 }
 
 static inline void
@@ -168,7 +178,8 @@ void
 relay_initial_join(int fd, uint64_t sync, struct vclock *vclock)
 {
 	struct relay relay;
-	relay_init(&relay, fd, sync, relay_send_initial_join_row);
+	relay_create(&relay, fd, sync, relay_send_initial_join_row);
+	auto relay_guard = make_scoped_guard([&] { relay_destroy(&relay); });
 	assert(relay.stream.write != NULL);
 	engine_join_xc(vclock, &relay.stream);
 }
@@ -193,7 +204,8 @@ relay_final_join(int fd, uint64_t sync, struct vclock *start_vclock,
 	         struct vclock *stop_vclock)
 {
 	struct relay relay;
-	relay_init(&relay, fd, sync, relay_send_row);
+	relay_create(&relay, fd, sync, relay_send_row);
+	auto relay_guard = make_scoped_guard([&] { relay_destroy(&relay); });
 	relay.r = recovery_new(cfg_gets("wal_dir"),
 			       cfg_geti("force_recovery"),
 			       start_vclock);
@@ -203,8 +215,6 @@ relay_final_join(int fd, uint64_t sync, struct vclock *start_vclock,
 			      relay_final_join_f, &relay);
 	if (rc == 0)
 		rc = cord_cojoin(&relay.cord);
-
-	recovery_delete(relay.r);
 
 	if (rc != 0)
 		diag_raise();
@@ -450,7 +460,8 @@ relay_subscribe(int fd, uint64_t sync, struct replica *replica,
 	}
 
 	struct relay relay;
-	relay_init(&relay, fd, sync, relay_send_row);
+	relay_create(&relay, fd, sync, relay_send_row);
+	auto relay_guard = make_scoped_guard([&] { relay_destroy(&relay); });
 	relay.r = recovery_new(cfg_gets("wal_dir"),
 			       cfg_geti("force_recovery"),
 			       replica_clock);
@@ -465,10 +476,6 @@ relay_subscribe(int fd, uint64_t sync, struct replica *replica,
 		rc = cord_cojoin(&relay.cord);
 
 	replica_clear_relay(replica);
-	recovery_delete(relay.r);
-
-	fiber_cond_destroy(&relay.reader_cond);
-	diag_destroy(&relay.diag);
 	if (rc != 0)
 		diag_raise();
 }
