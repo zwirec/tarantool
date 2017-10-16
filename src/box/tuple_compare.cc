@@ -1151,3 +1151,134 @@ box_tuple_compare_with_key(const box_tuple_t *tuple_a, const char *key_b,
 	return tuple_compare_with_key(tuple_a, key_b, part_count, key_def);
 
 }
+
+static uint64_t
+key_hint_default(const char *key, const struct key_def *key_def)
+{
+	(void)key;
+	(void)key_def;
+	return 0;
+}
+
+static uint64_t
+tuple_hint_default(const struct tuple *tuple, const struct key_def *key_def)
+{
+	(void)tuple;
+	(void)key_def;
+	return 0;
+}
+
+static uint64_t
+key_hint_uint(const char *key, const struct key_def *key_def)
+{
+	(void)key_def;
+	assert(key_def->parts->type == FIELD_TYPE_UNSIGNED);
+	assert(mp_typeof(*key) == MP_UINT);
+	return mp_decode_uint(&key);
+}
+
+static uint64_t
+tuple_hint_uint(const struct tuple *tuple, const struct key_def *key_def)
+{
+	const char *fld = tuple_field(tuple, key_def->parts->fieldno);
+	return key_hint_uint(fld, key_def);
+}
+
+static uint64_t
+key_hint_int(const char *key, const struct key_def *key_def)
+{
+	(void)key_def;
+	assert(key_def->parts->type == FIELD_TYPE_INTEGER);
+	if (mp_typeof(*key) == MP_UINT) {
+		uint64_t val = mp_decode_uint(&key);
+		if (val > INT64_MAX)
+			return INT64_MAX;
+		return val - (uint64_t)INT64_MIN;
+	} else {
+		assert(mp_typeof(*key) == MP_INT);
+		int64_t val = mp_decode_int(&key);
+		return (uint64_t)val - (uint64_t)INT64_MIN;
+	}
+}
+
+static uint64_t
+tuple_hint_int(const struct tuple *tuple, const struct key_def *key_def)
+{
+	const char *fld = tuple_field(tuple, key_def->parts->fieldno);
+	return key_hint_int(fld, key_def);
+}
+
+static uint64_t
+key_hint_string(const char *key, const struct key_def *key_def)
+{
+	(void)key_def;
+	assert(key_def->parts->type == FIELD_TYPE_STRING);
+	assert(mp_typeof(*key) == MP_STR);
+	uint32_t len;
+	const unsigned char *str = (const unsigned char *)
+		mp_decode_str(&key, &len);
+	uint64_t result = 0;
+	uint32_t process_len = MIN(len, 7);
+	for (uint32_t i = 0; i < process_len; i++) {
+		result <<= 9;
+		result |= 0x100;
+		result |= str[i];
+	}
+	result <<= 9 * (7 - process_len);
+	return result;
+}
+
+static uint64_t
+tuple_hint_string(const struct tuple *tuple, const struct key_def *key_def)
+{
+	const char *fld = tuple_field(tuple, key_def->parts->fieldno);
+	return key_hint_string(fld, key_def);
+}
+
+static uint64_t
+key_hint_string_coll(const char *key, const struct key_def *key_def)
+{
+	assert(key_def->parts->type == FIELD_TYPE_STRING);
+	assert(mp_typeof(*key) == MP_STR);
+	assert(key_def->parts->coll != NULL);
+	uint32_t len;
+	const char *str = mp_decode_str(&key, &len);
+	return key_def->parts->coll->hint(str, len, key_def->parts->coll);
+}
+
+static uint64_t
+tuple_hint_string_coll(const struct tuple *tuple, const struct key_def *key_def)
+{
+	const char *fld = tuple_field(tuple, key_def->parts->fieldno);
+	return key_hint_string_coll(fld, key_def);
+}
+
+void
+tuple_hint_set(struct key_def *def)
+{
+	def->key_hint = key_hint_default;
+	def->tuple_hint = tuple_hint_default;
+	if (def->parts->is_nullable)
+		return;
+	if (def->parts->type == FIELD_TYPE_STRING && def->parts->coll != NULL) {
+		def->key_hint = key_hint_string_coll;
+		def->tuple_hint = tuple_hint_string_coll;
+		return;
+	}
+	switch (def->parts->type) {
+	case FIELD_TYPE_UNSIGNED:
+		def->key_hint = key_hint_uint;
+		def->tuple_hint = tuple_hint_uint;
+		break;
+	case FIELD_TYPE_INTEGER:
+		def->key_hint = key_hint_int;
+		def->tuple_hint = tuple_hint_int;
+		break;
+	case FIELD_TYPE_STRING:
+		def->key_hint = key_hint_string;
+		def->tuple_hint = tuple_hint_string;
+		break;
+	default:
+		break;
+	};
+}

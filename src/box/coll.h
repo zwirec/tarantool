@@ -49,6 +49,9 @@ typedef uint32_t (*coll_hash_f)(const char *s, size_t s_len,
 				uint32_t *ph, uint32_t *pcarry,
 				struct coll *coll);
 
+typedef uint64_t (*coll_hint_f)(const char *s, size_t s_len,
+				struct coll *coll);
+
 /**
  * ICU collation specific data.
  */
@@ -73,6 +76,7 @@ struct coll {
 	/** String comparator. */
 	coll_cmp_f cmp;
 	coll_hash_f hash;
+	coll_hint_f hint;
 	/** Collation name. */
 	size_t name_len;
 	char name[0];

@@ -92,6 +92,31 @@ coll_icu_hash(const char *s, size_t s_len, uint32_t *ph, uint32_t *pcarry,
 }
 
 /**
+ * Get a compare hint of a string using ICU collation.
+ */
+static uint64_t
+coll_icu_hint(const char *s, size_t s_len, struct coll *coll)
+{
+	UCharIterator itr;
+	uiter_setUTF8(&itr, s, s_len);
+	uint8_t buf[7];
+	uint32_t state[2] = {0, 0};
+	UErrorCode status = U_ZERO_ERROR;
+	int32_t got = ucol_nextSortKeyPart(coll->icu.collator,
+					   &itr, state, buf,
+					   sizeof(buf), &status);
+	assert(got >= 0 && got <= 7);
+	uint64_t result = 0;
+	for (int32_t i = 0; i < got; i++) {
+		result <<= 9;
+		result |= 0x100;
+		result |= buf[i];
+	}
+	result <<= 9 * (7 - got);
+	return result;
+}
+
+/**
  * Set up ICU collator and init cmp and hash members of collation.
  * @param coll - collation to set up.
  * @param def - collation definition.
@@ -220,6 +245,7 @@ coll_icu_init_cmp(struct coll *coll, const struct coll_def *def)
 
 	coll->cmp = coll_icu_cmp;
 	coll->hash = coll_icu_hash;
+	coll->hint = coll_icu_hint;
 	return 0;
 }
 

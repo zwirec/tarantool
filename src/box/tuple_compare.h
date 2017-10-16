@@ -106,6 +106,46 @@ tuple_compare_with_key(const struct tuple *tuple, const char *key,
 	return key_def->tuple_compare_with_key(tuple, key, part_count, key_def);
 }
 
+/**
+ * Get a comparison hint of a tuple.
+ * Hint is such a function h(tuple) in terms of particular key_def that
+ * has follows rules:
+ * if h(t1) < h(t2) then t1 < t2;
+ * if h(t1) > h(t2) then t1 > t2;
+ * if t1 == t2 then h(t1) == h(t2);
+ * These rules means that instead of direct tuple vs tuple (or tuple vs key)
+ * comparison one may compare theirs hints first; and only if theirs hints
+ * are equal compare the tuples themselves.
+ * @param tuple - tuple to get hint of.
+ * @param key_def - key_def that defines which comparison is used.
+ * @return the hint.
+ */
+static inline uint64_t
+tuple_hint(const struct tuple *tuple, const struct key_def *key_def)
+{
+	return key_def->tuple_hint(tuple, key_def);
+}
+
+/**
+ * Get a comparison hint of a key.
+ * @See tuple_hint for hint term definition.
+ * @param key - key to get hint of.
+ * @param key_def - key_def that defines which comparison is used.
+ * @return the hint.
+ */
+static inline uint64_t
+key_hint(const char *key, const struct key_def *key_def)
+{
+	return key_def->key_hint(key, key_def);
+}
+
+/**
+ * Initialize tuple_hint() and key_hint() functions for the key_def.
+ * @param key_def key definition to set up.
+ */
+void
+tuple_hint_set(struct key_def *key_def);
+
 /** \cond public */
 
 /**

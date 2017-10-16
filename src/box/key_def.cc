@@ -130,6 +130,7 @@ key_def_set_cmp(struct key_def *def)
 	def->tuple_compare_with_key = tuple_compare_with_key_create(def);
 	tuple_hash_func_set(def);
 	tuple_extract_key_set(def);
+	tuple_hint_set(def);
 }
 
 struct key_def *
