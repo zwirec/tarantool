@@ -153,6 +153,13 @@ typedef uint32_t (*tuple_hash_t)(const struct tuple *tuple,
 typedef uint32_t (*key_hash_t)(const char *key,
 				struct key_def *key_def);
 
+/** @copydoc tuple_hint() */
+typedef uint64_t (*tuple_hint_t)(const struct tuple *tuple,
+				 const struct key_def *key_def);
+
+/** @copydoc key_hint() */
+typedef uint64_t (*key_hint_t)(const char *key, const struct key_def *key_def);
+
 /* Definition of a multipart key. */
 struct key_def {
 	/** @see tuple_compare() */
@@ -167,6 +174,10 @@ struct key_def {
 	tuple_hash_t tuple_hash;
 	/** @see key_hash() */
 	key_hash_t key_hash;
+	/** @see tuple_hash() */
+	tuple_hint_t tuple_hint;
+	/** @see key_hash() */
+	key_hint_t key_hint;
 	/**
 	 * Minimal part count which always is unique. For example,
 	 * if a secondary index is unique, then
