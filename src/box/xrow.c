@@ -53,6 +53,7 @@ xrow_header_decode(struct xrow_header *header, const char **pos,
 		   const char *end)
 {
 	memset(header, 0, sizeof(struct xrow_header));
+	header->row_count = 1;
 	const char *tmp = *pos;
 	if (mp_check(&tmp, end) != 0) {
 error:
@@ -89,6 +90,9 @@ error:
 			break;
 		case IPROTO_SCHEMA_VERSION:
 			header->schema_version = mp_decode_uint(pos);
+			break;
+		case IPROTO_ROW_COUNT:
+			header->row_count = mp_decode_uint(pos);
 			break;
 		default:
 			/* unknown header */
@@ -171,6 +175,12 @@ xrow_header_encode(const struct xrow_header *header, uint64_t sync,
 	if (header->tm) {
 		d = mp_encode_uint(d, IPROTO_TIMESTAMP);
 		d = mp_encode_double(d, header->tm);
+		map_size++;
+	}
+
+	if (header->row_count > 1) {
+		d = mp_encode_uint(d, IPROTO_ROW_COUNT);
+		d = mp_encode_uint(d, header->row_count);
 		map_size++;
 	}
 	assert(d <= data + XROW_HEADER_LEN_MAX);

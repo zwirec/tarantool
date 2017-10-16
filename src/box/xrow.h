@@ -45,7 +45,7 @@ enum {
 	XROW_HEADER_IOVMAX = 1,
 	XROW_BODY_IOVMAX = 2,
 	XROW_IOVMAX = XROW_HEADER_IOVMAX + XROW_BODY_IOVMAX,
-	XROW_HEADER_LEN_MAX = 40,
+	XROW_HEADER_LEN_MAX = 64,
 	XROW_BODY_LEN_MAX = 128,
 	IPROTO_HEADER_LEN = 28,
 };
@@ -58,6 +58,11 @@ struct xrow_header {
 	uint64_t sync;
 	int64_t lsn; /* LSN must be signed for correct comparison */
 	double tm;
+	/**
+	 * For a not autocommit transaction this is number of rows
+	 * it contains. Stored only in a first row.
+	 */
+	int row_count;
 
 	int bodycnt;
 	uint32_t schema_version;

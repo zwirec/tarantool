@@ -181,6 +181,7 @@ xlog_write_entry(struct xlog *l, struct journal_entry *entry)
 	 */
 	xlog_tx_begin(l);
 	struct xrow_header **row = entry->rows;
+	(*row)->row_count = entry->n_rows;
 	for (; row < entry->rows + entry->n_rows; row++) {
 		(*row)->tm = ev_now(loop());
 		if (xlog_write_row(l, *row) < 0) {
