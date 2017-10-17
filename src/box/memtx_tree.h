@@ -38,40 +38,90 @@
 /**
  * Struct that is used as a key in BPS tree definition.
  */
-struct memtx_tree_key_data
-{
+template <bool isHint>
+struct memtx_tree_key_data {
 	/** Sequence of msgpacked search fields */
 	const char *key;
 	/** Number of msgpacked search fields */
 	uint32_t part_count;
+	/** Set up structure after settinh key and part count */
+	void prepare(const struct key_def *def) { (void)def; }
 };
 
-/**
- * BPS tree element vs key comparator.
- * Defined in header in order to allow compiler to inline it.
- * @param tuple - tuple to compare.
- * @param key_data - key to compare with.
- * @param def - key definition.
- * @retval 0  if tuple == key in terms of def.
- * @retval <0 if tuple < key in terms of def.
- * @retval >0 if tuple > key in terms of def.
- */
-static inline int
-memtx_tree_compare_key(const tuple *tuple,
-		       const struct memtx_tree_key_data *key_data,
-		       struct key_def *def)
-{
-	return tuple_compare_with_key(tuple, key_data->key,
-				      key_data->part_count, def);
-}
+template<>
+struct memtx_tree_key_data<true> {
+	/** Compare hint */
+	uint64_t hint;
+	/** Sequence of msgpacked search fields */
+	const char *key;
+	/** Number of msgpacked search fields */
+	uint32_t part_count;
+	/** Set up structure after settinh key and part count */
+	void prepare(const struct key_def *def) { hint = key_hint(key, def); }
+};
 
-#define BPS_TREE_NAME memtx_tree
+
+/**
+ * Struct that is used as an unit of storage in BPS tree.
+ */
+template <bool isHint>
+struct memtx_tree_data {
+	struct tuple *tuple;
+	bool operator == (const memtx_tree_data &a) const
+	{
+		return tuple == a.tuple;
+	}
+	bool operator != (const memtx_tree_data &a) const
+	{
+		return tuple != a.tuple;
+	}
+	int compare(const memtx_tree_data &a, struct key_def *def) const
+	{
+		return tuple_compare(tuple, a.tuple, def);
+	}
+	int compare(const memtx_tree_key_data<isHint> &a, struct key_def *def) const
+	{
+		return tuple_compare_with_key(tuple, a.key, a.part_count, def);
+	}
+};
+
+template <>
+struct memtx_tree_data<true> {
+	uint64_t hint;
+	struct tuple *tuple;
+	bool operator == (const memtx_tree_data &a) const
+	{
+		return tuple == a.tuple;
+	}
+	bool operator != (const memtx_tree_data &a) const
+	{
+		return tuple != a.tuple;
+	}
+	int compare(const memtx_tree_data &a, struct key_def *def) const
+	{
+		if (hint != a.hint) {
+			return hint < a.hint ? -1 : 1;
+		}
+		return tuple_compare(tuple, a.tuple, def);
+	}
+	int compare(const memtx_tree_key_data<true> &a, struct key_def *def) const
+	{
+		if (a.part_count == 0)
+			return 0;
+		if (hint != a.hint) {
+			return hint < a.hint ? -1 : 1;
+		}
+		return tuple_compare_with_key(tuple, a.key, a.part_count, def);
+	}
+};
+
+#define BPS_TREE_NAME memtx_tree_normal
 #define BPS_TREE_BLOCK_SIZE (512)
 #define BPS_TREE_EXTENT_SIZE MEMTX_EXTENT_SIZE
-#define BPS_TREE_COMPARE(a, b, arg) tuple_compare(a, b, arg)
-#define BPS_TREE_COMPARE_KEY(a, b, arg) memtx_tree_compare_key(a, b, arg)
-#define bps_tree_elem_t struct tuple *
-#define bps_tree_key_t struct memtx_tree_key_data *
+#define BPS_TREE_COMPARE(a, b, arg) a->compare(b, arg)
+#define BPS_TREE_COMPARE_KEY(a, b, arg) a->compare(b, arg)
+#define bps_tree_elem_t memtx_tree_data<false>
+#define bps_tree_key_t memtx_tree_key_data<false>
 #define bps_tree_arg_t struct key_def *
 
 #include "salad/bps_tree.h"
@@ -85,6 +135,206 @@ memtx_tree_compare_key(const tuple *tuple,
 #undef bps_tree_key_t
 #undef bps_tree_arg_t
 
+#define BPS_TREE_NAME memtx_tree_hinted
+#define BPS_TREE_BLOCK_SIZE (512)
+#define BPS_TREE_EXTENT_SIZE MEMTX_EXTENT_SIZE
+#define BPS_TREE_COMPARE(a, b, arg) a->compare(b, arg)
+#define BPS_TREE_COMPARE_KEY(a, b, arg) a->compare(b, arg)
+#define bps_tree_elem_t memtx_tree_data<true>
+#define bps_tree_key_t memtx_tree_key_data<true>
+#define bps_tree_arg_t struct key_def *
+
+#include "salad/bps_tree.h"
+
+#undef BPS_TREE_NAME
+#undef BPS_TREE_BLOCK_SIZE
+#undef BPS_TREE_EXTENT_SIZE
+#undef BPS_TREE_COMPARE
+#undef BPS_TREE_COMPARE_KEY
+#undef bps_tree_elem_t
+#undef bps_tree_key_t
+#undef bps_tree_arg_t
+
+template <bool isHinted>
+struct treeProxy {
+	memtx_tree_normal tree;
+	struct iterator	{
+		memtx_tree_normal_iterator iterator;
+	};
+	void
+	create(struct key_def *def,
+	       bps_tree_extent_alloc_f alloc, bps_tree_extent_free_f free)
+	{
+		memtx_tree_normal_create(&tree, def, alloc, free, NULL);
+	}
+	void
+	destroy()
+	{
+		memtx_tree_normal_destroy(&tree);
+	}
+	memtx_tree_data<isHinted> *
+	get(struct iterator *it) const
+	{
+		return memtx_tree_normal_iterator_get_elem(&tree, &it->iterator);
+	}
+	memtx_tree_data<isHinted> *
+	random(uint32_t seed) const
+	{
+		return memtx_tree_normal_random(&tree, seed);
+	}
+	memtx_tree_data<isHinted> *
+	find(const memtx_tree_key_data<isHinted> &key_data) const
+	{
+		return memtx_tree_normal_find(&tree, key_data);
+	}
+	iterator
+	lowerBound(const memtx_tree_data<isHinted> &data, bool *exact)
+	{
+		iterator result;
+		result.iterator = memtx_tree_normal_lower_bound_elem(&tree, data, exact);
+		return result;
+	}
+	iterator
+	upperBound(const memtx_tree_data<isHinted> &data, bool *exact)
+	{
+		iterator result;
+		result.iterator = memtx_tree_normal_upper_bound_elem(&tree, data, exact);
+		return result;
+	}
+	iterator
+	first() const
+	{
+		iterator result;
+		result.iterator = memtx_tree_normal_iterator_first(&tree);
+		return result;
+	}
+	iterator
+	last() const
+	{
+		iterator result;
+		result.iterator = memtx_tree_normal_iterator_last(&tree);
+		return result;
+	}
+	iterator
+	invalid() const
+	{
+		iterator result;
+		result.iterator = memtx_tree_normal_invalid_iterator();
+		return result;
+	}
+	bool
+	next(const iterator &itr)
+	{
+		return memtx_tree_normal_iterator_next(&tree, &itr.iterator);
+	}
+	bool
+	prev(const iterator &itr)
+	{
+		return memtx_tree_normal_iterator_prev(&tree, &itr.iterator);
+	}
+	size_t
+	size() const
+	{
+		return memtx_tree_normal_size(&tree);
+	}
+	size_t
+	memUsed() const
+	{
+		return memtx_tree_normal_mem_used(&tree);
+	}
+};
+
+template <>
+struct treeProxy<true> {
+	memtx_tree_hinted tree;
+	struct iterator	{
+		memtx_tree_hinted_iterator iterator;
+	};
+	void
+	create(struct key_def *def,
+	       bps_tree_extent_alloc_f alloc, bps_tree_extent_free_f free)
+	{
+		memtx_tree_hinted_create(&tree, def, alloc, free, NULL);
+	}
+	void
+	destroy()
+	{
+		memtx_tree_hinted_destroy(&tree);
+	}
+	memtx_tree_data<true> *
+	get(struct iterator *it) const
+	{
+		return memtx_tree_hinted_iterator_get_elem(&tree, &it->iterator);
+	}
+	memtx_tree_data<true> *
+	random(uint32_t seed)  const
+	{
+		return memtx_tree_hinted_random(&tree, seed);
+	}
+	memtx_tree_data<true> *
+	find(const memtx_tree_key_data<true> &key_data) const
+	{
+		return memtx_tree_hinted_find(&tree, key_data);
+	}
+	iterator
+	lowerBound(const memtx_tree_data<true> &data, bool *exact)
+	{
+		iterator result;
+		result.iterator = memtx_tree_hinted_lower_bound_elem(&tree, data, exact);
+		return result;
+	}
+	iterator
+	upperBound(const memtx_tree_data<true> &data, bool *exact)
+	{
+		iterator result;
+		result.iterator = memtx_tree_hinted_upper_bound_elem(&tree, data, exact);
+		return result;
+	}
+	iterator
+	first() const
+	{
+		iterator result;
+		result.iterator = memtx_tree_hinted_iterator_first(&tree);
+		return result;
+	}
+	iterator
+	last() const
+	{
+		iterator result;
+		result.iterator = memtx_tree_hinted_iterator_last(&tree);
+		return result;
+	}
+	iterator
+	invalid() const
+	{
+		iterator result;
+		result.iterator = memtx_tree_hinted_invalid_iterator();
+		return result;
+	}
+	bool
+	next(const iterator &itr)
+	{
+		return memtx_tree_hinted_iterator_next(&tree, &itr.iterator);
+	}
+	bool
+	prev(const iterator &itr)
+	{
+		return memtx_tree_hinted_iterator_prev(&tree, &itr.iterator);
+	}
+	size_t
+	size() const
+	{
+		return memtx_tree_hinted_size(&tree);
+	}
+	size_t
+	memUsed() const
+	{
+		return memtx_tree_hinted_mem_used(&tree);
+	}
+};
+
+
+template<bool isHinted>
 class MemtxTree: public MemtxIndex {
 public:
 	MemtxTree(struct index_def *index_def);
@@ -117,8 +367,13 @@ public:
 	struct snapshot_iterator *createSnapshotIterator() override;
 
 private:
-	struct memtx_tree tree;
-	struct tuple **build_array;
+	/**
+	 * key def that is used in tree comparison.
+	 * See MemtxTree(struct index_def *) for details.
+	 */
+	struct key_def *cmp_def;
+	treeProxy<isHinted> tree;
+	memtx_tree_data<isHinted> *build_array;
 	size_t build_array_size, build_array_alloc_size;
 };
 
