@@ -189,8 +189,7 @@ recover_xlog(struct recovery *r, struct xstream *stream,
 {
 	struct xrow_header row;
 	uint64_t row_count = 0;
-	while (xlog_cursor_next_xc(&r->cursor, &row,
-				   r->wal_dir.force_recovery) == 0) {
+	while (xlog_cursor_next_xc(&r->cursor, &row) == 0) {
 		/*
 		 * Read the next row from xlog file.
 		 *
@@ -303,7 +302,8 @@ recover_remaining_wals(struct recovery *r, struct xstream *stream,
 
 		recovery_close_log(r);
 
-		xdir_open_cursor_xc(&r->wal_dir, vclock_sum(clock), &r->cursor);
+		xdir_open_cursor_xc(&r->wal_dir, vclock_sum(clock), &r->cursor,
+				    r->wal_dir.force_recovery);
 
 		say_info("recover from `%s'", r->cursor.name);
 

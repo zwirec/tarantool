@@ -158,15 +158,14 @@ memtx_engine_recover_snapshot(struct memtx_engine *memtx,
 
 	say_info("recovering from `%s'", filename);
 	struct xlog_cursor cursor;
-	if (xlog_cursor_open(&cursor, filename) < 0)
+	if (xlog_cursor_open(&cursor, filename, memtx->force_recovery) < 0)
 		return -1;
 	INSTANCE_UUID = cursor.meta.instance_uuid;
 
 	int rc;
 	struct xrow_header row;
 	uint64_t row_count = 0;
-	while ((rc = xlog_cursor_next(&cursor, &row,
-				      memtx->force_recovery)) == 0) {
+	while ((rc = xlog_cursor_next(&cursor, &row)) == 0) {
 		row.lsn = signature;
 		rc = memtx_engine_recover_snapshot_row(memtx, &row);
 		if (rc < 0) {
@@ -442,12 +441,12 @@ memtx_engine_bootstrap(struct engine *engine)
 	say_info("initializing an empty data directory");
 	struct xlog_cursor cursor;
 	if (xlog_cursor_openmem(&cursor, (const char *)bootstrap_bin,
-				sizeof(bootstrap_bin), "bootstrap") < 0)
+				sizeof(bootstrap_bin), "bootstrap", true) < 0)
 		return -1;
 
 	int rc;
 	struct xrow_header row;
-	while ((rc = xlog_cursor_next(&cursor, &row, true)) == 0) {
+	while ((rc = xlog_cursor_next(&cursor, &row)) == 0) {
 		rc = memtx_engine_recover_snapshot_row(memtx, &row);
 		if (rc < 0)
 			break;
@@ -819,13 +818,13 @@ memtx_initial_join_f(va_list ap)
 	 */
 	xdir_create(&dir, snap_dirname, SNAP, &INSTANCE_UUID);
 	struct xlog_cursor cursor;
-	int rc = xdir_open_cursor(&dir, checkpoint_lsn, &cursor);
+	int rc = xdir_open_cursor(&dir, checkpoint_lsn, &cursor, true);
 	xdir_destroy(&dir);
 	if (rc < 0)
 		return -1;
 
 	struct xrow_header row;
-	while ((rc = xlog_cursor_next(&cursor, &row, true)) == 0) {
+	while ((rc = xlog_cursor_next(&cursor, &row)) == 0) {
 		rc = xstream_write(stream, &row);
 		if (rc < 0)
 			break;

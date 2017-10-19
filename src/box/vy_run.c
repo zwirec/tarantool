@@ -1795,7 +1795,7 @@ vy_run_recover(struct vy_run *run, const char *dir,
 			    space_id, iid, run->id, VY_FILE_INDEX);
 
 	struct xlog_cursor cursor;
-	if (xlog_cursor_open(&cursor, path))
+	if (xlog_cursor_open(&cursor, path, false))
 		goto fail;
 
 	struct xlog_meta *meta = &cursor.meta;
@@ -1891,7 +1891,7 @@ vy_run_recover(struct vy_run *run, const char *dir,
 	/* Prepare data file for reading. */
 	vy_run_snprint_path(path, sizeof(path), dir,
 			    space_id, iid, run->id, VY_FILE_RUN);
-	if (xlog_cursor_open(&cursor, path))
+	if (xlog_cursor_open(&cursor, path, false))
 		goto fail;
 	meta = &cursor.meta;
 	if (strcmp(meta->filetype, XLOG_META_TYPE_RUN) != 0) {
@@ -2510,10 +2510,9 @@ vy_run_rebuild_index(struct vy_run *run, const char *dir,
 			    space_id, iid, run->id, VY_FILE_RUN);
 
 	say_warn("rebuilding run index from %s data file", path);
-	if (xlog_cursor_open(&cursor, path))
+	if (xlog_cursor_open(&cursor, path, false))
 		return -1;
 
-	int rc = 0;
 	uint32_t page_info_capacity = 0;
 	uint32_t run_row_count = 0;
 
@@ -2522,7 +2521,7 @@ vy_run_rebuild_index(struct vy_run *run, const char *dir,
 	int64_t min_lsn = INT64_MAX;
 
 	off_t page_offset, next_page_offset = xlog_cursor_pos(&cursor);
-	while ((rc = xlog_cursor_next_tx(&cursor)) == 0) {
+	while (xlog_cursor_next_tx(&cursor) == 0) {
 		page_offset = next_page_offset;
 		next_page_offset = xlog_cursor_pos(&cursor);
 
@@ -2535,7 +2534,7 @@ vy_run_rebuild_index(struct vy_run *run, const char *dir,
 		uint64_t row_offset = xlog_cursor_tx_pos(&cursor);
 
 		struct xrow_header xrow;
-		while ((rc = xlog_cursor_next_row(&cursor, &xrow)) == 0) {
+		while (xlog_cursor_next_row(&cursor, &xrow) == 0) {
 			if (xrow.type == VY_RUN_ROW_INDEX) {
 				page_row_index_offset = row_offset;
 				row_offset = xlog_cursor_tx_pos(&cursor);
@@ -2589,7 +2588,7 @@ vy_run_rebuild_index(struct vy_run *run, const char *dir,
 		goto close_err;
 	}
 	struct xrow_header xrow;
-	while ((rc = xlog_cursor_next(&cursor, &xrow, false)) == 0) {
+	while (xlog_cursor_next(&cursor, &xrow) == 0) {
 		if (xrow.type == VY_RUN_ROW_INDEX)
 			continue;
 

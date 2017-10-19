@@ -473,6 +473,8 @@ struct xlog_tx_cursor
 	struct ibuf rows;
 	/** tx size */
 	size_t size;
+	/** True to ignore xlog errors. */
+	bool force_recovery;
 };
 
 /**
@@ -486,7 +488,7 @@ struct xlog_tx_cursor
 ssize_t
 xlog_tx_cursor_create(struct xlog_tx_cursor *cursor,
 		      const char **data, const char *data_end,
-		      ZSTD_DStream *zdctx);
+		      ZSTD_DStream *zdctx, bool force_recovery);
 
 /**
  * Destroy xlog tx cursor and free all associated memory
@@ -569,6 +571,8 @@ struct xlog_cursor
 	struct xlog_tx_cursor tx_cursor;
 	/** ZSTD context for decompression */
 	ZSTD_DStream *zdctx;
+	/** True to ignore xlog errors. */
+	bool force_recovery;
 };
 
 /**
@@ -602,7 +606,8 @@ xlog_cursor_is_eof(const struct xlog_cursor *cursor)
  * @retval -1 error, check diag
  */
 int
-xlog_cursor_openfd(struct xlog_cursor *cursor, int fd, const char *name);
+xlog_cursor_openfd(struct xlog_cursor *cursor, int fd, const char *name,
+		   bool force_recovery);
 
 /**
  * Open cursor from file
@@ -612,7 +617,8 @@ xlog_cursor_openfd(struct xlog_cursor *cursor, int fd, const char *name);
  * @retval -1 error, check diag
  */
 int
-xlog_cursor_open(struct xlog_cursor *cursor, const char *name);
+xlog_cursor_open(struct xlog_cursor *cursor, const char *name,
+		 bool force_recovery);
 
 /**
  * Open cursor from memory
@@ -625,7 +631,7 @@ xlog_cursor_open(struct xlog_cursor *cursor, const char *name);
  */
 int
 xlog_cursor_openmem(struct xlog_cursor *cursor, const char *data, size_t size,
-		    const char *name);
+		    const char *name, bool force_recovery);
 
 /**
  * Reset cursor position
@@ -672,8 +678,7 @@ xlog_cursor_next_row(struct xlog_cursor *cursor, struct xrow_header *xrow);
  * @retval -1 for error
  */
 int
-xlog_cursor_next(struct xlog_cursor *cursor,
-		 struct xrow_header *xrow, bool force_recovery);
+xlog_cursor_next(struct xlog_cursor *cursor, struct xrow_header *xrow);
 
 /**
  * Move to the next xlog tx
@@ -722,7 +727,7 @@ xlog_cursor_tx_pos(struct xlog_cursor *cursor)
  */
 int
 xdir_open_cursor(struct xdir *dir, int64_t signature,
-		 struct xlog_cursor *cursor);
+		 struct xlog_cursor *cursor, bool force_recovery);
 
 /** }}} */
 
@@ -750,9 +755,9 @@ xdir_check_xc(struct xdir *dir)
  */
 static inline int
 xdir_open_cursor_xc(struct xdir *dir, int64_t signature,
-		    struct xlog_cursor *cursor)
+		    struct xlog_cursor *cursor, bool force_recovery)
 {
-	int rc = xdir_open_cursor(dir, signature, cursor);
+	int rc = xdir_open_cursor(dir, signature, cursor, force_recovery);
 	if (rc == -1)
 		diag_raise();
 	return rc;
@@ -762,9 +767,10 @@ xdir_open_cursor_xc(struct xdir *dir, int64_t signature,
  * @copydoc xlog_cursor_openfd
  */
 static inline int
-xlog_cursor_openfd_xc(struct xlog_cursor *cursor, int fd, const char *name)
+xlog_cursor_openfd_xc(struct xlog_cursor *cursor, int fd, const char *name,
+		      bool force_recovery)
 {
-	int rc = xlog_cursor_openfd(cursor, fd, name);
+	int rc = xlog_cursor_openfd(cursor, fd, name, force_recovery);
 	if (rc == -1)
 		diag_raise();
 	return rc;
@@ -773,9 +779,10 @@ xlog_cursor_openfd_xc(struct xlog_cursor *cursor, int fd, const char *name)
  * @copydoc xlog_cursor_open
  */
 static inline int
-xlog_cursor_open_xc(struct xlog_cursor *cursor, const char *name)
+xlog_cursor_open_xc(struct xlog_cursor *cursor, const char *name,
+		    bool force_recovery)
 {
-	int rc = xlog_cursor_open(cursor, name);
+	int rc = xlog_cursor_open(cursor, name, force_recovery);
 	if (rc == -1)
 		diag_raise();
 	return rc;
@@ -785,10 +792,9 @@ xlog_cursor_open_xc(struct xlog_cursor *cursor, const char *name)
  * @copydoc xlog_cursor_next
  */
 static inline int
-xlog_cursor_next_xc(struct xlog_cursor *cursor,
-		    struct xrow_header *xrow, bool force_recovery)
+xlog_cursor_next_xc(struct xlog_cursor *cursor, struct xrow_header *xrow)
 {
-	int rc = xlog_cursor_next(cursor, xrow, force_recovery);
+	int rc = xlog_cursor_next(cursor, xrow);
 	if (rc == -1)
 		diag_raise();
 	return rc;

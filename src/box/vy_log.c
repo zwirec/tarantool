@@ -2006,12 +2006,12 @@ vy_recovery_new_f(va_list ap)
 		goto out;
 
 	struct xlog_cursor cursor;
-	if (xdir_open_cursor(&vy_log.dir, signature, &cursor) < 0)
+	if (xdir_open_cursor(&vy_log.dir, signature, &cursor, false) < 0)
 		goto fail_free;
 
 	int rc;
 	struct xrow_header row;
-	while ((rc = xlog_cursor_next(&cursor, &row, false)) == 0) {
+	while ((rc = xlog_cursor_next(&cursor, &row)) == 0) {
 		struct vy_log_record record;
 		rc = vy_log_record_decode(&record, &row);
 		if (rc < 0)
