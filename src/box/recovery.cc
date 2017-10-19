@@ -189,7 +189,26 @@ recover_xlog(struct recovery *r, struct xstream *stream,
 {
 	struct xrow_header row;
 	uint64_t row_count = 0;
-	while (xlog_cursor_next_xc(&r->cursor, &row) == 0) {
+	struct xlog_tx_cursor *tx_cursor = &r->cursor.tx_cursor;
+	xstream_begin_xc(stream);
+	int rc;
+	while ((rc = xlog_tx_cursor_next_row(tx_cursor, &row)) >= 0) {
+		if (rc == 1) {
+			if (xstream_commit(stream) != 0) {
+				say_error("can't apply tx: ");
+				diag_log();
+				if (!r->wal_dir.force_recovery)
+					diag_raise();
+			}
+			rc = xlog_cursor_next_tx(&r->cursor);
+			if (rc == -1)
+				diag_raise();
+			if (rc == 1)
+				return;
+			tx_cursor = &r->cursor.tx_cursor;
+			xstream_begin_xc(stream);
+			continue;
+		}
 		/*
 		 * Read the next row from xlog file.
 		 *
@@ -216,7 +235,7 @@ recover_xlog(struct recovery *r, struct xstream *stream,
 		 * in case of forced recovery, when we skip the
 		 * failed row anyway.
 		 */
-		vclock_follow(&r->vclock,  row.replica_id, row.lsn);
+		vclock_follow(&r->vclock, row.replica_id, row.lsn);
 		if (xstream_write(stream, &row) == 0) {
 			++row_count;
 			if (row_count % 100000 == 0)
@@ -229,6 +248,7 @@ recover_xlog(struct recovery *r, struct xstream *stream,
 				diag_raise();
 		}
 	}
+	diag_raise();
 }
 
 /**

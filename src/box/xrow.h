@@ -48,6 +48,7 @@ enum {
 	XROW_HEADER_LEN_MAX = 64,
 	XROW_BODY_LEN_MAX = 128,
 	IPROTO_HEADER_LEN = 28,
+	XROW_BATCH_SIZE = IOV_MAX,
 };
 
 struct xrow_header {

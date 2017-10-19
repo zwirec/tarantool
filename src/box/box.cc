@@ -283,21 +283,62 @@ join_journal_create(struct join_journal *journal)
 }
 
 static inline void
-apply_row(struct xstream *stream, struct xrow_header *row)
+applier_begin_tx(struct xstream *stream)
 {
-	assert(row->bodycnt == 1); /* always 1 for read */
+	struct applier *applier =
+		container_of(stream, struct applier, subscribe_stream);
+	if (applier->row_count_to_commit > 1 && txn_begin(false) == NULL)
+		diag_raise();
+}
+
+static inline void
+applier_commit_tx(struct xstream *stream)
+{
 	(void) stream;
+	struct txn *txn = in_txn();
+	if (txn != NULL && txn_commit(txn) != 0)
+		diag_raise();
+}
+
+static inline void
+applier_rollback_tx(struct xstream *stream)
+{
+	(void) stream;
+	txn_rollback();
+}
+
+static inline void
+applier_apply_row(struct xstream *stream, struct xrow_header *row)
+{
+	struct applier *applier =
+		container_of(stream, struct applier, subscribe_stream);
+	assert(row->bodycnt == 1);
+	struct txn *txn = in_txn();
+	if (applier->row_count_to_commit == 0) {
+		if (txn != NULL && txn_commit(txn) != 0)
+			diag_raise();
+		applier->row_count_to_commit = row->row_count;
+		assert(row->row_count >= 1);
+		if (row->row_count > 1 && txn_begin(false) == NULL)
+			diag_raise();
+	}
 	struct request request;
 	xrow_decode_dml_xc(row, &request, dml_request_key_map(row->type));
 	struct space *space = space_cache_find_xc(request.space_id);
 	if (process_rw(&request, space, NULL) != 0)
 		diag_raise();
+	--applier->row_count_to_commit;
 }
 
 static void
 apply_wal_row(struct xstream *stream, struct xrow_header *row)
 {
-	apply_row(stream, row);
+	assert(row->bodycnt == 1);
+	struct request request;
+	xrow_decode_dml_xc(row, &request, dml_request_key_map(row->type));
+	struct space *space = space_cache_find_xc(request.space_id);
+	if (process_rw(&request, space, NULL) != 0)
+		diag_raise();
 
 	struct wal_stream *xstream =
 		container_of(stream, struct wal_stream, base);
@@ -486,7 +527,8 @@ cfg_get_replication(int *p_count)
 				"too many replicas");
 	}
 	struct xstream subscribe_stream;
-	xstream_create(&subscribe_stream, apply_row, NULL, NULL, NULL);
+	xstream_create(&subscribe_stream, applier_apply_row, applier_begin_tx,
+		       applier_commit_tx, applier_rollback_tx);
 
 	for (int i = 0; i < count; i++) {
 		const char *source = cfg_getarr_elem("replication", i);

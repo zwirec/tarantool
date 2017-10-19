@@ -159,7 +159,7 @@ test_run:cmd("switch default")
 fiber.sleep(0.1) -- wait for relay to notify tx
 ---
 ...
-#box.internal.gc.info().checkpoints == 1 or box.internal.gc.info()
+#box.internal.gc.info().checkpoints == 2 or box.internal.gc.info()
 ---
 - true
 ...
@@ -181,7 +181,7 @@ box.snapshot()
 ---
 - ok
 ...
-#box.internal.gc.info().checkpoints == 2 or box.internal.gc.info()
+#box.internal.gc.info().checkpoints == 3 or box.internal.gc.info()
 ---
 - true
 ...

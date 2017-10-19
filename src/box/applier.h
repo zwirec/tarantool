@@ -43,6 +43,7 @@
 #include "uri.h"
 #include "xstream.h"
 #include "vclock.h"
+#include "xrow_io.h"
 
 /** Network timeout */
 extern double applier_timeout;
@@ -113,6 +114,10 @@ struct applier {
 	struct xstream *join_stream;
 	/** xstream to process rows during final JOIN and SUBSCRIBE */
 	struct xstream subscribe_stream;
+	/** Currently appling batch. */
+	struct xrow_batch batch;
+	/** Count of rows to decode to commit. */
+	int row_count_to_commit;
 };
 
 /**

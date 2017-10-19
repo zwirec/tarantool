@@ -84,7 +84,7 @@ test_run:cmd("switch default")
 -- Now garbage collection should resume and delete files left
 -- from the old checkpoint.
 fiber.sleep(0.1) -- wait for relay to notify tx
-#box.internal.gc.info().checkpoints == 1 or box.internal.gc.info()
+#box.internal.gc.info().checkpoints == 2 or box.internal.gc.info()
 
 -- Stop the replica.
 test_run:cmd("stop server replica")
@@ -94,7 +94,7 @@ test_run:cmd("cleanup server replica")
 -- the checkpoint last used by the replica.
 _ = s:auto_increment{}
 box.snapshot()
-#box.internal.gc.info().checkpoints == 2 or box.internal.gc.info()
+#box.internal.gc.info().checkpoints == 3 or box.internal.gc.info()
 
 -- The checkpoint should only be deleted after the replica
 -- is unregistered.

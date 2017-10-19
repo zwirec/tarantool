@@ -109,6 +109,15 @@ struct relay {
 	struct vclock recv_vclock;
 	/** Replicatoin slave version. */
 	uint32_t version_id;
+	/** Xrow batch to send to applier. */
+	struct xrow_batch batch;
+	/**
+	 * Offset in ibuf to the end of a previous xrow. This
+	 * position is also begin of a next xrow.
+	 * After decoding the next xrow, we can determine its
+	 * encoded size by current_ibuf_rpos - prev_row_end.
+	 */
+	off_t prev_row_end;
 
 	/** Relay endpoint */
 	struct cbus_endpoint endpoint;
@@ -137,17 +146,26 @@ static void
 relay_send_initial_join_row(struct xstream *stream, struct xrow_header *row);
 static void
 relay_send_row(struct xstream *stream, struct xrow_header *row);
+static void
+relay_add_row(struct xstream *stream, struct xrow_header *row);
+static void
+relay_begin_tx(struct xstream *stream);
+static void
+relay_send_tx(struct xstream *stream);
 
 static inline void
 relay_create(struct relay *relay, int fd, uint64_t sync,
-	     xstream_write_f stream_write)
+	     xstream_write_f stream_write, xstream_tx_f stream_begin,
+	     xstream_tx_f stream_commit)
 {
 	memset(relay, 0, sizeof(*relay));
-	xstream_create(&relay->stream, stream_write, NULL, NULL, NULL);
+	xstream_create(&relay->stream, stream_write, stream_begin,
+		       stream_commit, NULL);
 	coio_create(&relay->io, fd);
 	relay->sync = sync;
 	fiber_cond_create(&relay->reader_cond);
 	diag_create(&relay->diag);
+	xrow_batch_create(&relay->batch);
 }
 
 static inline void
@@ -157,6 +175,7 @@ relay_destroy(struct relay *relay)
 		recovery_delete(relay->r);
 	fiber_cond_destroy(&relay->reader_cond);
 	diag_destroy(&relay->diag);
+	xrow_batch_destroy(&relay->batch);
 }
 
 static inline void
@@ -178,7 +197,7 @@ void
 relay_initial_join(int fd, uint64_t sync, struct vclock *vclock)
 {
 	struct relay relay;
-	relay_create(&relay, fd, sync, relay_send_initial_join_row);
+	relay_create(&relay, fd, sync, relay_send_initial_join_row, NULL, NULL);
 	auto relay_guard = make_scoped_guard([&] { relay_destroy(&relay); });
 	assert(relay.stream.write != NULL);
 	engine_join_xc(vclock, &relay.stream);
@@ -204,7 +223,7 @@ relay_final_join(int fd, uint64_t sync, struct vclock *start_vclock,
 	         struct vclock *stop_vclock)
 {
 	struct relay relay;
-	relay_create(&relay, fd, sync, relay_send_row);
+	relay_create(&relay, fd, sync, relay_send_row, NULL, NULL);
 	auto relay_guard = make_scoped_guard([&] { relay_destroy(&relay); });
 	relay.r = recovery_new(cfg_gets("wal_dir"),
 			       cfg_geti("force_recovery"),
@@ -215,7 +234,6 @@ relay_final_join(int fd, uint64_t sync, struct vclock *start_vclock,
 			      relay_final_join_f, &relay);
 	if (rc == 0)
 		rc = cord_cojoin(&relay.cord);
-
 	if (rc != 0)
 		diag_raise();
 
@@ -460,7 +478,8 @@ relay_subscribe(int fd, uint64_t sync, struct replica *replica,
 	}
 
 	struct relay relay;
-	relay_create(&relay, fd, sync, relay_send_row);
+	relay_create(&relay, fd, sync, relay_add_row, relay_begin_tx,
+		     relay_send_tx);
 	auto relay_guard = make_scoped_guard([&] { relay_destroy(&relay); });
 	relay.r = recovery_new(cfg_gets("wal_dir"),
 			       cfg_geti("force_recovery"),
@@ -514,4 +533,51 @@ relay_send_row(struct xstream *stream, struct xrow_header *packet)
 	    packet->replica_id != relay->replica->id) {
 		relay_send(relay, packet);
 	}
+}
+
+/** Add a single row to the current xlog transaction. */
+static void
+relay_add_row(struct xstream *stream, struct xrow_header *packet)
+{
+	struct relay *relay = container_of(stream, struct relay, stream);
+	assert(iproto_type_is_dml(packet->type));
+	struct xlog_tx_cursor *cursor = &relay->r->cursor.tx_cursor;
+	off_t row_begin = relay->prev_row_end;
+	off_t row_end = xlog_tx_cursor_pos(cursor);
+	relay->prev_row_end = row_end;
+	/*
+	 * We're feeding a WAL, thus responding to SUBSCRIBE request.
+	 * In that case, only send a row if it is not from the same replica
+	 * (i.e. don't send replica's own rows back).
+	 */
+	if (relay->replica != NULL && relay->replica->id == packet->replica_id)
+		return;
+	/*
+	 * Copy the original row to avoid its currupting. The
+	 * original row is stored on a stack in recover_xlog() and
+	 * is not valid after relay_add_row() finished.
+	 */
+	struct xrow_header *copy = xrow_batch_new_row(&relay->batch);
+	*copy = *packet;
+	relay->batch.bsize += row_end - row_begin;
+}
+
+/** Clear a batch to read a next transaction. */
+static void
+relay_begin_tx(struct xstream *stream)
+{
+	struct relay *relay = container_of(stream, struct relay, stream);
+	xrow_batch_reset(&relay->batch);
+	relay->prev_row_end = 0;
+}
+
+/** Send accumulated rows as a monolite iproto packet. */
+static void
+relay_send_tx(struct xstream *stream)
+{
+	struct relay *relay = container_of(stream, struct relay, stream);
+	if(relay->batch.count == 0)
+		return;
+	xrow_batch_set_sync(&relay->batch, relay->sync);
+	coio_write_xrow_batch(&relay->io, &relay->batch);
 }

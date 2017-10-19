@@ -361,9 +361,10 @@ applier_subscribe(struct applier *applier)
 	struct ev_io *coio = &applier->io;
 	struct iobuf *iobuf = applier->iobuf;
 	struct xrow_header row;
+	struct vclock *vclock = &replicaset_vclock;
 
 	xrow_encode_subscribe_xc(&row, &REPLICASET_UUID, &INSTANCE_UUID,
-				 &replicaset_vclock);
+				 vclock);
 	coio_write_xrow(coio, &row);
 	applier_set_state(applier, APPLIER_FOLLOW);
 
@@ -396,40 +397,69 @@ applier_subscribe(struct applier *applier)
 
 	/* Re-enable warnings after successful execution of SUBSCRIBE */
 	applier->last_logged_errcode = 0;
+	struct xstream *stream = &applier->subscribe_stream;
+	struct xrow_batch *batch = &applier->batch;
 
 	/*
 	 * Process a stream of rows from the binary log.
 	 */
 	while (true) {
-		coio_read_xrow(coio, &iobuf->in, &row);
-		applier->lag = ev_now(loop()) - row.tm;
-		applier->last_row_time = ev_monotonic_now(loop());
+		xrow_batch_reset(batch);
+		/*
+		 * Read entire batch at once. Can not read rows
+		 * between begin() and commit(), because it causes
+		 * yield and rollback for a memtx transaction.
+		 */
+		coio_read_xrow_batch(coio, &iobuf->in, batch);
+		applier->row_count_to_commit = batch->rows[0].row_count;
+		xstream_begin_xc(stream);
+		/*
+		 * Can not use fiber rollback on stop, becase in
+		 * a case of some errors the fiber is not stopped.
+		 */
+		auto tx_guard = make_scoped_guard([=] {
+			/* Abort a transaction in any error. */
+			xstream_rollback_xc(stream);
+		});
+		for (int i = 0; i < batch->count; ++i) {
+			struct xrow_header *row = &batch->rows[i];
+			uint32_t rep_id = row->replica_id;
+			applier->lag = ev_now(loop()) - row->tm;
+			applier->last_row_time = ev_monotonic_now(loop());
 
-		if (iproto_type_is_error(row.type))
-			xrow_decode_error_xc(&row);  /* error */
-		/* Replication request. */
-		if (row.replica_id == REPLICA_ID_NIL ||
-		    row.replica_id >= VCLOCK_MAX) {
-			/*
-			 * A safety net, this can only occur
-			 * if we're fed a strangely broken xlog.
-			 */
-			tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
-				  int2str(row.replica_id),
-				  tt_uuid_str(&REPLICASET_UUID));
+			if (iproto_type_is_error(row->type))
+				xrow_decode_error_xc(row);
+			/* Replication request. */
+			if (rep_id == REPLICA_ID_NIL || rep_id >= VCLOCK_MAX) {
+				/*
+				 * A safety net, this can only
+				 * occur if we're fed a strangely
+				 * broken xlog.
+				 */
+				tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
+					  int2str(rep_id),
+					  tt_uuid_str(&REPLICASET_UUID));
+			}
+			if (vclock_get(vclock, rep_id) < row->lsn) {
+				/*
+				 * Promote the replica set vclock
+				 * before applying the row. If
+				 * there is an exception
+				 * (conflict) applying the row,
+				 * the row is skipped when the
+				 * replication is resumed.
+				 */
+				vclock_follow(vclock, rep_id, row->lsn);
+				xstream_write_xc(stream, row);
+			}
 		}
-		if (vclock_get(&replicaset_vclock, row.replica_id) < row.lsn) {
-			/**
-			 * Promote the replica set vclock before
-			 * applying the row. If there is an
-			 * exception (conflict) applying the row,
-			 * the row is skipped when the replication
-			 * is resumed.
-			 */
-			vclock_follow(&replicaset_vclock, row.replica_id,
-				      row.lsn);
-			xstream_write_xc(&applier->subscribe_stream, &row);
-		}
+		xstream_commit_xc(stream);
+		tx_guard.is_active = false;
+		/*
+		 * Do not send the signal before commit - it
+		 * causes yield and rollback for a memtx
+		 * transaction.
+		 */
 		fiber_cond_signal(&applier->writer_cond);
 		iobuf_reset(iobuf);
 		fiber_gc();
@@ -606,6 +636,7 @@ applier_delete(struct applier *applier)
 	fiber_channel_destroy(&applier->pause);
 	trigger_destroy(&applier->on_state);
 	fiber_cond_destroy(&applier->writer_cond);
+	xrow_batch_destroy(&applier->batch);
 	free(applier);
 }
 
