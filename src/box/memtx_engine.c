@@ -67,14 +67,6 @@ struct mempool memtx_index_extent_pool;
 static int memtx_index_num_reserved_extents;
 static void *memtx_index_reserved_extents;
 
-static void
-txn_on_yield_or_stop(struct trigger *trigger, void *event)
-{
-	(void)trigger;
-	(void)event;
-	txn_rollback(); /* doesn't throw */
-}
-
 static int
 memtx_end_build_primary_key(struct space *space, void *param)
 {
@@ -340,9 +332,9 @@ memtx_engine_begin(struct engine *engine, struct txn *txn)
 	 */
 	if (txn->is_autocommit == false) {
 
-		trigger_create(&txn->fiber_on_yield, txn_on_yield_or_stop,
+		trigger_create(&txn->fiber_on_yield, txn_rollback_cb,
 				NULL, NULL);
-		trigger_create(&txn->fiber_on_stop, txn_on_yield_or_stop,
+		trigger_create(&txn->fiber_on_stop, txn_rollback_cb,
 				NULL, NULL);
 		/*
 		 * Memtx doesn't allow yields between statements of

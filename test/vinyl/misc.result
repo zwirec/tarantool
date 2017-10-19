@@ -84,3 +84,42 @@ i1 = s:create_index('i1', { type = 'tree', parts = {{1, 'str', collation='unicod
 s:drop()
 ---
 ...
+--
+-- Ensure a transaction is rolled back on a fiber stop.
+--
+s = box.schema.create_space('test', { engine = 'vinyl' })
+---
+...
+pk = s:create_index('pk')
+---
+...
+s:replace{1,2,3}
+---
+- [1, 2, 3]
+...
+fiber = require('fiber')
+---
+...
+f = fiber.create(function() box.begin() s:replace{2,3,4} fiber.sleep(100000) box.commit() end)
+---
+...
+tx1 = box.info.vinyl().tx
+---
+...
+f:cancel()
+---
+...
+tx2 = box.info.vinyl().tx
+---
+...
+tx2.commit - tx1.commit
+---
+- 0
+...
+tx2.rollback - tx1.rollback
+---
+- 1
+...
+s:drop()
+---
+...

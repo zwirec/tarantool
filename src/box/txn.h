@@ -155,6 +155,14 @@ txn_commit(struct txn *txn);
 void
 txn_rollback();
 
+static inline void
+txn_rollback_cb(struct trigger *t, void *e)
+{
+	(void) t;
+	(void) e;
+	txn_rollback();
+}
+
 /**
  * Most txns don't have triggers, and txn objects
  * are created on every access to data, so txns
