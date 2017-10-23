@@ -625,7 +625,7 @@ memtx_space_create_index(struct space *space, struct index_def *index_def)
 	case HASH:
 		return new MemtxHash(index_def);
 	case TREE:
-		return new MemtxTree(index_def);
+		return new_memtx_tree(index_def);
 	case RTREE:
 		return new MemtxRTree(index_def);
 	case BITSET:
