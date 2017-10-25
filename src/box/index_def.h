@@ -95,6 +95,10 @@ struct index_opts {
 	 * LSN from the time of index creation.
 	 */
 	int64_t lsn;
+	/**
+	 * Use hint optimization for tree index.
+	 */
+	bool hint;
 };
 
 extern const struct index_opts index_opts_default;
@@ -129,6 +133,8 @@ index_opts_cmp(const struct index_opts *o1, const struct index_opts *o2)
 		return o1->run_size_ratio < o2->run_size_ratio ? -1 : 1;
 	if (o1->bloom_fpr != o2->bloom_fpr)
 		return o1->bloom_fpr < o2->bloom_fpr ? -1 : 1;
+	if (o1->hint != o2->hint)
+		return o1->hint < o2->hint ? -1 : 1;
 	return 0;
 }
 

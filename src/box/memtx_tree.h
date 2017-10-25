@@ -36,6 +36,7 @@
 #include "tuple_compare.h"
 #include "memtx_tree_proxy.h"
 
+template <int Type>
 class MemtxTree: public MemtxIndex {
 public:
 	MemtxTree(struct index_def *index_def);
@@ -73,8 +74,8 @@ private:
 	 * See MemtxTree(struct index_def *) for details.
 	 */
 	struct key_def *cmp_def;
-	treeProxy tree;
-	memtx_tree_data *build_array;
+	treeProxy<Type> tree;
+	memtx_tree_data<Type> *build_array;
 	size_t build_array_size, build_array_alloc_size;
 };
 

@@ -607,6 +607,7 @@ local index_options = {
     range_size = 'number',
     page_size = 'number',
     bloom_fpr = 'number',
+    hint = 'boolean',
 }
 
 --
@@ -661,6 +662,11 @@ box.schema.index.create = function(space_id, name, options)
         options_defaults = {}
     end
     options = update_param_table(options, options_defaults)
+    if options.hint and
+       (options.type ~= 'tree' or box.space[space_id].engine ~= 'memtx') then
+        box.error(box.error.MODIFY_INDEX, name, box.space[space_id].name,
+            "hint is only reasonable with memtx tree index")
+    end
 
     local _index = box.space[box.schema.INDEX_ID]
     if _index.index.name:get{space_id, name} then
@@ -698,6 +704,7 @@ box.schema.index.create = function(space_id, name, options)
             run_count_per_level = options.run_count_per_level,
             run_size_ratio = options.run_size_ratio,
             bloom_fpr = options.bloom_fpr,
+            hint = options.hint,
     }
     local field_type_aliases = {
         num = 'unsigned'; -- Deprecated since 1.7.2
@@ -848,6 +855,11 @@ box.schema.index.alter = function(space_id, index_id, options)
         if options[k] ~= nil then
             index_opts[k] = options[k]
         end
+    end
+    if options.hint and
+       (options.type ~= 'tree' or box.space[space_id].engine ~= 'memtx') then
+        box.error(box.error.MODIFY_INDEX, options.name, box.space[space_id].name,
+            "hint is only reasonable with memtx tree index")
     end
     if options.parts then
         local parts_can_be_simplified
