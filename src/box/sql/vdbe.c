@@ -661,6 +661,26 @@ int sqlite3VdbeExec(Vdbe *p)
 		}
 		if (user_session->sql_flags & SQLITE_VdbeTrace)  printf("VDBE Trace:\n");
 	}
+	if (user_session->sql_flags & SQLITE_VdbeListingDump) {
+		FILE *fileToDump;
+		if ((fileToDump = fopen(p->db->zDumpFile, "w")) == NULL) {
+			printf("Failed to dump vdbe program:"\
+			       " can't open %s file. \n", p->db->zDumpFile);
+			goto dump_fail;
+		}
+		/* Simple attempt at verifying integrity and correctness of
+		 * file content.
+		 */
+		fprintf(fileToDump, "%u \n", SQL_MAGIC_HEADER);
+		fprintf(fileToDump, "opcodes: %u \n", p->nOp);
+		sqlite3VdbeDumpContext(fileToDump, p);
+		for (int i = 0; i < p->nOp; i++) {
+			sqlite3VdbeDumpOp(fileToDump, &aOp[i]);
+		}
+		fprintf(fileToDump, "%u \n", SQL_MAGIC_FOOTER);
+		fclose(fileToDump);
+	}
+dump_fail:
 	sqlite3EndBenignMalloc();
 #endif
 	for(pOp=&aOp[p->pc]; 1; pOp++) {

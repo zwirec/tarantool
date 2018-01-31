@@ -30,6 +30,8 @@
 #define PragTyp_KEY                           22
 #define PragTyp_REKEY                         23
 #define PragTyp_PARSER_TRACE                  24
+#define PragTyp_SET_DUMP                      25
+#define PragTyp_Execute                       26
 
 /* Property flags associated with various pragma. */
 #define PragFlg_NeedSchema 0x01	/* Force schema load before running */
@@ -355,11 +357,26 @@ static const PragmaName aPragmaName[] = {
 	 /* ColNames:  */ 0, 0,
 	 /* iArg:      */
 	 SQLITE_SqlTrace | SQLITE_VdbeListing | SQLITE_VdbeTrace},
+	{ /* zName:     */ "vdbe_dump",
+	 /* ePragTyp:  */ PragTyp_FLAG,
+	 /* ePragFlg:  */ PragFlg_Result0 | PragFlg_NoColumns1,
+	 /* ColNames:  */ 0, 0,
+	 /* iArg:      */ SQLITE_VdbeListingDump},
+	{ /* zName:     */ "vdbe_dump_file",
+	 /* ePragTyp:  */ PragTyp_SET_DUMP,
+	 /* ePragFlg:  */ 0,
+	 /* ColNames:  */ 0, 0,
+	 /* iArg:      */ SQLITE_VdbeSetDumpFile},
 	{ /* zName:     */ "vdbe_eqp",
 	 /* ePragTyp:  */ PragTyp_FLAG,
 	 /* ePragFlg:  */ PragFlg_Result0 | PragFlg_NoColumns1,
 	 /* ColNames:  */ 0, 0,
 	 /* iArg:      */ SQLITE_VdbeEQP},
+	{ /* zName:     */ "vdbe_execute",
+	 /* ePragTyp:  */ PragTyp_Execute,
+	 /* ePragFlg:  */ 0,
+	 /* ColNames:  */ 0, 0,
+	 /* iArg:      */ 0},
 	{ /* zName:     */ "vdbe_listing",
 	 /* ePragTyp:  */ PragTyp_FLAG,
 	 /* ePragFlg:  */ PragFlg_Result0 | PragFlg_NoColumns1,

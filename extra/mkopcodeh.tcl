@@ -258,3 +258,5 @@ puts "** generated this include file strives to group all JUMP opcodes"
 puts "** together near the beginning of the list."
 puts "*/"
 puts "#define SQLITE_MX_JUMP_OPCODE  $mxJump  /* Maximum JUMP opcode */"
+puts "#define SQLITE_MX_OPCODE $max /* Maximum opcode number */"
+

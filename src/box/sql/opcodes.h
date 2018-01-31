@@ -180,3 +180,4 @@
 ** together near the beginning of the list.
 */
 #define SQLITE_MX_JUMP_OPCODE  62  /* Maximum JUMP opcode */
+#define SQLITE_MX_OPCODE 141 /* Maximum opcode number */

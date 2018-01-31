@@ -34,6 +34,8 @@
  * a VDBE (or an "sqlite3_stmt" as it is known to the outside world.)
  */
 #include <box/coll_cache.h>
+#include "box/schema.h"
+#include "box/box.h"
 #include "box/txn.h"
 #include "fiber.h"
 #include "box/session.h"
@@ -1678,6 +1680,306 @@ sqlite3VdbePrintOp(FILE * pOut, int pc, Op * pOp)
 	fflush(pOut);
 }
 #endif
+
+#if defined(SQLITE_DEBUG)
+/* Write to dump file context of VDBE. */
+void
+sqlite3VdbeDumpContext(FILE * pOut, Vdbe *vdbe)
+{
+	fprintf(pOut, "var: %d\nmem: %d\ncursor: %d\nrescols: %d\nread: %d\n"
+		"write: %d\n", vdbe->nVar, vdbe->nMem, vdbe->nCursor,
+		vdbe->nResColumn, vdbe->bIsReader, vdbe->readOnly);
+}
+
+/*
+ * Create the string containing all available information about
+ * fourth operand, which will be used to recover it.
+ */
+static char *
+dumpP4(Op * pOp, char *zTemp, int nTemp)
+{
+	char *zP4 = zTemp;
+	StrAccum x;
+	assert(nTemp >= 20);
+	sqlite3StrAccumInit(&x, 0, zTemp, nTemp, 0);
+	switch (pOp->p4type) {
+	case P4_KEYINFO:{
+		KeyInfo *pKeyInfo;
+		if (pOp->p4.pKeyInfo == NULL) {
+			sqlite3XPrintf(&x, "type: none; ");
+			break;
+		} else {
+			sqlite3XPrintf(&x, "type: key; ");
+		}
+		pKeyInfo = pOp->p4.pKeyInfo;
+		sqlite3XPrintf(&x, "nField: %d ", pKeyInfo->nField);
+		sqlite3XPrintf(&x, "xField: %d ", pKeyInfo->nXField);
+		break;
+	}
+	case P4_COLLSEQ:{
+		struct coll *pColl = pOp->p4.pColl;
+		sqlite3XPrintf(&x, "type: coll; ");
+		sqlite3XPrintf(&x, "(%.20s) ", pColl->name);
+		break;
+	}
+	case P4_BOOL:
+		sqlite3XPrintf(&x, "type: bool; ");
+			sqlite3XPrintf(&x, "%d ", pOp->p4.b);
+		break;
+	case P4_INT32:{
+		sqlite3XPrintf(&x, "type: int; ");
+		sqlite3XPrintf(&x, "%d ", pOp->p4.i);
+		break;
+	}
+	case P4_REAL:{
+		sqlite3XPrintf(&x, "type: real; ");
+		sqlite3XPrintf(&x, "%.16g ", *pOp->p4.pReal);
+		break;
+	}
+	case P4_MEM:{
+		Mem *pMem = pOp->p4.pMem;
+		sqlite3XPrintf(&x, "type: mem; ");
+		if (pMem->flags & MEM_Str) {
+			zP4 = pMem->z;
+		} else if (pMem->flags & MEM_Int) {
+			sqlite3XPrintf(&x, "%lld ", pMem->u.i);
+		} else if (pMem->flags & MEM_Real) {
+			sqlite3XPrintf(&x, "%.16g ", pMem->u.r);
+		} else if (pMem->flags & MEM_Null) {
+			zP4 = "NULL";
+		} else {
+			assert(pMem->flags & MEM_Blob);
+			zP4 = "blob";
+		}
+		break;
+	}
+	case P4_DYNAMIC:
+	case P4_STATIC:{
+		sqlite3XPrintf(&x, "type: str; ");
+		sqlite3XPrintf(&x, "%s ", pOp->p4.z);
+		break;
+	}
+	default:{
+		zP4 = "type: none; ";
+		if (zP4 == 0) {
+			zP4 = zTemp;
+			zTemp[0] = 0;
+		}
+	}
+	}
+	sqlite3StrAccumFinish(&x);
+	assert(zP4 != 0);
+	return zP4;
+}
+
+/*
+ * Dump opcode and its operands into given file.
+ * If opcode contains space id as its operand, then covert it
+ * to space name.
+ * Format pattern: OPCODE P1 P2 P3 |type: xxx; value | P5 \n.
+ */
+void
+sqlite3VdbeDumpOp(FILE * pOut, Op * pOp)
+{
+	assert(pOut);
+
+	char zPtr[200];
+	char zP2[20];
+	char *zP4 = dumpP4(pOp, zPtr, sizeof(zPtr));
+	if (*zP4 == 0)
+		zP4 = "type: none; ";
+	const char *zTableName = NULL;
+
+	/* Convert rootpage/space_id to space name since they may change
+	 * after reloading schema, but space name can't.
+	 */
+	if (pOp->opcode == OP_OpenRead || pOp->opcode == OP_OpenWrite) {
+		uint32_t space_id = SQLITE_PAGENO_TO_SPACEID(pOp->p2);
+		struct space *space = space_by_id(space_id);
+		zTableName = space_name(space);
+	} else {
+		sprintf(zP2, "%d", pOp->p2);
+	}
+
+	fprintf(pOut, "%s %d %s %d |%s| %d \n", sqlite3OpcodeName(pOp->opcode),
+		pOp->p1, (zTableName ? zTableName : zP2),
+		pOp->p3, zP4, pOp->p5);
+	fflush(pOut);
+}
+
+/*
+ * It is a straightforward routine to find opcode number from
+ * opcode mnemonic string.
+ * Since this function uses complete bust to find opcode,
+ * it is considered to be quite slow.
+ * Thus, avoid calling this routine in release build.
+ */
+static int
+opcodeFromMnemonic(const char *zOpcodeMnemonic)
+{
+	int i;
+	for (i = 0; i < SQLITE_MX_OPCODE + 1; ++i) {
+		if (strcmp(zOpcodeMnemonic, sqlite3OpcodeName(i)) == 0)
+			return i;
+	}
+	return -1;
+}
+
+/*
+ * Load VDBE program directly from file.
+ * This function makes translation from text representation of
+ * VDBE listing into runtime one.
+ * To be more precise, it reads file line by line and using
+ * format scanf, fetches opcodes and their operands.
+ * By given mnemonic, it restores opcode number and transform
+ * operand's values into corresponding runtime structures.
+ * During this routine, space's names are converted into
+ * space ids; fourth operand is set depending on its type.
+ *
+ * As an argument it takes a brand new VDBE created by
+ * sqlite3VdbeCreate() and loads into it dumped context.
+ * This routine must be invoked before calling any other
+ * prepearing routine such as sqlite3VdbeMakeReady().
+ */
+int
+sqlite3VdbeLoadFromDump(char *zDumpFileName, Vdbe *pVdbe, Parse *pParse)
+{
+	FILE *pDumpFile;
+	const char *zErrorMsg;
+	if ((pDumpFile = fopen(zDumpFileName, "r")) == NULL) {
+		zErrorMsg = "can't open file.";
+		goto load_fail;
+	}
+	int iHeader;
+	int nGivenOpcodes;
+	fscanf(pDumpFile, "%d \n", &iHeader);
+	if (iHeader != SQL_MAGIC_HEADER) {
+		zErrorMsg = "file is corrupted -- wrong header.";
+		goto load_fail;
+	}
+	fscanf(pDumpFile, "opcodes: %d \n", &nGivenOpcodes);
+	/* Restoring VDBE context. */
+	fscanf(pDumpFile, "var: %d\n", &pParse->nVar);
+	fscanf(pDumpFile, "mem: %d\n", &pParse->nMem);
+	fscanf(pDumpFile, "cursor: %d\n", &pParse->nTab);
+	fscanf(pDumpFile, "rescols: %hd\n", &pVdbe->nResColumn);
+	/* Restore bit fields. */
+	unsigned short bIsReader;
+	unsigned short bReadOnly;
+	fscanf(pDumpFile, "read: %hd\n", &bIsReader);
+	fscanf(pDumpFile, "write: %hd\n", &bReadOnly);
+	pVdbe->bIsReader = bIsReader;
+	pVdbe->readOnly = bReadOnly;
+
+	char zOpcodeMnemonic[20];
+	int p1, p2, p3, p5;
+	char zStrP2[20];
+	char zStrP4[200];
+	char zP4Type[10];
+	int nReadOpcodes = 0;
+	for (;;) {
+		/* All lines in the body of dump file feature the same pattern:
+		 * firstly comes opcode mnemonic, then its operands
+		 * separated with spaces. All of them except for fourth operand
+		 * are numbers. Fourth operand can accept different types.
+		 * Since there is no lexer/parser, fourth operand is
+		 * separated with vertical dashes for the simplicity's sake.
+		 * Firstly comes its type, then actually its value.
+		 * The sign of EOF is a special footer value.
+		 */
+		int iFooter;
+		if (fscanf(pDumpFile, "%d", &iFooter)) {
+			/* This scanf doesn't fail if and only if scanning
+			 * token is a number. In this case, it must be
+			 * footer. Otherwise, error occurs.
+			 */
+			if (iFooter != SQL_MAGIC_FOOTER) {
+				zErrorMsg = "file is corrupted -- wrong footer.";
+				goto load_fail;
+			}
+			break;
+		}
+		/* Read opcode mnemonic and its operands. */
+		if (!fscanf(pDumpFile, "%s %d %s %d |type: %10[^;];%50[^|]| %d",
+			    zOpcodeMnemonic, &p1, zStrP2, &p3, zP4Type, zStrP4,
+			    &p5)) {
+			zErrorMsg = "can't read line.";
+			goto load_fail;
+		}
+
+		/* If P2 is a table name, then restore it's space id. */
+		int opcode;
+		if ((opcode = opcodeFromMnemonic(zOpcodeMnemonic)) < 0) {
+			zErrorMsg = "unknown opcode.";
+			goto load_fail;
+		}
+		if (opcode == OP_OpenWrite || opcode == OP_OpenRead) {
+			uint32_t space_id = box_space_id_by_name(zStrP2,
+								 strlen(zStrP2));
+			if (space_id == BOX_ID_NIL) {
+				zErrorMsg =
+					"can't find space with given space id";
+				goto load_fail;
+			}
+			p2 = SQLITE_PAGENO_FROM_SPACEID_AND_INDEXID(space_id, 0);
+		} else {
+			p2 = strtol(zStrP2, NULL, 10);
+		}
+
+		/* Attempt at restoring P4 operand type and value. */
+		if (strcmp(zP4Type, "none") == 0 ||
+		    strcmp(zP4Type, "int") == 0) {
+			int ip4 = 0;
+			ip4 = strtol(zStrP4, NULL, 10);
+			sqlite3VdbeAddOp4Int(pVdbe, opcode, p1, p2, p3,
+					     ip4);
+		} else if (strcmp(zP4Type, "key") == 0) {
+			char znField[10];
+			char zxField[10];
+			u16 nField;
+			u16 nXField;
+			sscanf(zStrP4, " nField: %s xField: %s", znField, zxField);
+			nField = strtol(znField, NULL, 10);
+			nXField = strtol(zxField, NULL, 10);
+			KeyInfo *pKeyInfo = sqlite3KeyInfoAlloc(pParse->db,
+								nField, nXField);
+			sqlite3VdbeAddOp4(pVdbe, opcode, p1, p2, p3,
+					  (const char*)pKeyInfo, P4_KEYINFO);
+		} else if (strcmp(zP4Type, "str") == 0) {
+			int nP4Size = sqlite3Strlen30(zStrP4);
+			/* Remove excess leading and ending spaces
+			 * and add null termination.
+			 */
+			char *zStr = sqlite3Malloc(nP4Size - 1);
+			memcpy(zStr, zStrP4 + 1, nP4Size - 2);
+			zStr[nP4Size - 2] = '\0';
+			sqlite3VdbeAddOp4(pVdbe, opcode, p1, p2, p3, zStr,
+					  P4_DYNAMIC);
+		} else if (strcmp(zP4Type, "coll") == 0) {
+			/* Currently, only binary collation is supported. */
+			char *binColl = NULL;
+			sqlite3VdbeAddOp4(pVdbe, opcode, p1, p2, p3, binColl,
+					  P4_COLLSEQ);
+		} else {
+			zErrorMsg = "unknown P4 type.";
+			goto load_fail;
+		}
+		sqlite3VdbeChangeP5(pVdbe, p5);
+		nReadOpcodes++;
+	}
+	if (nGivenOpcodes != nReadOpcodes) {
+		zErrorMsg = "Number of read opcodes doesn't match given one.";
+		goto load_fail;
+	}
+	fclose(pDumpFile);
+	return 0;
+
+load_fail:
+	printf("Failed to load vdbe program: %s \n", zErrorMsg);
+	fclose(pDumpFile);
+	return -1;
+}
+#endif				/* SQLITE_DEBUG */
 
 /*
  * Initialize an array of N Mem element.

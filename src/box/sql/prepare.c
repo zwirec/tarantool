@@ -201,6 +201,14 @@ sqlite3InitDatabase(sqlite3 * db)
 #endif
 	}
 
+#ifdef SQLITE_DEBUG
+	/* Set default vdbe dump file for debugging purposes. */
+	const char *zDefaultDumpFile = "listing_dump.vdbe";
+	unsigned nNameSize = sqlite3Strlen30(zDefaultDumpFile);
+	db->zDumpFile = sqlite3_malloc(nNameSize);
+	memcpy((void *)db->zDumpFile, zDefaultDumpFile, nNameSize);
+#endif
+
 	/* Read the schema information out of the schema tables
 	 */
 	assert(db->init.busy);

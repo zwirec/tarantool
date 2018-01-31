@@ -1114,12 +1114,18 @@ struct sqlite3 {
 #ifdef SQLITE_USER_AUTHENTICATION
 	sqlite3_userauth auth;	/* User authentication information */
 #endif
+#ifdef SQLITE_DEBUG
+	char *zDumpFile; /* File to dump VDBE program listing */
+#endif
 };
 
 /*
  * Possible values for the sqlite3.flags.
  */
 #define SQLITE_VdbeTrace      0x00000001	/* True to trace VDBE execution */
+#define SQLITE_VdbeSetDumpFile 0x80000000	/* Set dump file for VDBE */
+#define SQLITE_VdbeExecute    0x00004000	/* Execute given VDBE program */
+#define SQLITE_VdbeListingDump 0x00000008	/* Turn on/off dump VDBE listing to file */
 #define SQLITE_InternChanges  0x00000002	/* Uncommitted Hash table changes */
 #define SQLITE_FullColNames   0x00000004	/* Show full column names on SELECT */
 #define SQLITE_ShortColNames  0x00000040	/* Show short columns names */
@@ -1189,6 +1195,17 @@ struct sqlite3 {
 #define SQLITE_MAGIC_BUSY     0xf03b7906	/* Database currently in use */
 #define SQLITE_MAGIC_ERROR    0xb5357930	/* An SQLITE_MISUSE error occurred */
 #define SQLITE_MAGIC_ZOMBIE   0x64cffc7f	/* Close with last statement close */
+
+#ifdef SQLITE_DEBUG
+/*
+ * Magic constants which are used as dump file integrity
+ * identificators: each dump file begins with magic header
+ * and ends with magic footer. If not so, loading listing
+ * from such file will result in error.
+ */
+#define SQL_MAGIC_HEADER 0x666DEAD
+#define SQL_MAGIC_FOOTER 0x777BEEF
+#endif
 
 /*
  * Each SQL function is defined by an instance of the following

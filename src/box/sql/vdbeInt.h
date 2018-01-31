@@ -487,6 +487,11 @@ int sqlite3VdbeCursorRestore(VdbeCursor *);
 #if defined(SQLITE_DEBUG) || defined(VDBE_PROFILE)
 void sqlite3VdbePrintOp(FILE *, int, Op *);
 #endif
+#if defined(SQLITE_DEBUG)
+void sqlite3VdbeDumpOp(FILE *, Op *);
+void sqlite3VdbeDumpContext(FILE *, Vdbe *);
+int sqlite3VdbeLoadFromDump(char *zDumpFile, Vdbe *pVdbe, Parse *pParse);
+#endif
 u32 sqlite3VdbeSerialTypeLen(u32);
 u8 sqlite3VdbeOneByteSerialTypeLen(u8);
 u32 sqlite3VdbeSerialType(Mem *, int, u32 *);

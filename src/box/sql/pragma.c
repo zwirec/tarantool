@@ -180,6 +180,25 @@ actionName(u8 action)
 }
 #endif
 
+#ifdef SQLITE_DEBUG
+/* Returns string representation of mem content. */
+void
+memPrettyStr(Mem *p, char *zTemp) {
+	if (p->flags & MEM_Undefined) {
+		sprintf(zTemp, "%s", " undefined");
+	} else if (p->flags & MEM_Null) {
+		sprintf(zTemp, "%s", " NULL");
+	} else if (((p->flags & (MEM_Int | MEM_Str)) == (MEM_Int | MEM_Str))
+		   || (p->flags & MEM_Int)) {
+		sprintf(zTemp, " %lld", p->u.i);
+	} else if (p->flags & MEM_Real) {
+		sprintf(zTemp, " %g", p->u.r);
+	} else {
+		sqlite3VdbeMemPrettyPrint(p, zTemp);
+	}
+}
+#endif
+
 /*
  * Parameter eMode must be one of the PAGER_JOURNALMODE_XXX constants
  * defined in pager.h. This function returns the associated lowercase
@@ -292,6 +311,81 @@ sqlite3Pragma(Parse * pParse, Token * pId,	/* First part of [schema.]id field */
 	}
 	/* Jump to the appropriate pragma handler */
 	switch (pPragma->ePragTyp) {
+
+#if defined(SQLITE_DEBUG)
+	case PragTyp_SET_DUMP:{
+		unsigned nNewFileNameSize = sqlite3Strlen30(zRight);
+		sqlite3Realloc((void *)db->zDumpFile, nNewFileNameSize + 1);
+		memcpy((void *)db->zDumpFile, zRight, nNewFileNameSize);
+		/* Name of file comes not null terminated. */
+		db->zDumpFile[nNewFileNameSize] = '\0';
+		break;
+	}
+
+	case PragTyp_Execute:{
+			/* Create surrogate parse context in order to
+			 * support native interface.
+			 */
+			Parse surrogateParse;
+			surrogateParse.db = pParse->db;
+			surrogateParse.aLabel = 0;
+			surrogateParse.nLabel = 0;
+			surrogateParse.nOpAlloc = 0;
+			surrogateParse.szOpAlloc = 0;
+			Vdbe *vdbe = sqlite3VdbeCreate(&surrogateParse);
+			assert(vdbe);
+			/* If filename is not specified, use the default one. */
+			char *zDumpFile = zRight ? zRight : db->zDumpFile;
+			rc = sqlite3VdbeLoadFromDump(zDumpFile, vdbe,
+						     &surrogateParse);
+			if (rc)
+				goto execute_cleanup;
+			surrogateParse.nVar = 0;
+			vdbe->magic = VDBE_MAGIC_INIT;
+			sqlite3VdbeSetNumCols(vdbe, vdbe->nResColumn);
+			sqlite3VdbeMakeReady(vdbe, &surrogateParse);
+			vdbe->magic = VDBE_MAGIC_RUN;
+			vdbe->pc = 0;
+			if (vdbe->readOnly == 0)
+				pParse->db->nVdbeWrite++;
+			if (vdbe->bIsReader)
+				pParse->db->nVdbeRead++;
+			pParse->db->nVdbeActive++;
+			rc = sqlite3VdbeExec(vdbe);
+			/* It is impossible to delegate result printig
+			 * to lua (as it ordinary happens) since
+			 * result the of current pragma is printed this way.
+			 * So, as it is anyway debug mode,
+			 * display it with simple printfs.
+			 */
+			StrAccum x;
+			char zResStr[200];
+			char zTmpStr[50];
+			sqlite3StrAccumInit(&x, 0, zResStr, 200, 0);
+			while (rc == SQLITE_ROW) {
+				int i;
+				sqlite3XPrintf(&x, "[");
+				for (i = 0; i < vdbe->nResColumn; ++i) {
+					memPrettyStr(&vdbe->pResultSet[i], zTmpStr);
+					sqlite3XPrintf(&x, "%s, ", zTmpStr);
+				}
+				sqlite3XPrintf(&x, "]\n");
+				rc = sqlite3VdbeExec(vdbe);
+			}
+			sqlite3StrAccumFinish(&x);
+			if (rc != SQLITE_DONE && rc != SQLITE_OK) {
+				printf("%s \n", sqlite3_errmsg(db));
+			} else {
+				printf("%s \n", zResStr);
+			}
+			sqlite3DbFree(db, vdbe->aColName);
+	execute_cleanup:
+			db->pVdbe = v;
+			db->pVdbe->pPrev = NULL;
+			sqlite3DbFree(db, vdbe);
+			break;
+		}
+#endif
 
 #ifndef SQLITE_OMIT_FLAG_PRAGMAS
 	case PragTyp_FLAG:{
