@@ -46,10 +46,9 @@ void
 sqlite3OpenTable(Parse * pParse,	/* Generate code into this VDBE */
 		 int iCur,	/* The cursor number of the table */
 		 Table * pTab,	/* The table to be opened */
-		 int opcode)	/* OP_OpenRead or OP_OpenWrite */
+		 MAYBE_UNUSED int opcode)	/* OP_OpenRead or OP_OpenWrite */
 {
-	Vdbe *v;
-	v = sqlite3GetVdbe(pParse);
+	MAYBE_UNUSED Vdbe *v = sqlite3GetVdbe(pParse);
 	assert(opcode == OP_OpenWrite || opcode == OP_OpenRead);
 	Index *pPk = sqlite3PrimaryKeyIndex(pTab);
 	assert(pPk != 0);

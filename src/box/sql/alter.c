@@ -149,7 +149,8 @@ sqlite3AlterFinishAddColumn(Parse * pParse, Token * pColDef)
 	Column *pCol;		/* The new column */
 	Expr *pDflt;		/* Default value for the new column */
 	sqlite3 *db;		/* The database connection; */
-	Vdbe *v = pParse->pVdbe;	/* The prepared statement under construction */
+	MAYBE_UNUSED Vdbe *v = pParse->pVdbe;
+	/* The prepared statement under construction */
 	struct session *user_session = current_session();
 
 	db = pParse->db;

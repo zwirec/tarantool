@@ -304,7 +304,7 @@ iproto_reply_request_vote(struct obuf *out, uint64_t sync,
 	iproto_header_encode(buf, IPROTO_OK, sync, schema_version,
 			     size - IPROTO_HEADER_LEN);
 
-	char *ptr = obuf_alloc(out, size);
+	MAYBE_UNUSED char *ptr = obuf_alloc(out, size);
 	assert(ptr == buf);
 	return 0;
 }
@@ -343,9 +343,9 @@ iproto_write_error(int fd, const struct error *e, uint32_t schema_version,
 			     schema_version, sizeof(body) + msg_len);
 
 	body.v_data_len = mp_bswap_u32(msg_len);
-	(void) write(fd, header, sizeof(header));
-	(void) write(fd, &body, sizeof(body));
-	(void) write(fd, e->errmsg, msg_len);
+	MAYBE_UNUSED ssize_t unused = write(fd, header, sizeof(header));
+	unused = write(fd, &body, sizeof(body));
+	unused = write(fd, e->errmsg, msg_len);
 }
 
 int

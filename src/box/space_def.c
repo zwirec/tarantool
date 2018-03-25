@@ -120,7 +120,7 @@ space_def_dup(const struct space_def *src)
 				struct Expr *e =
 					src->fields[i].default_value_expr;
 				assert(e != NULL);
-				char *expr_pos_old = expr_pos;
+				MAYBE_UNUSED char *expr_pos_old = expr_pos;
 				e = sql_expr_dup(sql_get(), e, 0, &expr_pos);
 				assert(e != NULL);
 				/* Note: due to SQL legacy
@@ -205,7 +205,7 @@ space_def_new(uint32_t id, uint32_t uid, uint32_t exact_field_count,
 				struct Expr *e =
 					fields[i].default_value_expr;
 				assert(e != NULL);
-				char *expr_pos_old = expr_pos;
+				MAYBE_UNUSED char *expr_pos_old = expr_pos;
 				e = sql_expr_dup(sql_get(), e, 0, &expr_pos);
 				assert(e != NULL);
 				/* Note: due to SQL legacy

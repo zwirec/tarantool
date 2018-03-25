@@ -1130,8 +1130,9 @@ log_vsay(struct log *log, int level, const char *filename, int line,
 		break;
 	case SAY_LOGGER_SYSLOG:
 		write_to_syslog(log, total);
-		if (level == S_FATAL && log->fd != STDERR_FILENO)
-			(void) safe_write(STDERR_FILENO, buf, total);
+		if (level == S_FATAL && log->fd != STDERR_FILENO) {
+			MAYBE_UNUSED ssize_t unused = safe_write(STDERR_FILENO, buf, total);
+		}
 		break;
 	case SAY_LOGGER_BOOT:
 	{

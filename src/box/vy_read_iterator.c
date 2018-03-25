@@ -552,7 +552,7 @@ vy_read_iterator_next_lsn(struct vy_read_iterator *itr, struct tuple **ret)
 {
 	uint32_t i;
 	bool unused;
-	struct vy_read_src *src;
+	struct vy_read_src *src = NULL;
 
 	assert(itr->curr_stmt != NULL);
 	assert(itr->curr_src < itr->skipped_src);
