@@ -113,6 +113,7 @@ end
 
 local function quit(storage)
     local console = fiber.self().storage.console
+    collectgarbage()
     if console ~= nil then
         console.running = false
     end
