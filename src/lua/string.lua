@@ -292,6 +292,35 @@ local function string_hex(inp)
     return ffi.string(res, len)
 end
 
+local tonum = {[48] = 0, [49] = 1, [50] = 2, [51] = 3, [52] = 4, [53] = 5,
+[54] = 6, [55] = 7, [56] = 8, [57] = 9, [97] = 10, [98] = 11,
+[99] = 12, [100] = 13, [101] = 14, [102] = 15, [65] = 10, [66] = 11,
+[67] = 12, [68] = 13, [69] = 14, [70] = 15 }
+
+local function string_fromhex(inp)
+    if type(inp) ~= 'string' then
+        error(err_string_arg:format(1, 'string.fromhex', 'string', type(inp)), 2)
+    end
+
+    if inp:len() % 2 ~= 0 then
+        error(err_string_arg:format(1, 'string.fromhex', 'even string', 'odd string'), 2)
+    end
+
+    local len = inp:len() / 2
+    local uinp = ffi.cast('const char *', inp)
+    local ans = ffi.new('char[?]', len)
+
+    for i = 0, len - 1 do
+        local first = tonum[uinp[i * 2]]
+        local second = tonum[uinp[i * 2 + 1]]
+        if ((first == nil) or (second == nil)) then
+            error(err_string_arg:format(1, 'string.fromhex', 'hex string', 'not hex string'), 2)
+        end
+        ans[i] = first * 16 + second
+    end
+    return ffi.string(ans, len)
+end
+
 local function string_strip(inp)
     if type(inp) ~= 'string' then
         error(err_string_arg:format(1, "string.strip", 'string', type(inp)), 2)
@@ -323,6 +352,7 @@ string.center     = string_center
 string.startswith = string_startswith
 string.endswith   = string_endswith
 string.hex        = string_hex
+string.fromhex    = string_fromhex
 string.strip      = string_strip
 string.lstrip      = string_lstrip
 string.rstrip      = string_rstrip

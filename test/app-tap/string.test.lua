@@ -3,7 +3,7 @@
 local tap = require('tap')
 local test = tap.test("string extensions")
 
-test:plan(5)
+test:plan(6)
 
 test:test("split", function(test)
     test:plan(10)
@@ -112,6 +112,16 @@ test:test("hex", function(test)
     test:plan(2)
     test:is(string.hex("hello"), "68656c6c6f", "hex non-empty string")
     test:is(string.hex(""), "", "hex empty string")
+end)
+
+test:test("fromhex", function(test)
+    test:plan(4)
+    test:is(string.fromhex("48656c6c6f"), "Hello", "from hex to bin")
+    test:is(string.fromhex("4c696e7578"), "Linux", "from hex to bin")
+    local _, err = pcall(function() string.fromhex("aaa") end)
+    test:ok(err and err:match("(even string expected, got odd string)"), err)
+    _, err = pcall(function() string.fromhex("qq") end)
+    test:ok(err and err:match("(hex string expected, got not hex string)"), err)
 end)
 
 test:test("strip", function(test)
