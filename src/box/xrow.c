@@ -864,7 +864,7 @@ int
 xrow_encode_subscribe(struct xrow_header *row,
 		      const struct tt_uuid *replicaset_uuid,
 		      const struct tt_uuid *instance_uuid,
-		      const struct vclock *vclock)
+		      const struct vclock *vclock, bool anonymous)
 {
 	memset(row, 0, sizeof(*row));
 	uint32_t replicaset_size = vclock_size(vclock);
@@ -876,7 +876,7 @@ xrow_encode_subscribe(struct xrow_header *row,
 		return -1;
 	}
 	char *data = buf;
-	data = mp_encode_map(data, 4);
+	data = mp_encode_map(data, 5);
 	data = mp_encode_uint(data, IPROTO_CLUSTER_UUID);
 	data = xrow_encode_uuid(data, replicaset_uuid);
 	data = mp_encode_uint(data, IPROTO_INSTANCE_UUID);
@@ -891,6 +891,9 @@ xrow_encode_subscribe(struct xrow_header *row,
 	}
 	data = mp_encode_uint(data, IPROTO_SERVER_VERSION);
 	data = mp_encode_uint(data, tarantool_version_id());
+	data = mp_encode_uint(data, IPROTO_ANON);
+	data = mp_encode_bool(data, anonymous);
+
 	assert(data <= buf + size);
 	row->body[0].iov_base = buf;
 	row->body[0].iov_len = (data - buf);
@@ -902,7 +905,7 @@ xrow_encode_subscribe(struct xrow_header *row,
 int
 xrow_decode_subscribe(struct xrow_header *row, struct tt_uuid *replicaset_uuid,
 		      struct tt_uuid *instance_uuid, struct vclock *vclock,
-		      uint32_t *version_id)
+		      uint32_t *version_id, bool *anonymous)
 {
 	if (row->bodycnt == 0) {
 		diag_set(ClientError, ER_INVALID_MSGPACK, "request body");
@@ -961,6 +964,16 @@ xrow_decode_subscribe(struct xrow_header *row, struct tt_uuid *replicaset_uuid,
 			}
 			*version_id = mp_decode_uint(&d);
 			break;
+		case IPROTO_ANON:
+			if (anonymous == NULL)
+				goto skip;
+			if (mp_typeof(*d) != MP_BOOL) {
+				diag_set(ClientError, ER_INVALID_MSGPACK,
+					 "invalid ANONYMOUS");
+				return -1;
+			}
+			*anonymous = mp_decode_bool(&d);
+			break;
 		default: skip:
 			mp_next(&d); /* value */
 		}
@@ -989,7 +1002,8 @@ xrow_decode_subscribe(struct xrow_header *row, struct tt_uuid *replicaset_uuid,
 }
 
 int
-xrow_encode_join(struct xrow_header *row, const struct tt_uuid *instance_uuid)
+xrow_encode_join(struct xrow_header *row, const struct tt_uuid *instance_uuid,
+		 bool anonymous)
 {
 	memset(row, 0, sizeof(*row));
 
@@ -1000,10 +1014,13 @@ xrow_encode_join(struct xrow_header *row, const struct tt_uuid *instance_uuid)
 		return -1;
 	}
 	char *data = buf;
-	data = mp_encode_map(data, 1);
+	data = mp_encode_map(data, 2);
 	data = mp_encode_uint(data, IPROTO_INSTANCE_UUID);
 	/* Greet the remote replica with our replica UUID */
 	data = xrow_encode_uuid(data, instance_uuid);
+	/* Add flag signaling about our wish to be anonymous. */
+	data = mp_encode_uint(data, IPROTO_ANON);
+	data = mp_encode_bool(data, anonymous);
 	assert(data <= buf + size);
 
 	row->body[0].iov_base = buf;

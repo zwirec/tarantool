@@ -399,6 +399,9 @@ box_check_uri(const char *source, const char *option_name)
 static void
 box_check_replication(void)
 {
+	if (cfg_getb("replication_anon") && !cfg_getb("read_only"))
+		tnt_raise(ClientError, ER_CFG, "replication_anon",
+			  "Only read_only replica can be anonymous");
 	int count = cfg_getarr_size("replication");
 	for (int i = 0; i < count; i++) {
 		const char *source = cfg_getarr_elem("replication", i);
@@ -679,6 +682,12 @@ box_set_replication_connect_quorum(void)
 	replication_connect_quorum = box_check_replication_connect_quorum();
 	if (is_box_configured)
 		replicaset_check_quorum();
+}
+
+void
+box_set_replication_anon(void)
+{
+	replica_set_anonymous(cfg_getb("replication_anon"));
 }
 
 void
@@ -1229,14 +1238,34 @@ box_register_replica(uint32_t id, const struct tt_uuid *uuid)
 }
 
 /**
+ * Don't write info about anonymous replicas to _cluster,
+ * so simply store them in cache.
+ */
+static inline struct replica *
+add_anonymous_replica(const tt_uuid *instance_uuid)
+{
+	uint32_t replica_id = REPLICA_ID_ANON_INIT;
+	replicaset_foreach(replica) {
+		if (replica != NULL && replica->anonymous
+		    && replica->id > replica_id) {
+			replica_id = replica->id;
+		}
+	}
+	return replicaset_add(replica_id, instance_uuid, true);
+}
+
+/**
  * @brief Called when recovery/replication wants to add a new
  * replica to the replica set.
  * replica_set_id() is called as a commit trigger on _cluster
  * space and actually adds the replica to the replica set.
+ * For anonymous replicas function adds them to replicaset explicitly
+ * without writing to _cluster space.
  * @param instance_uuid
+ * @param anonymous
  */
 static void
-box_on_join(const tt_uuid *instance_uuid)
+box_on_join(const tt_uuid *instance_uuid, bool anonymous)
 {
 	struct replica *replica = replica_by_uuid(instance_uuid);
 	if (replica != NULL && replica->id != REPLICA_ID_NIL)
@@ -1244,22 +1273,27 @@ box_on_join(const tt_uuid *instance_uuid)
 
 	box_check_writable_xc();
 
-	/** Find the largest existing replica id. */
-	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
-	struct index *index = index_find_system_xc(space, 0);
-	struct iterator *it = index_create_iterator_xc(index, ITER_ALL,
-						       NULL, 0);
-	IteratorGuard iter_guard(it);
-	struct tuple *tuple;
 	/** Assign a new replica id. */
-	uint32_t replica_id = 1;
-	while ((tuple = iterator_next_xc(it)) != NULL) {
-		if (tuple_field_u32_xc(tuple,
-				       BOX_CLUSTER_FIELD_ID) != replica_id)
-			break;
-		replica_id++;
+
+	if (!anonymous) {
+		/** Find the largest existing replica id. */
+		struct tuple *tuple;
+		uint32_t replica_id = 1;
+		struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+		struct index *index = index_find_system_xc(space, 0);
+		struct iterator *it = index_create_iterator_xc(index, ITER_ALL,
+							       NULL, 0);
+		IteratorGuard iter_guard(it);
+		while ((tuple = iterator_next_xc(it)) != NULL) {
+			if (tuple_field_u32_xc(tuple,
+					    BOX_CLUSTER_FIELD_ID) != replica_id)
+				break;
+			replica_id++;
+		}
+		box_register_replica(replica_id, instance_uuid);
+	} else {
+		add_anonymous_replica(instance_uuid);
 	}
-	box_register_replica(replica_id, instance_uuid);
 }
 
 void
@@ -1292,7 +1326,7 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	 *
 	 * <= INSERT
 	 *    ...
-	 *    Initial data: a stream of engine-specifc rows, e.g. snapshot
+	 *    Initial data: a stream of engine-specific rows, e.g. snapshot
 	 *    rows for memtx or dirty cursor data for Vinyl. Engine can
 	 *    use REPLICA_ID, LSN and other fields for internal purposes.
 	 *    ...
@@ -1324,7 +1358,8 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 
 	/* Decode JOIN request */
 	struct tt_uuid instance_uuid = uuid_nil;
-	xrow_decode_join_xc(header, &instance_uuid);
+	bool anonymous = false;
+	xrow_decode_join_xc(header, &instance_uuid, &anonymous);
 
 	/* Check that bootstrap has been finished */
 	if (!is_box_configured)
@@ -1395,7 +1430,7 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	 * sending OK - if the hook fails, the error reaches the
 	 * client.
 	 */
-	box_on_join(&instance_uuid);
+	box_on_join(&instance_uuid, anonymous);
 
 	replica = replica_by_uuid(&instance_uuid);
 	assert(replica != NULL);
@@ -1438,9 +1473,10 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	struct tt_uuid replicaset_uuid = uuid_nil, replica_uuid = uuid_nil;
 	struct vclock replica_clock;
 	uint32_t replica_version_id;
+	bool anonymous = false;
 	vclock_create(&replica_clock);
 	xrow_decode_subscribe_xc(header, &replicaset_uuid, &replica_uuid,
-				 &replica_clock, &replica_version_id);
+				 &replica_clock, &replica_version_id, &anonymous);
 
 	/* Forbid connection to itself */
 	if (tt_uuid_is_equal(&replica_uuid, &INSTANCE_UUID))
@@ -1464,9 +1500,13 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	/* Check replica uuid */
 	struct replica *replica = replica_by_uuid(&replica_uuid);
 	if (replica == NULL || replica->id == REPLICA_ID_NIL) {
+		if (anonymous) {
+			replica = add_anonymous_replica(&replica_uuid);
+		} else {
 		tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
 			  tt_uuid_str(&replica_uuid),
 			  tt_uuid_str(&REPLICASET_UUID));
+		}
 	}
 
 	/* Forbid replication with disabled WAL */
@@ -1772,6 +1812,7 @@ box_cfg_xc(void)
 	box_set_replication_timeout();
 	box_set_replication_connect_timeout();
 	box_set_replication_connect_quorum();
+	box_set_replication_anon();
 	replication_sync_lag = box_check_replication_sync_lag();
 	xstream_create(&join_stream, apply_initial_join_row);
 	xstream_create(&subscribe_stream, apply_row);
@@ -1927,7 +1968,8 @@ box_cfg_xc(void)
 	/* Check for correct registration of the instance in _cluster */
 	{
 		struct replica *self = replica_by_uuid(&INSTANCE_UUID);
-		if (self == NULL || self->id == REPLICA_ID_NIL) {
+		if (!replica_is_anonymous() &&
+			(self == NULL || self->id == REPLICA_ID_NIL)) {
 			tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
 				  tt_uuid_str(&INSTANCE_UUID),
 				  tt_uuid_str(&REPLICASET_UUID));

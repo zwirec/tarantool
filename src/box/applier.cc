@@ -47,6 +47,7 @@
 #include "xrow_io.h"
 #include "error.h"
 #include "session.h"
+#include "box.h"
 
 STRS(applier_state, applier_STATE);
 
@@ -262,7 +263,11 @@ applier_join(struct applier *applier)
 	struct ev_io *coio = &applier->io;
 	struct ibuf *ibuf = &applier->ibuf;
 	struct xrow_header row;
-	xrow_encode_join_xc(&row, &INSTANCE_UUID);
+	if (ANONYMOUS_REPLICA && !box_is_ro()) {
+		tnt_raise(ClientError, ER_CFG, "replication_anon",
+			  "Only read_only replica can be anonymous");
+	}
+	xrow_encode_join_xc(&row, &INSTANCE_UUID, ANONYMOUS_REPLICA);
 	coio_write_xrow(coio, &row);
 
 	/**
@@ -373,7 +378,7 @@ applier_subscribe(struct applier *applier)
 	struct vclock remote_vclock_at_subscribe;
 
 	xrow_encode_subscribe_xc(&row, &REPLICASET_UUID, &INSTANCE_UUID,
-				 &replicaset.vclock);
+				 &replicaset.vclock, ANONYMOUS_REPLICA);
 	coio_write_xrow(coio, &row);
 
 	if (applier->state == APPLIER_READY) {

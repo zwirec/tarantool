@@ -139,6 +139,10 @@ lbox_pushreplica(lua_State *L, struct replica *replica)
 	luaL_pushuint64(L, vclock_get(&replicaset.vclock, replica->id));
 	lua_settable(L, -3);
 
+	lua_pushstring(L, "anonymous");
+	lua_pushboolean(L, replica->anonymous);
+	lua_settable(L, -3);
+
 	if (applier != NULL && applier->state != APPLIER_OFF) {
 		lua_pushstring(L, "upstream");
 		lbox_pushapplier(L, applier);

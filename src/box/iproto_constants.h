@@ -100,6 +100,8 @@ enum iproto_key {
 	 * ]
 	 */
 	IPROTO_METADATA = 0x32,
+	/* Request key identifying flag of anonymous replicas */
+	IPROTO_ANON = 0x33,
 
 	/* Leave a gap between response keys and SQL keys. */
 	IPROTO_SQL_TEXT = 0x40,

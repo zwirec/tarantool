@@ -6,7 +6,7 @@ local socket = require('socket')
 local fio = require('fio')
 local uuid = require('uuid')
 local msgpack = require('msgpack')
-test:plan(91)
+test:plan(92)
 
 --------------------------------------------------------------------------------
 -- Invalid values
@@ -46,6 +46,7 @@ invalid('vinyl_run_count_per_level', 0)
 invalid('vinyl_run_size_ratio', 1)
 invalid('vinyl_bloom_fpr', 0)
 invalid('vinyl_bloom_fpr', 1.1)
+invalid("replication_anon", true)
 
 local function invalid_combinations(name, val)
     local status, result = pcall(box.cfg, val)
