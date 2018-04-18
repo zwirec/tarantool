@@ -377,14 +377,17 @@ cn = net_box.connect(box.cfg.listen)
 errinj.set("ERRINJ_WAL_DELAY", true)
 ok = nil
 err = nil
+ch = fiber.channel()
 test_run:cmd('setopt delimiter ";"')
 f = fiber.create(function()
   local str = 'box.space.test:create_index("sk", {parts = {{2, "integer"}}})'
   ok, err = pcall(cn.eval, cn, str)
+  ch:put(true)
 end)
 test_run:cmd('setopt delimiter ""');
 cn.space.test:get{1}
 errinj.set("ERRINJ_WAL_DELAY", false)
+ch:get()
 ok, err
 cn:close()
 s:drop()
