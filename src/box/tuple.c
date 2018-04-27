@@ -520,8 +520,7 @@ box_tuple_update(const box_tuple_t *tuple, const char *expr,
 	struct region *region = &fiber()->gc;
 	size_t used = region_used(region);
 	const char *new_data =
-		tuple_update_execute(region_aligned_alloc_cb, region, expr,
-				     expr_end, old_data, old_data + bsize,
+		tuple_update_execute(expr, expr_end, old_data, old_data + bsize,
 				     &new_size, 1, NULL);
 	if (new_data == NULL) {
 		region_truncate(region, used);
@@ -544,8 +543,7 @@ box_tuple_upsert(const box_tuple_t *tuple, const char *expr,
 	struct region *region = &fiber()->gc;
 	size_t used = region_used(region);
 	const char *new_data =
-		tuple_upsert_execute(region_aligned_alloc_cb, region, expr,
-				     expr_end, old_data, old_data + bsize,
+		tuple_upsert_execute(expr, expr_end, old_data, old_data + bsize,
 				     &new_size, 1, false, NULL);
 	if (new_data == NULL) {
 		region_truncate(region, used);
