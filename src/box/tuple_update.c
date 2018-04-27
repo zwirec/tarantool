@@ -30,8 +30,6 @@
  */
 
 #include "tuple_update.h"
-
-#include <stdio.h>
 #include <stdbool.h>
 
 #include "say.h"
@@ -41,7 +39,6 @@
 #include "third_party/queue.h"
 #include <msgpuck/msgpuck.h>
 #include <bit/int96.h>
-#include <salad/rope.h>
 #include "column_mask.h"
 #include "fiber.h"
 
@@ -97,28 +94,22 @@
  */
 
 static inline void *
-update_alloc(void *ctx, size_t size)
+update_alloc(struct region *region, size_t size)
 {
-	void *ptr = region_aligned_alloc((struct region *) ctx, size,
-					 alignof(uint64_t));
+	void *ptr = region_aligned_alloc(region, size, alignof(uint64_t));
 	if (ptr == NULL)
 		diag_set(OutOfMemory, size, "region_aligned_alloc",
 			 "update internals");
 	return ptr;
 }
 
-/** Free rope node - do nothing, since we use a pool allocator. */
-static void
-update_free(void *ctx, void *mem)
-{
-	(void) ctx;
-	(void) mem;
-}
+struct update_field;
+struct update_op;
 
 /** Update internal state */
 struct tuple_update
 {
-	void *alloc_ctx;
+	struct region *region;
 	struct rope *rope;
 	struct update_op *ops;
 	uint32_t op_count;
@@ -126,6 +117,17 @@ struct tuple_update
 	/** A bitmask of all columns modified by this update */
 	uint64_t column_mask;
 };
+
+static struct update_field *
+update_field_split(struct region *region, struct update_field *data,
+		   size_t size, size_t offset);
+
+#define ROPE_SPLIT_F update_field_split
+#define ROPE_ALLOC_F update_alloc
+#define rope_data_t struct update_field *
+#define rope_ctx_t struct region *
+
+#include "salad/rope.h"
 
 /** Argument of SET (and INSERT) operation. */
 struct op_set_arg {
@@ -203,9 +205,6 @@ union update_op_arg {
 	struct op_bit_arg bit;
 	struct op_splice_arg splice;
 };
-
-struct update_field;
-struct update_op;
 
 typedef int (*do_op_func)(struct tuple_update *update, struct update_op *op);
 typedef int (*read_arg_func)(int index_base, struct update_op *op,
@@ -526,7 +525,7 @@ do_op_insert(struct tuple_update *update, struct update_op *op)
 	if (op_adjust_field_no(update, op, rope_size(update->rope) + 1))
 		return -1;
 	struct update_field *field = (struct update_field *)
-		update_alloc(update->alloc_ctx, sizeof(*field));
+		update_alloc(update->region, sizeof(*field));
 	if (field == NULL)
 		return -1;
 	update_field_init(field, op->arg.set.value, op->arg.set.length, 0);
@@ -541,8 +540,7 @@ do_op_set(struct tuple_update *update, struct update_op *op)
 		return do_op_insert(update, op);
 	if (op_adjust_field_no(update, op, rope_size(update->rope)))
 		return -1;
-	struct update_field *field = (struct update_field *)
-		rope_extract(update->rope, op->field_no);
+	struct update_field *field = rope_extract(update->rope, op->field_no);
 	if (field == NULL)
 		return -1;
 	/* Ignore the previous op, if any. */
@@ -579,8 +577,7 @@ do_op_arith(struct tuple_update *update, struct update_op *op)
 	if (op_adjust_field_no(update, op, rope_size(update->rope)))
 		return -1;
 
-	struct update_field *field = (struct update_field *)
-		rope_extract(update->rope, op->field_no);
+	struct update_field *field = rope_extract(update->rope, op->field_no);
 	if (field == NULL)
 		return -1;
 	if (field->op) {
@@ -609,8 +606,7 @@ do_op_bit(struct tuple_update *update, struct update_op *op)
 {
 	if (op_adjust_field_no(update, op, rope_size(update->rope)))
 		return -1;
-	struct update_field *field = (struct update_field *)
-		rope_extract(update->rope, op->field_no);
+	struct update_field *field = rope_extract(update->rope, op->field_no);
 	if (field == NULL)
 		return -1;
 	struct op_bit_arg *arg = &op->arg.bit;
@@ -647,8 +643,7 @@ do_op_splice(struct tuple_update *update, struct update_op *op)
 {
 	if (op_adjust_field_no(update, op, rope_size(update->rope)))
 		return -1;
-	struct update_field *field = (struct update_field *)
-		rope_extract(update->rope, op->field_no);
+	struct update_field *field = rope_extract(update->rope, op->field_no);
 	if (field == NULL)
 		return -1;
 	if (field->op) {
@@ -787,16 +782,13 @@ static const struct update_op_meta op_delete =
 /** Split a range of fields in two, allocating update_field
  * context for the new range.
  */
-static void *
-update_field_split(void *split_ctx, void *data, size_t size, size_t offset)
+static struct update_field *
+update_field_split(struct region *region, struct update_field *prev,
+		   size_t size, size_t offset)
 {
-	(void)size;
-	struct tuple_update *update = (struct tuple_update *) split_ctx;
-
-	struct update_field *prev = (struct update_field *) data;
-
-	struct update_field *next = (struct update_field *)
-			update_alloc(update->alloc_ctx, sizeof(*next));
+	(void) size;
+	struct update_field *next =
+		(struct update_field *) update_alloc(region, sizeof(*next));
 	if (next == NULL)
 		return NULL;
 	assert(offset > 0 && prev->tail_len > 0);
@@ -804,9 +796,8 @@ update_field_split(void *split_ctx, void *data, size_t size, size_t offset)
 	const char *field = prev->tail;
 	const char *end = field + prev->tail_len;
 
-	for (uint32_t i = 1; i < offset; i++) {
+	for (uint32_t i = 1; i < offset; i++)
 		mp_next(&field);
-	}
 
 	prev->tail_len = field - prev->tail;
 	const char *f = field;
@@ -832,14 +823,13 @@ int
 update_create_rope(struct tuple_update *update, const char *tuple_data,
 		   const char *tuple_data_end, uint32_t field_count)
 {
-	update->rope = rope_new(update_field_split, update, update_alloc,
-				update_free, update->alloc_ctx);
+	update->rope = rope_new(update->region);
 	if (update->rope == NULL)
 		return -1;
 	/* Initialize the rope with the old tuple. */
 
 	struct update_field *first = (struct update_field *)
-			update_alloc(update->alloc_ctx, sizeof(*first));
+			update_alloc(update->region, sizeof(*first));
 	if (first == NULL)
 		return -1;
 	const char *field = tuple_data;
@@ -863,8 +853,7 @@ update_calc_tuple_length(struct tuple_update *update)
 
 	rope_iter_create(&it, update->rope);
 	for (node = rope_iter_start(&it); node; node = rope_iter_next(&it)) {
-		struct update_field *field =
-				(struct update_field *) rope_leaf_data(node);
+		struct update_field *field = rope_leaf_data(node);
 		uint32_t field_len = (field->op ? field->op->new_field_len :
 				      (uint32_t)(field->tail - field->old));
 		res += field_len + field->tail_len;
@@ -888,8 +877,7 @@ update_write_tuple(struct tuple_update *update, char *buffer, char *buffer_end)
 
 	rope_iter_create(&it, update->rope);
 	for (node = rope_iter_start(&it); node; node = rope_iter_next(&it)) {
-		struct update_field *field = (struct update_field *)
-				rope_leaf_data(node);
+		struct update_field *field = rope_leaf_data(node);
 		uint32_t field_count = rope_leaf_size(node);
 		const char *old_field = field->old;
 		struct update_op *op = field->op;
@@ -978,7 +966,7 @@ update_read_ops(struct tuple_update *update, const char *expr,
 	}
 
 	/* Read update operations.  */
-	update->ops = (struct update_op *) update_alloc(update->alloc_ctx,
+	update->ops = (struct update_op *) update_alloc(update->region,
 				update->op_count * sizeof(struct update_op));
 	if (update->ops == NULL)
 		return -1;
@@ -1171,7 +1159,7 @@ static void
 update_init(struct tuple_update *update, int index_base)
 {
 	memset(update, 0, sizeof(*update));
-	update->alloc_ctx = &fiber()->gc;
+	update->region = &fiber()->gc;
 	/*
 	 * Base field offset, e.g. 0 for C and 1 for Lua. Used only for
 	 * error messages. All fields numbers must be zero-based!
@@ -1183,7 +1171,7 @@ const char *
 update_finish(struct tuple_update *update, uint32_t *p_tuple_len)
 {
 	uint32_t tuple_len = update_calc_tuple_length(update);
-	char *buffer = (char *) update_alloc(update->alloc_ctx, tuple_len);
+	char *buffer = (char *) update_alloc(update->region, tuple_len);
 	if (buffer == NULL)
 		return NULL;
 	*p_tuple_len = update_write_tuple(update, buffer, buffer + tuple_len);
