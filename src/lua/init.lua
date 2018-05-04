@@ -20,10 +20,16 @@ struct type_info {
 
 enum {
     DIAG_ERRMSG_MAX = 512,
-    DIAG_FILENAME_MAX = 256
+    DIAG_FILENAME_MAX = 256,
+    DIAG_FUNCNAME_MAX = 256,
 };
 
 typedef void (*error_f)(struct error *e);
+
+struct rlist {
+    struct rlist *prev;
+    struct rlist *next;
+};
 
 struct error {
     error_f _destroy;
@@ -37,6 +43,9 @@ struct error {
     char _file[DIAG_FILENAME_MAX];
     /* Error description. */
     char _errmsg[DIAG_ERRMSG_MAX];
+    /** Error traceback */
+    struct rlist frames;
+    int frames_count;
 };
 
 double

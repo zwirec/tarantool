@@ -1,6 +1,7 @@
 env = require('test_run')
 test_run = env.new()
 test_run:cmd("push filter 'table: .*' to 'table: <address>'")
+test_run:cmd("push filter 'line: .*' to 'line: <number>'")
 
 -- gh-266: box.info() crash on uncofigured box
 package.loaded['box.space'] == nil

@@ -52,6 +52,8 @@ error_create(struct error *e,
 		e->line = 0;
 	}
 	e->errmsg[0] = '\0';
+	e->frames_count = 0;
+	rlist_create(&e->frames);
 }
 
 struct diag *

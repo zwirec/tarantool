@@ -861,8 +861,20 @@ lbox_catch(lua_State *L)
 int
 luaT_call(struct lua_State *L, int nargs, int nreturns)
 {
-	if (lua_pcall(L, nargs, nreturns, 0))
-		return lbox_catch(L);
+	lua_pushcfunction(L, luaT_traceback);
+	int save_pos = lua_gettop(L) - nargs - 1;
+	lua_insert(L, save_pos);
+	if (lua_pcall(L, nargs, nreturns, lua_gettop(L) - nargs - 1)) {
+		lua_remove(L, save_pos);
+		struct error *e = luaL_iserror(L, -1);
+		if (e != NULL) {
+			diag_add_error(&fiber()->diag, e);
+		} else {
+			say_error("pcall returned with empty error");
+		}
+		return 1;
+	}
+	lua_remove(L, save_pos);
 	return 0;
 }
 

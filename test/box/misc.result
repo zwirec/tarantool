@@ -8,6 +8,10 @@ test_run:cmd("push filter 'table: .*' to 'table: <address>'")
 ---
 - true
 ...
+test_run:cmd("push filter 'line: .*' to 'line: <number>'")
+---
+- true
+...
 -- gh-266: box.info() crash on uncofigured box
 package.loaded['box.space'] == nil
 ---
@@ -126,8 +130,42 @@ e:unpack()
   code: 1
   message: Illegal parameters, bla bla
   trace:
-  - file: '[C]'
-    line: 4294967295
+  - file: builtin/socket.lua
+    line: <number>
+  - function: pcall
+  - file: builtin/box/console.lua
+    line: <number>
+  - file: builtin/box/console.lua
+    function: repl
+    line: <number>
+  - file: builtin/box/console.lua
+    function: eval
+    line: <number>
+  - function: pcall
+  - file: builtin/socket.lua
+    line: <number>
+  - function: pcall
+  - file: builtin/box/console.lua
+    line: <number>
+  - file: builtin/box/console.lua
+    function: repl
+    line: <number>
+  - file: builtin/box/console.lua
+    function: eval
+    line: <number>
+  - function: pcall
+  - file: builtin/socket.lua
+    line: <number>
+  - function: pcall
+  - file: builtin/box/console.lua
+    line: <number>
+  - file: builtin/box/console.lua
+    function: repl
+    line: <number>
+  - file: builtin/box/console.lua
+    function: eval
+    line: <number>
+  - function: pcall
 ...
 e.type
 ---

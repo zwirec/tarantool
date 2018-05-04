@@ -23,9 +23,9 @@ test:plan(53)
 test:ok(session.exists(session.id()), "session is created")
 test:isnil(session.peer(session.id()), "session.peer")
 local ok, err = pcall(session.exists)
-test:is(err, "session.exists(sid): bad arguments", "exists bad args #1")
+test:is(tostring(err), "session.exists(sid): bad arguments", "exists bad args #1")
 ok, err = pcall(session.exists, 1, 2, 3)
-test:is(err, "session.exists(sid): bad arguments", "exists bad args #2")
+test:is(tostring(err), "session.exists(sid): bad arguments", "exists bad args #2")
 test:ok(not session.exists(1234567890), "session doesn't exist")
 
 -- check session.id()
@@ -51,19 +51,19 @@ test:is(type(session.on_connect()), "table", "type of trigger on_connect, no arg
 test:is(type(session.on_disconnect()), "table", "type of trigger on_disconnect, no args")
 
 ok, err = pcall(session.on_connect, function() end, function() end)
-test:is(err,"trigger reset: Trigger is not found", "on_connect trigger not found")
+test:is(tostring(err),"trigger reset: Trigger is not found", "on_connect trigger not found")
 ok, err = pcall(session.on_disconnect, function() end, function() end)
-test:is(err,"trigger reset: Trigger is not found", "on_disconnect trigger not found")
+test:is(tostring(err),"trigger reset: Trigger is not found", "on_disconnect trigger not found")
 
 ok, err = pcall(session.on_connect, 1, 2)
-test:is(err, "trigger reset: incorrect arguments", "on_connect bad args #1")
+test:is(tostring(err), "trigger reset: incorrect arguments", "on_connect bad args #1")
 ok, err = pcall(session.on_disconnect, 1, 2)
-test:is(err, "trigger reset: incorrect arguments", "on_disconnect bad args #1")
+test:is(tostring(err), "trigger reset: incorrect arguments", "on_disconnect bad args #1")
 
 ok, err = pcall(session.on_connect, 1)
-test:is(err, "trigger reset: incorrect arguments", "on_connect bad args #2")
+test:is(tostring(err), "trigger reset: incorrect arguments", "on_connect bad args #2")
 ok, err = pcall(session.on_disconnect, 1)
-test:is(err, "trigger reset: incorrect arguments", "on_disconnect bad args #2")
+test:is(tostring(err), "trigger reset: incorrect arguments", "on_disconnect bad args #2")
 
 -- use of nil to clear the trigger
 session.on_connect(nil, fail)

@@ -47,7 +47,7 @@ test:test("simple trigger test", function(test)
     -- Check that we've failed to delete trigger
     local stat, err = pcall(getmetatable(trigger_list).__call, trigger_list,
                             nil, trigger_cnt)
-    test:ok(string.find(err, "is not found"), "check error")
+    test:ok(string.find(tostring(err), "is not found"), "check error")
 end)
 
 test:test("errored trigger test", function(test)

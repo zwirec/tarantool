@@ -57,6 +57,9 @@ luaT_pusherror(struct lua_State *L, struct error *e);
 struct error *
 luaL_iserror(struct lua_State *L, int narg);
 
+int
+luaT_traceback(struct lua_State *L);
+
 void
 tarantool_lua_error_init(struct lua_State *L);
 

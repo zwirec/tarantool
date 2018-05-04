@@ -25,6 +25,8 @@ exception_get_int(struct error *e, const struct method_info *method);
 
 ]]
 
+local error = require("error")
+
 local REFLECTION_CACHE = {}
 
 local function reflection_enumerate(err)
@@ -67,17 +69,15 @@ local function error_type(err)
     return ffi.string(err._type.name)
 end
 
-local function error_message(err)
-    return ffi.string(err._errmsg)
-end
-
 local function error_trace(err)
-    if err._file[0] == 0 then
+    if err.depth_traceback == 0 then
         return {}
     end
-    return {
-        { file = ffi.string(err._file), line = tonumber(err._line) };
-    }
+    return error.get_traceback(err)
+end
+
+local function error_message(err)
+    return ffi.string(err._errmsg)
 end
 
 

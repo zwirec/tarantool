@@ -104,6 +104,145 @@ luaT_pusherror(struct lua_State *L, struct error *e)
 	luaL_setcdatagc(L, -2);
 }
 
+static int
+traceback_error(struct lua_State *L, struct error *e)
+{
+	lua_Debug ar;
+	int level = 0;
+	while (lua_getstack(L, level++, &ar) > 0) {
+		lua_getinfo(L, "Sln", &ar);
+		struct diag_frame *frame =
+				(struct diag_frame *) malloc(sizeof(*frame));
+		if (frame == NULL) {
+			luaT_pusherror(L, e);
+			return 1;
+		}
+		if (*ar.what == 'L' || *ar.what == 'm') {
+			strcpy(frame->filename, ar.short_src);
+			frame->line = ar.currentline;
+			if (*ar.namewhat != '\0') {
+				strcpy(frame->func_name, ar.name);
+			} else {
+				frame->func_name[0] = 0;
+			}
+			e->frames_count++;
+		} else if (*ar.what == 'C') {
+			if (*ar.namewhat != '\0') {
+				strcpy(frame->func_name, ar.name);
+			} else {
+				frame->func_name[0] = 0;
+			}
+			frame->filename[0] = 0;
+			frame->line = 0;
+			e->frames_count++;
+		}
+		rlist_add_entry(&e->frames, frame, link);
+	}
+	luaT_pusherror(L, e);
+	return 1;
+}
+
+int
+luaT_traceback(struct lua_State *L)
+{
+	struct error* e = luaL_iserror(L, -1);
+	if (e == NULL) {
+		const char *msg = lua_tostring(L, -1);
+		if (msg == NULL) {
+			say_error("pcall calls error handler on empty error");
+			return 0;
+		} else {
+			e = BuildLuajitError(__FILE__, __LINE__, msg);
+		}
+	}
+	return traceback_error(L, e);
+}
+
+int
+lua_error_gettraceback(struct lua_State *L)
+{
+	struct error *e = luaL_iserror(L, -1);
+	if (!e) {
+		return 0;
+	}
+	lua_newtable(L);
+	if (e->frames_count <= 0) {
+		return 1;
+	}
+	struct diag_frame *frame;
+	int index = 1;
+	rlist_foreach_entry(frame, &e->frames, link) {
+		if (frame->func_name[0] != 0 || frame->line > 0 ||
+		    frame->filename[0] != 0) {
+			/* push index */
+			lua_pushnumber(L, index++);
+			/* push value - table of filename and line */
+			lua_newtable(L);
+			if (frame->func_name[0] != 0) {
+				lua_pushstring(L, "function");
+				lua_pushstring(L, frame->func_name);
+				lua_settable(L, -3);
+			}
+			if (frame->filename[0] != 0) {
+				lua_pushstring(L, "file");
+				lua_pushstring(L, frame->filename);
+				lua_settable(L, -3);
+			}
+			if (frame->line > 0) {
+				lua_pushstring(L, "line");
+				lua_pushinteger(L, frame->line);
+				lua_settable(L, -3);
+			}
+			lua_settable(L, -3);
+		}
+	}
+	return 1;
+}
+
+/**
+ * Function replacing lua pcall function.
+ * We handle lua errors, creating tarantool error objects and
+ * saving traceback inside.
+ */
+static int
+luaB_pcall(struct lua_State *L)
+{
+	int status;
+	luaL_checkany(L, 1);
+	status = luaT_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+	lua_pushboolean(L, (status == 0));
+	lua_insert(L, 1);
+	return lua_gettop(L);  /* return status + all results */
+}
+
+/**
+ * Function replacing lua error function.
+ * We have to handle tarantool error objects, converting them to string
+ * for generating string errors with path in case of call error(msg, level),
+ * where level > 0.
+ */
+static int
+luaB_error (lua_State *L) {
+	int level = luaL_optint(L, 2, 1);
+	lua_settop(L, 1);
+	if (lua_type(L, 1) == LUA_TCDATA) {
+		assert(CTID_CONST_STRUCT_ERROR_REF != 0);
+		uint32_t ctypeid;
+		void *data = luaL_checkcdata(L, 1, &ctypeid);
+		if (ctypeid != (uint32_t) CTID_CONST_STRUCT_ERROR_REF)
+			return lua_error(L);
+
+		struct error *e = *(struct error **) data;
+		lua_pushstring(L, e->errmsg);
+	}
+	if (lua_isstring(L, -1) && level > 0) {  /* add extra information? */
+		luaL_where(L, level);
+		lua_insert(L, lua_gettop(L) - 1);
+		lua_concat(L, 2);
+	}
+	return lua_error(L);
+}
+
 void
 tarantool_lua_error_init(struct lua_State *L)
 {
@@ -114,4 +253,15 @@ tarantool_lua_error_init(struct lua_State *L)
 	(void) rc;
 	CTID_CONST_STRUCT_ERROR_REF = luaL_ctypeid(L, "const struct error &");
 	assert(CTID_CONST_STRUCT_ERROR_REF != 0);
+	lua_pushcfunction(L, luaB_pcall);
+	lua_setglobal(L, "pcall");
+	lua_pushcfunction(L, luaB_error);
+	lua_setglobal(L, "error");
+
+	static const luaL_Reg errorslib[] = {
+		{"get_traceback", lua_error_gettraceback},
+		{ NULL, NULL}
+	};
+	luaL_register_module(L, "error", errorslib);
+	lua_pop(L, 1);
 }
