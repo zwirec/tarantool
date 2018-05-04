@@ -28,6 +28,7 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include <lua/error.h>
 #include "box/lua/sequence.h"
 #include "box/lua/tuple.h"
 #include "lua/utils.h"

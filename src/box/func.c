@@ -32,6 +32,7 @@
 #include "trivia/config.h"
 #include "assoc.h"
 #include "lua/utils.h"
+#include <lua/error.h>
 #include "error.h"
 #include "diag.h"
 #include <dlfcn.h>

@@ -33,6 +33,7 @@
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+#include <lua/error.h>
 
 #include "lua/utils.h" /* luaT_error() */
 

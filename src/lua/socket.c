@@ -53,6 +53,7 @@
 #include <coio_task.h> /* coio_getaddrinfo() */
 #include <fiber.h>
 #include "lua/utils.h"
+#include "lua/error.h"
 #include "lua/fiber.h"
 
 extern int coio_wait(int fd, int event, double timeout);

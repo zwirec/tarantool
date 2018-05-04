@@ -38,6 +38,7 @@ extern "C" {
 
 #include <fiber.h>
 #include <errinj.h>
+#include <lua/error.h>
 
 #include "lua/utils.h"
 #include "box/error.h"

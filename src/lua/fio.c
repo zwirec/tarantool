@@ -46,6 +46,7 @@
 
 #include "lua/utils.h"
 #include "coio_file.h"
+#include "lua/error.h"
 
 static inline void
 lbox_fio_pushsyserror(struct lua_State *L)

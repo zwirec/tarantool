@@ -40,6 +40,7 @@
 #include "lua/utils.h"
 #include "lua/httpc.h"
 #include "src/fiber.h"
+#include "lua/error.h"
 
 /** Internal util functions
  * {{{

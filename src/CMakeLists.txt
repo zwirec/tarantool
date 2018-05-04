@@ -24,6 +24,7 @@ lua_source(lua_sources lua/fiber.lua)
 lua_source(lua_sources lua/buffer.lua)
 lua_source(lua_sources lua/uuid.lua)
 lua_source(lua_sources lua/crypto.lua)
+lua_source(lua_sources lua/error.lua)
 lua_source(lua_sources lua/digest.lua)
 lua_source(lua_sources lua/msgpackffi.lua)
 lua_source(lua_sources lua/uri.lua)
@@ -159,6 +160,7 @@ set (server_sources
      lua/msgpack.c
      lua/utils.c
      lua/errno.c
+     lua/error.c
      lua/socket.c
      lua/pickle.c
      lua/fio.c
@@ -180,6 +182,7 @@ set(api_headers
     ${CMAKE_SOURCE_DIR}/src/coio.h
     ${CMAKE_SOURCE_DIR}/src/coio_task.h
     ${CMAKE_SOURCE_DIR}/src/lua/utils.h
+    ${CMAKE_SOURCE_DIR}/src/lua/error.h
     ${CMAKE_SOURCE_DIR}/src/box/txn.h
     ${CMAKE_SOURCE_DIR}/src/box/key_def.h
     ${CMAKE_SOURCE_DIR}/src/box/field_def.h

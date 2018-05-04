@@ -31,6 +31,7 @@
 #include "lua/fiber.h"
 
 #include <fiber.h>
+#include "lua/error.h"
 #include "lua/utils.h"
 #include "backtrace.h"
 

@@ -36,6 +36,7 @@
 #include <small/ibuf.h>
 #include <small/region.h>
 #include <fiber.h>
+#include <lua/error.h>
 
 #include "box/tuple.h"
 #include "box/tuple_convert.h"

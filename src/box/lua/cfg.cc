@@ -33,8 +33,9 @@
 
 #include "exception.h"
 #include <cfg.h>
-#include "main.h"
 #include "lua/utils.h"
+#include <lua/error.h>
+#include "main.h"
 
 #include "box/box.h"
 #include "libeio/eio.h"

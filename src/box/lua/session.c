@@ -36,6 +36,7 @@
 #include <lauxlib.h>
 #include <lualib.h>
 #include <sio.h>
+#include <lua/error.h>
 
 #include "box/box.h"
 #include "box/session.h"

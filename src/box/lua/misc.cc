@@ -33,6 +33,7 @@
 #include "fiber.h" /* fiber->gc() */
 #include <small/region.h>
 #include "lua/utils.h"
+#include <lua/error.h>
 #include "lua/msgpack.h"
 
 #include "box/box.h"

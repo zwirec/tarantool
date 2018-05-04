@@ -1,3 +1,5 @@
+#ifndef TARANTOOL_ERROR_H
+#define TARANTOOL_ERROR_H
 /*
  * Copyright 2010-2018, Tarantool AUTHORS, please see AUTHORS file.
  *
@@ -28,52 +30,38 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include "box/lua/ctl.h"
-
-#include <tarantool_ev.h>
-
 #include <lua.h>
-#include <lauxlib.h>
-#include <lualib.h>
-#include <lua/error.h>
+#include <lauxlib.h> /* luaL_error */
 
-#include "lua/utils.h"
+#if defined(__cplusplus)
+extern "C" {
+#endif /* defined(__cplusplus) */
 
-#include "box/box.h"
 
-static int
-lbox_ctl_wait_ro(struct lua_State *L)
-{
-	int index = lua_gettop(L);
-	double timeout = TIMEOUT_INFINITY;
-	if (index > 0)
-		timeout = luaL_checknumber(L, 1);
-	if (box_wait_ro(true, timeout) != 0)
-		return luaT_error(L);
-	return 0;
-}
+/** \cond public */
+struct error;
 
-static int
-lbox_ctl_wait_rw(struct lua_State *L)
-{
-	int index = lua_gettop(L);
-	double timeout = TIMEOUT_INFINITY;
-	if (index > 0)
-		timeout = luaL_checknumber(L, 1);
-	if (box_wait_ro(false, timeout) != 0)
-		return luaT_error(L);
-	return 0;
-}
-
-static const struct luaL_Reg lbox_ctl_lib[] = {
-	{"wait_ro", lbox_ctl_wait_ro},
-	{"wait_rw", lbox_ctl_wait_rw},
-	{NULL, NULL}
-};
+/**
+ * Re-throws the last Tarantool error as a Lua object.
+ * \sa lua_error()
+ * \sa box_error_last()
+ */
+LUA_API int
+luaT_error(lua_State *L);
 
 void
-box_lua_ctl_init(struct lua_State *L)
-{
-	luaL_register_module(L, "box.ctl", lbox_ctl_lib);
-	lua_pop(L, 1);
-}
+luaT_pusherror(struct lua_State *L, struct error *e);
+/** \endcond public */
+
+
+struct error *
+luaL_iserror(struct lua_State *L, int narg);
+
+void
+tarantool_lua_error_init(struct lua_State *L);
+
+#if defined(__cplusplus)
+} /* extern "C" */
+#endif /* defined(__cplusplus) */
+
+#endif //TARANTOOL_ERROR_H

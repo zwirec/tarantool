@@ -28,6 +28,7 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include <lua/error.h>
 #include "box/lua/call.h"
 #include "box/call.h"
 #include "box/error.h"
