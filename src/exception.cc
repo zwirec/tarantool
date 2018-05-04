@@ -36,6 +36,7 @@
 
 #include "fiber.h"
 #include "reflection.h"
+#include "backtrace.h"
 
 extern "C" {
 
@@ -93,6 +94,7 @@ static const struct method_info exception_methods[] = {
 const struct type_info type_Exception = make_type("Exception", NULL,
 	exception_methods);
 
+
 void *
 Exception::operator new(size_t size)
 {
@@ -114,6 +116,44 @@ Exception::~Exception()
 	if (this != &out_of_memory) {
 		assert(refs == 0);
 	}
+	if (this->frames_count > 0) {
+		struct diag_frame *frame, *next;
+		/* Cleanup lua trace. */
+		for (frame = rlist_first_entry(&this->frames, typeof(*frame),
+					       link);
+		     &frame->link != &this->frames;) {
+			next = rlist_next_entry(frame, link);
+			free(frame);
+			frame = next;
+		}
+	}
+}
+
+static int
+error_backtrace_cb(int frameno, void *frameret, const char *func,
+		   size_t offset, void *cb_ctx)
+{
+	(void) frameno;
+	(void) frameret;
+	(void) offset;
+	Exception *e = (Exception *) cb_ctx;
+
+	struct diag_frame * frame =
+		(struct diag_frame *) malloc(sizeof(*frame));
+	if (frame == NULL) {
+		diag_set(OutOfMemory, sizeof(struct diag_frame),
+			 "malloc", "struct diag_frame");
+		return -1;
+	}
+	if (func)
+		snprintf(frame->func_name, sizeof(frame->func_name), "%s", func);
+	else
+		frame->func_name[0] = 0;
+	frame->filename[0] = 0;
+	frame->line = 0;
+	rlist_add_tail_entry(&e->frames, frame, link);
+	e->frames_count++;
+	return 0;
 }
 
 Exception::Exception(const struct type_info *type_arg, const char *file,
@@ -121,6 +161,15 @@ Exception::Exception(const struct type_info *type_arg, const char *file,
 {
 	error_create(this, exception_destroy, exception_raise,
 		     exception_log, type_arg, file, line);
+	int old_errno = errno;
+	if (cord()) {
+		backtrace_foreach(error_backtrace_cb, &fiber()->ctx, this);
+		if (this->frames_count > 0) {
+			rlist_shift_tail(&this->frames);
+			this->frames_count--;
+		}
+	}
+	errno = old_errno;
 }
 
 void

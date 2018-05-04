@@ -130,42 +130,58 @@ e:unpack()
   code: 1
   message: Illegal parameters, bla bla
   trace:
-  - file: builtin/socket.lua
-    line: <number>
+  - function: ClientError::ClientError(char const*, unsigned int, unsigned int, ...)
+  - function: BuildClientError
+  - function: box_error_set
+  - function: luaT_error_raise(lua_State*)
   - function: pcall
   - file: builtin/box/console.lua
+    function: eval
     line: <number>
   - file: builtin/box/console.lua
     function: repl
     line: <number>
   - file: builtin/box/console.lua
-    function: eval
     line: <number>
   - function: pcall
   - file: builtin/socket.lua
     line: <number>
+  - function: lua_pcall
+  - function: luaT_call
+  - function: luaB_pcall
   - function: pcall
   - file: builtin/box/console.lua
+    function: eval
     line: <number>
   - file: builtin/box/console.lua
     function: repl
     line: <number>
   - file: builtin/box/console.lua
-    function: eval
     line: <number>
   - function: pcall
   - file: builtin/socket.lua
     line: <number>
+  - function: lua_pcall
+  - function: luaT_call
+  - function: luaB_pcall
   - function: pcall
   - file: builtin/box/console.lua
+    function: eval
     line: <number>
   - file: builtin/box/console.lua
     function: repl
     line: <number>
   - file: builtin/box/console.lua
-    function: eval
     line: <number>
   - function: pcall
+  - file: builtin/socket.lua
+    line: <number>
+  - function: lua_pcall
+  - function: luaT_call
+  - function: lua_fiber_run_f
+  - function: fiber_cxx_invoke(int (*)(__va_list_tag*), __va_list_tag*)
+  - function: fiber_loop
+  - function: coro_init
 ...
 e.type
 ---

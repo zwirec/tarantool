@@ -368,7 +368,15 @@ backtrace_foreach(backtrace_cb cb, coro_context *coro_ctx, void *cb_ctx)
 {
 	unw_cursor_t unw_cur;
 	unw_context_t unw_ctx;
-	coro_unwcontext(&unw_ctx, coro_ctx);
+	if (coro_ctx == &fiber()->ctx) {
+		/*
+		 * We don't have to move over stack as we are inspecting
+		 * current fiber.
+		 */
+		unw_getcontext(&unw_ctx);
+	} else {
+		coro_unwcontext(&unw_ctx, coro_ctx);
+	}
 	unw_init_local(&unw_cur, &unw_ctx);
 	int frame_no = 0;
 	unw_word_t sp = 0, old_sp = 0, ip, offset;

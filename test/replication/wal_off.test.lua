@@ -29,7 +29,7 @@ test_run:cmd('switch default')
 
 box.cfg { replication = wal_off_uri }
 check = "Read access to universe"
-while string.find(box.info.replication[wal_off_id].upstream.message, check) == nil do fiber.sleep(0.01) end
+while box.info.replication[wal_off_id].upstream.message == nil or string.find(box.info.replication[wal_off_id].upstream.message, check) == nil do fiber.sleep(0.01) end
 box.cfg { replication = "" }
 
 test_run:cmd("stop server wal_off")

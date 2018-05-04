@@ -31,6 +31,7 @@
 
 #include <diag.h>
 #include <fiber.h>
+#include <backtrace.h>
 #include "utils.h"
 #include "error.h"
 
@@ -104,15 +105,36 @@ luaT_pusherror(struct lua_State *L, struct error *e)
 	luaL_setcdatagc(L, -2);
 }
 
+static inline void
+copy_frame(struct diag_frame *dest, struct diag_frame *src)
+{
+	dest->line = src->line;
+	strcpy(dest->func_name, src->func_name);
+	strcpy(dest->filename, src->filename);
+}
+
 static int
 traceback_error(struct lua_State *L, struct error *e)
 {
 	lua_Debug ar;
 	int level = 0;
+	struct rlist lua_frames;
+	struct rlist *lua_framesp;
+	struct diag_frame *frame, *next;
+	if (e->frames_count <= 0) {
+		lua_framesp = &e->frames;
+	} else {
+		lua_framesp = &lua_frames;
+		rlist_create(lua_framesp);
+	}
+	/*
+	 * At this moment error object was created from exception so
+	 * traceback list is already created and filled with C trace.
+	 * Now we need to create lua trace and merge it with the existing one.
+	 */
 	while (lua_getstack(L, level++, &ar) > 0) {
 		lua_getinfo(L, "Sln", &ar);
-		struct diag_frame *frame =
-				(struct diag_frame *) malloc(sizeof(*frame));
+		frame = (struct diag_frame *) malloc(sizeof(*frame));
 		if (frame == NULL) {
 			luaT_pusherror(L, e);
 			return 1;
@@ -136,7 +158,67 @@ traceback_error(struct lua_State *L, struct error *e)
 			frame->line = 0;
 			e->frames_count++;
 		}
-		rlist_add_entry(&e->frames, frame, link);
+		rlist_add_entry(lua_framesp, frame, link);
+	}
+	if (e->frames_count > 0) {
+		struct diag_frame *lua_frame = rlist_first_entry(lua_framesp,
+							 typeof(*lua_frame),
+							 link);
+		rlist_foreach_entry(frame, &e->frames, link) {
+			/* We insert trace of lua user code in c trace,
+			 * where C calls lua.*/
+			if (strncmp(frame->func_name, "lj_BC_FUNCC",
+				    sizeof("lj_BC_FUNCC") - 1) == 0 &&
+			    frame->line != -1) {
+				/* We have to bypass internal error calls. */
+				next = rlist_next_entry(frame, link);
+				if (strncmp(next->func_name, "lj_err_run",
+					    sizeof("lj_err_run") - 1) == 0)
+					continue;
+				e->frames_count--;
+				for (;&lua_frame->link != lua_framesp;
+				      lua_frame = rlist_next_entry(lua_frame,
+								    link)) {
+					/* Skip empty frames. */
+					if (strncmp(lua_frame->filename,
+						    "[C]",
+						    sizeof("[C]") - 1) == 0 &&
+					    (*lua_frame->func_name) == '?')
+						continue;
+					break;
+				}
+
+				for (; &lua_frame->link != lua_framesp;
+				       lua_frame = rlist_next_entry(lua_frame,
+								    link)) {
+					if (lua_frame->filename[0]== 0 &&
+					    lua_frame->func_name[0] == 0)
+						break;
+					struct diag_frame *frame_copy =
+						(struct diag_frame *)
+						    malloc(sizeof(*frame_copy));
+					copy_frame(frame_copy, lua_frame);
+					rlist_add_entry(&frame->link,
+							frame_copy, link);
+					e->frames_count++;
+					/*
+					 * Mark the C frame that it was replaced
+					 * with lua.
+					 */
+					frame->line = -1;
+				}
+			}
+		}
+	}
+	if (&e->frames != lua_framesp) {
+		/* Cleanup lua trace. */
+		for (frame = rlist_first_entry(lua_framesp, typeof(*frame),
+					       link);
+		     &frame->link != lua_framesp;) {
+			next = rlist_next_entry(frame, link);
+			free(frame);
+			frame = next;
+		}
 	}
 	luaT_pusherror(L, e);
 	return 1;
@@ -174,6 +256,10 @@ lua_error_gettraceback(struct lua_State *L)
 	rlist_foreach_entry(frame, &e->frames, link) {
 		if (frame->func_name[0] != 0 || frame->line > 0 ||
 		    frame->filename[0] != 0) {
+			if (strncmp(frame->func_name, "lj_BC_FUNCC",
+				    sizeof("lj_BC_FUNCC") - 1) == 0 &&
+			    frame->line == -1)
+				continue;
 			/* push index */
 			lua_pushnumber(L, index++);
 			/* push value - table of filename and line */

@@ -5,17 +5,17 @@ err.type
 ---
 - ClientError
 ...
-err.trace[1].file
+err.trace[12].file
 ---
 - builtin/socket.lua
 ...
-err.trace[1].line
+err.trace[12].line
 ---
 - 997
 ...
 #err.trace
 ---
-- 8
+- 30
 ...
 s, err = pcall(error, "oh no" )
 ---
@@ -33,7 +33,7 @@ err.message
 ...
 #err.trace
 ---
-- 8
+- 33
 ...
 nil_var=nil
 ---
@@ -61,7 +61,7 @@ err.message
 ...
 #err.trace
 ---
-- 10
+- 36
 ...
 box.begin()
 ---
@@ -82,7 +82,38 @@ err.message
 ...
 #err.trace
 ---
-- 10
+- 39
+...
+s = box.schema.space.create("space")
+---
+...
+_ = s:create_index("prim")
+---
+...
+_ =s:on_replace(fail)
+---
+...
+st,err = pcall(s.insert, s, {1})
+---
+...
+err= err:unpack()
+---
+...
+err.type
+---
+- LuajitError
+...
+err.message
+---
+- '[string "function fail() return nil_var.b end "]:1: attempt to index global ''nil_var''
+  (a nil value)'
+...
+#err.trace
+---
+- 45
+...
+s:drop()
+---
 ...
 errinj = box.error.injection
 ---
@@ -117,7 +148,7 @@ err.message
 ...
 #err.trace
 ---
-- 8
+- 32
 ...
 space:drop()
 ---
