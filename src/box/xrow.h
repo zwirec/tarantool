@@ -243,7 +243,7 @@ int
 xrow_encode_subscribe(struct xrow_header *row,
 		      const struct tt_uuid *replicaset_uuid,
 		      const struct tt_uuid *instance_uuid,
-		      const struct vclock *vclock);
+		      const struct vclock *vclock, uint32_t crc_cluster);
 
 /**
  * Decode SUBSCRIBE command.
@@ -260,7 +260,7 @@ xrow_encode_subscribe(struct xrow_header *row,
 int
 xrow_decode_subscribe(struct xrow_header *row, struct tt_uuid *replicaset_uuid,
 		      struct tt_uuid *instance_uuid, struct vclock *vclock,
-		      uint32_t *version_id, bool *read_only);
+		      uint32_t *version_id, bool *read_only, uint32_t *crc_cluster);
 
 /**
  * Encode JOIN command.
@@ -285,7 +285,7 @@ static inline int
 xrow_decode_join(struct xrow_header *row, struct tt_uuid *instance_uuid)
 {
 	return xrow_decode_subscribe(row, NULL, instance_uuid, NULL, NULL,
-				     NULL);
+				     NULL, NULL);
 }
 
 /**
@@ -310,7 +310,7 @@ xrow_encode_vclock(struct xrow_header *row, const struct vclock *vclock);
 static inline int
 xrow_decode_vclock(struct xrow_header *row, struct vclock *vclock)
 {
-	return xrow_decode_subscribe(row, NULL, NULL, vclock, NULL, NULL);
+	return xrow_decode_subscribe(row, NULL, NULL, vclock, NULL, NULL, NULL);
 }
 
 /**
@@ -326,7 +326,7 @@ static inline int
 xrow_decode_request_vote(struct xrow_header *row, struct vclock *vclock,
 			 bool *read_only)
 {
-	return xrow_decode_subscribe(row, NULL, NULL, vclock, NULL, read_only);
+	return xrow_decode_subscribe(row, NULL, NULL, vclock, NULL, read_only, NULL);
 }
 
 /**
@@ -337,6 +337,14 @@ xrow_decode_request_vote(struct xrow_header *row, struct vclock *vclock,
  */
 void
 xrow_encode_timestamp(struct xrow_header *row, uint32_t replica_id, double tm);
+
+int
+xrow_encode_replica(struct xrow_header *row, uint32_t replica_id,
+		    const char *uuid, ssize_t len);
+
+int
+xrow_decode_replica(struct xrow_header *row, struct tt_uuid *uuid,
+		    uint32_t *size);
 
 /**
  * Fast encode xrow header using the specified header fields.
@@ -577,10 +585,11 @@ static inline void
 xrow_encode_subscribe_xc(struct xrow_header *row,
 			 const struct tt_uuid *replicaset_uuid,
 			 const struct tt_uuid *instance_uuid,
-			 const struct vclock *vclock)
+			 const struct vclock *vclock,
+			 uint32_t crc_cluster)
 {
 	if (xrow_encode_subscribe(row, replicaset_uuid, instance_uuid,
-				  vclock) != 0)
+				  vclock, crc_cluster) != 0)
 		diag_raise();
 }
 
@@ -589,10 +598,10 @@ static inline void
 xrow_decode_subscribe_xc(struct xrow_header *row,
 			 struct tt_uuid *replicaset_uuid,
 		         struct tt_uuid *instance_uuid, struct vclock *vclock,
-			 uint32_t *replica_version_id)
+			 uint32_t *replica_version_id, uint32_t *crc_cluster)
 {
 	if (xrow_decode_subscribe(row, replicaset_uuid, instance_uuid,
-				  vclock, replica_version_id, NULL) != 0)
+				  vclock, replica_version_id, NULL, crc_cluster) != 0)
 		diag_raise();
 }
 
@@ -635,6 +644,14 @@ xrow_decode_request_vote_xc(struct xrow_header *row, struct vclock *vclock,
 			    bool *read_only)
 {
 	if (xrow_decode_request_vote(row, vclock, read_only) != 0)
+		diag_raise();
+}
+
+static inline void
+xrow_encode_replica_xc(struct xrow_header *row, uint32_t replica_id,
+		       const char *uuid, ssize_t len)
+{
+	if (xrow_encode_replica(row, replica_id, uuid, len) != 0)
 		diag_raise();
 }
 

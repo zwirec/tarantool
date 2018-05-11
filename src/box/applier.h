@@ -67,6 +67,17 @@ enum { APPLIER_SOURCE_MAXLEN = 1024 }; /* enough to fit URI with passwords */
 ENUM(applier_state, applier_STATE);
 extern const char *applier_state_strs[];
 
+struct replicaset_mapping {
+	/** Link in applier::cache. */
+	rb_node(struct replicaset_mapping) link;
+	struct tt_uuid replica_uuid;
+	/** Array of nodes in replicaset */
+	struct replicaset_mapping **nodes;
+	uint32_t global_id;
+};
+
+typedef rb_tree(struct replicaset_mapping) replicaset_cache_t;
+
 /**
  * State of a replication connection to the master
  */
@@ -184,5 +195,17 @@ applier_resume(struct applier *applier);
  */
 void
 applier_pause(struct applier *applier);
+
+/**
+ * Recovering from _cluster space.
+ * This method is called from on_replace trigger.
+ * @param global_id
+ * @param uuid
+ * @param local_id
+ * @param replicaset_id
+ */
+void
+deserialize_cluster(uint32_t global_id, struct tt_uuid *uuid, uint32_t local_id,
+		    uint32_t replicaset_id);
 
 #endif /* TARANTOOL_APPLIER_H_INCLUDED */

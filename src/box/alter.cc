@@ -52,6 +52,7 @@
 #include "memtx_tuple.h"
 #include "version.h"
 #include "sequence.h"
+#include "applier.h"
 
 /**
  * chap-sha1 of empty string, i.e.
@@ -2771,12 +2772,21 @@ on_commit_dd_cluster(struct trigger *trigger, void *event)
 		return; /* nothing to change */
 	}
 
-	uint32_t id = tuple_field_u32_xc(new_tuple, BOX_CLUSTER_FIELD_ID);
+	uint32_t id = tuple_field_u32_xc(new_tuple, BOX_CLUSTER_FIELD_GLOBAL_ID);
 	tt_uuid uuid;
 	tuple_field_uuid_xc(new_tuple, BOX_CLUSTER_FIELD_UUID, &uuid);
+	uint32_t local_id;
+	uint32_t replicaset_id = 0;
+	if (tuple_field_u32(new_tuple, BOX_CLUSTER_LOCAL_ID, &local_id) == 0) {
+		replicaset_id = tuple_field_u32_xc(new_tuple,
+						   BOX_CLUSTER_REPLICASET_ID);
+	}
 	struct replica *replica = replica_by_uuid(&uuid);
 	if (replica != NULL) {
 		replica_set_id(replica, id);
+		if (replicaset_id > 0) {
+			deserialize_cluster(id, &uuid, local_id, replicaset_id);
+		}
 	} else {
 		try {
 			replica = replicaset_add(id, &uuid);
@@ -2817,7 +2827,7 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 	if (new_tuple != NULL) { /* Insert or replace */
 		/* Check fields */
 		uint32_t replica_id =
-			tuple_field_u32_xc(new_tuple, BOX_CLUSTER_FIELD_ID);
+			tuple_field_u32_xc(new_tuple, BOX_CLUSTER_FIELD_GLOBAL_ID);
 		replica_check_id(replica_id);
 		tt_uuid replica_uuid;
 		tuple_field_uuid_xc(new_tuple, BOX_CLUSTER_FIELD_UUID,
@@ -2847,7 +2857,7 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 		 */
 		assert(old_tuple != NULL);
 		uint32_t replica_id =
-			tuple_field_u32_xc(old_tuple, BOX_CLUSTER_FIELD_ID);
+			tuple_field_u32_xc(old_tuple, BOX_CLUSTER_FIELD_GLOBAL_ID);
 		replica_check_id(replica_id);
 	}
 

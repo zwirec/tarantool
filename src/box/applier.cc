@@ -31,6 +31,7 @@
 #include "applier.h"
 
 #include <msgpuck.h>
+#include <crc32.h>
 
 #include "xlog.h"
 #include "fiber.h"
@@ -48,8 +49,64 @@
 #include "error.h"
 #include "session.h"
 #include "cfg.h"
+#include "schema.h"
+#include "box.h"
 
 STRS(applier_state, applier_STATE);
+
+static int
+replicaset_mapping_compare_by_uuid(const struct replicaset_mapping *a,
+			   const struct replicaset_mapping *b)
+{
+	return tt_uuid_compare(&a->replica_uuid, &b->replica_uuid);
+}
+
+rb_gen(MAYBE_UNUSED static, replicaset_cache_, replicaset_cache_t,
+       struct replicaset_mapping, link, replicaset_mapping_compare_by_uuid);
+
+
+/** Cache of replicasets mapping. */
+static replicaset_cache_t replicas_cache;
+/** Counter of global uniting replica_ids. */
+static  uint32_t replica_id_cnt = 1;
+
+static replicaset_mapping *
+mapping_find(struct tt_uuid *replica_uuid)
+{
+	struct replicaset_mapping mapping;
+	mapping.replica_uuid = *replica_uuid;
+	return replicaset_cache_search(&replicas_cache, &mapping);
+}
+
+void
+print_tree()
+{
+	struct replicaset_mapping *item = replicaset_cache_first(&replicas_cache);
+	struct replicaset_mapping *next;
+	int i = 0;
+	printf("tree\n");
+	for (; item != NULL; item = next) {
+		printf("number= %i, %s\n", i++,
+		       tt_uuid_str(&item->replica_uuid));
+		next = replicaset_cache_next(&replicas_cache, item);
+	}
+}
+
+static replicaset_mapping *
+mapping_new(struct tt_uuid *replica_uuid)
+{
+	/* TODO: allocate in in mempool.*/
+	struct replicaset_mapping *map = (struct replicaset_mapping *)
+		calloc(1, sizeof(*map));
+	if (map == NULL)
+		tnt_raise(OutOfMemory, sizeof(*map), "malloc",
+			  "struct replicaset_mapping");
+
+	map->replica_uuid = *replica_uuid;
+	map->global_id = replica_id_cnt++;
+	replicaset_cache_insert(&replicas_cache, map);
+	return map;
+}
 
 static inline void
 applier_set_state(struct applier *applier, enum applier_state state)
@@ -359,6 +416,109 @@ applier_join(struct applier *applier)
 	applier_set_state(applier, APPLIER_JOINED);
 	applier_set_state(applier, APPLIER_READY);
 }
+const int MAX_REPLICASET_NUMBER = 16;
+static struct replicaset_mapping *replicaset_repres_recovery[MAX_REPLICASET_NUMBER] = {};
+
+/**
+ * Recovering from _cluster space.
+ * This method is called from on_replace trigger.
+ * @param global_id
+ * @param uuid
+ * @param local_id
+ * @param replicaset_id
+ */
+void
+deserialize_cluster(uint32_t global_id, struct tt_uuid *uuid, uint32_t local_id,
+		    uint32_t replicaset_id)
+{
+	struct replicaset_mapping *repres_mapping =
+		replicaset_repres_recovery[replicaset_id];
+	if (repres_mapping == NULL) {
+		repres_mapping = mapping_new(uuid);
+		repres_mapping->nodes = (struct replicaset_mapping **)
+			calloc(1, sizeof(*repres_mapping->nodes));
+		repres_mapping->global_id = global_id;
+		replicaset_repres_recovery[replicaset_id] = repres_mapping;
+		return;
+	}
+	if (repres_mapping->nodes[local_id] == NULL) {
+		/* Already recovered.*/
+		return;
+	}
+	struct replicaset_mapping *new_map = mapping_new(uuid);
+	repres_mapping->nodes[local_id] = new_map;
+	new_map->nodes = repres_mapping->nodes;
+	new_map->global_id = global_id;
+}
+
+//static void
+//serialize_cluster()
+//{
+//	struct replicaset_mapping *item, *next, *cur;
+//	bool serialized[VCLOCK_MAX] = {};
+//	int replica_id = 0;
+//	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+//	char *data = (char *) malloc(mp_sizeof_array(1)
+//				     + mp_sizeof_str(UUID_STR_LEN));
+//	if (data == NULL)
+//		tnt_raise(OutOfMemory, sizeof(char), "malloc",
+//			  "char");
+//	char *end;
+//
+//	space_run_triggers(space, false);
+//	for (item = replicaset_cache_first(&replicas_cache); item != NULL;
+//	     item = next) {
+//		next = replicaset_cache_next(&replicas_cache, item);
+//		if (serialized[item->global_id])
+//			continue;
+//		replica_id++;
+//		for (int local_id = 0; local_id < VCLOCK_MAX; local_id++) {
+//			cur = item->nodes[local_id];
+//			if (cur == NULL)
+//				continue;
+//			char *uuid_str = tt_uuid_str(&cur->replica_uuid);
+//			end = data;
+//			end = mp_encode_array(end, 1);
+//			end = mp_encode_str(end, uuid_str, UUID_STR_LEN);
+//			/* Remove matching uuids. */
+//			if (box_delete(BOX_CLUSTER_ID, 1, data, end, NULL) < 0)
+//				diag_raise();
+//
+//			if (boxk(IPROTO_REPLACE, BOX_CLUSTER_ID, "[%u%s%u%u]",
+//				cur->global_id, uuid_str,
+//				local_id, replica_id))
+//				diag_raise();
+//			serialized[cur->global_id] = true;
+//		}
+//	}
+//	space_run_triggers(space, true);
+//}
+
+static void
+update_cluster(struct tt_uuid *uuid,
+	       replicaset_mapping  **current_mapping, uint32_t local_id)
+{
+	struct replicaset_mapping *mapping_entry =
+		mapping_find(uuid);
+	if (mapping_entry == NULL) {
+		mapping_entry = mapping_new(uuid);
+	}
+	current_mapping[local_id] = mapping_entry;
+	/* Save pointer to mapping in each node of replicaset. */
+	mapping_entry->nodes = current_mapping;
+}
+
+void adapt_vclock(struct replicaset_mapping **nodes, struct vclock *vclock)
+{
+	struct replicaset_mapping *cur;
+	for (uint32_t i = 0; i < VCLOCK_MAX; i++) {
+		cur = nodes[i];
+		if (cur == NULL)
+			continue;
+		vclock_set(vclock, i, vclock_get(&replicaset.vclock,
+						 cur->global_id));
+	}
+}
 
 /**
  * Execute and process SUBSCRIBE request (follow updates from a master).
@@ -367,16 +527,64 @@ static void
 applier_subscribe(struct applier *applier)
 {
 	assert(applier->subscribe_stream != NULL);
-
 	/* Send SUBSCRIBE request */
 	struct ev_io *coio = &applier->io;
 	struct ibuf *ibuf = &applier->ibuf;
 	struct xrow_header row;
-	struct vclock remote_vclock_at_subscribe;
+	struct vclock remote_vclock_at_subscribe, adapted_vclock;
+
+	struct replicaset_mapping *mapping_entry = mapping_find(&applier->uuid);
+	if (mapping_entry == NULL) {
+		mapping_entry = mapping_new(&applier->uuid);
+		mapping_entry->nodes = (struct replicaset_mapping **)
+					calloc(VCLOCK_MAX,
+					       sizeof(*mapping_entry->nodes));
+		if (mapping_entry->nodes == NULL)
+			tnt_raise(OutOfMemory, VCLOCK_MAX, "malloc",
+				  "uint32_t");
+	}
+	uint32_t crc32c = 0;
+	replicaset_mapping **nodes = mapping_entry->nodes;
+	/* Calculate checksum of cluster info */
+	for (uint32_t i = 0; i < VCLOCK_MAX; i++) {
+		if (nodes[i] != NULL) {
+			uint32_t local_id = htonl(i);
+			crc32c = crc32_calc(crc32c, (char *)&local_id,
+					    sizeof(local_id)/ sizeof(char));
+			crc32c = crc32_calc(crc32c,
+					    tt_uuid_str(&nodes[i]->replica_uuid),
+					    UUID_STR_LEN);
+		}
+	}
+	vclock_create(&adapted_vclock);
+	adapt_vclock(nodes, &adapted_vclock);
 
 	xrow_encode_subscribe_xc(&row, &REPLICASET_UUID, &INSTANCE_UUID,
-				 &replicaset.vclock);
+				 &adapted_vclock, crc32c);
 	coio_write_xrow(coio, &row);
+
+	if (applier->version_id >= version_id(1, 10, 0)) {
+		coio_read_xrow(coio, ibuf, &row);
+		if (iproto_type_is_error(row.type)) {
+			xrow_decode_error_xc(&row);
+		} else if (row.type != IPROTO_OK) {
+			tnt_raise(ClientError, ER_PROTOCOL,
+				  "Invalid cluster info response");
+		}
+		uint32_t cluster_len = 0;
+		tt_uuid uuid;
+		xrow_decode_replica(&row, &uuid, &cluster_len);
+		if (cluster_len > 0) {
+			/* Update first entry */
+			update_cluster(&uuid, nodes, row.replica_id);
+			for (uint32_t i = 1; i < cluster_len; i++) {
+				coio_read_xrow(coio, ibuf, &row);
+				xrow_decode_replica(&row, &uuid, NULL);
+				update_cluster(&uuid, nodes, row.replica_id);
+			}
+//			serialize_cluster();
+		}
+	}
 
 	if (applier->state == APPLIER_READY) {
 		/*
@@ -416,6 +624,27 @@ applier_subscribe(struct applier *applier)
 		 */
 		vclock_create(&remote_vclock_at_subscribe);
 		xrow_decode_vclock_xc(&row, &remote_vclock_at_subscribe);
+		adapt_vclock(nodes, &remote_vclock_at_subscribe);
+		bool is_empty = true;
+		for (uint32_t i = 1; i < VCLOCK_MAX; i++) {
+			replicaset_mapping *map = nodes[i];
+			if (map == NULL)
+				continue;
+			if (vclock_get(&replicaset.vclock, map->global_id) > 0) {
+				is_empty = false;
+				break;
+			}
+		}
+		if (is_empty) {
+			for (uint32_t i = 1; i < VCLOCK_MAX; i++) {
+				replicaset_mapping *map = nodes[i];
+				if (map == NULL)
+					continue;
+				vclock_set(&replicaset.vclock, map->global_id,
+					 vclock_get(&remote_vclock_at_subscribe,
+						    i));
+			}
+		}
 	}
 	/**
 	 * Tarantool < 1.6.7:
@@ -493,7 +722,7 @@ applier_subscribe(struct applier *applier)
 				  int2str(row.replica_id),
 				  tt_uuid_str(&REPLICASET_UUID));
 		}
-
+		row.replica_id = nodes[row.replica_id]->global_id;
 		applier->lag = ev_now(loop()) - row.tm;
 		applier->last_row_time = ev_monotonic_now(loop());
 

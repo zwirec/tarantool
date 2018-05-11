@@ -44,6 +44,7 @@
 #include "relay.h"
 #include "applier.h"
 #include <rmean.h>
+#include <crc32.h>
 #include "main.h"
 #include "tuple.h"
 #include "session.h"
@@ -229,6 +230,22 @@ box_clear_orphan(void)
 
 	/* Update the title to reflect the new status. */
 	title("running");
+}
+
+/** Insert a new cluster into _schema */
+static void
+box_schema_set_replicaset_uuid(const struct tt_uuid *replicaset_uuid)
+{
+	tt_uuid uu;
+	/* Use UUID from the config or generate a new one */
+	if (!tt_uuid_is_nil(replicaset_uuid))
+		uu = *replicaset_uuid;
+	else
+		tt_uuid_create(&uu);
+	/* Save replica set UUID in _schema */
+	if (boxk(IPROTO_REPLACE, BOX_SCHEMA_ID, "[%s%s]", "cluster",
+		 tt_uuid_str(&uu)))
+		diag_raise();
 }
 
 struct wal_stream {
@@ -1225,7 +1242,7 @@ box_on_join(const tt_uuid *instance_uuid)
 	uint32_t replica_id = 1;
 	while ((tuple = iterator_next_xc(it)) != NULL) {
 		if (tuple_field_u32_xc(tuple,
-				       BOX_CLUSTER_FIELD_ID) != replica_id)
+				       BOX_CLUSTER_FIELD_GLOBAL_ID) != replica_id)
 			break;
 		replica_id++;
 	}
@@ -1395,6 +1412,23 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	row.sync = header->sync;
 	coio_write_xrow(io, &row);
 }
+/**
+ * Encode tuple from space _cluster.
+ * replica_id in xrow header is used for replica_id from tuple.
+ * @param row
+ * @param tuple
+ * @param size of replicaset
+ */
+static void
+encode_replica(struct xrow_header *row, struct tuple *tuple, ssize_t size)
+{
+	uint32_t id = tuple_field_u32_xc(tuple, BOX_CLUSTER_FIELD_GLOBAL_ID);
+	uint32_t uuid_len = 0;
+	const char *uuid = tuple_field_str_xc(tuple, BOX_CLUSTER_FIELD_UUID,
+					      &uuid_len);
+	assert(uuid_len == UUID_STR_LEN);
+	xrow_encode_replica_xc(row, id, uuid, size);
+}
 
 void
 box_process_subscribe(struct ev_io *io, struct xrow_header *header)
@@ -1408,9 +1442,11 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	struct tt_uuid replicaset_uuid = uuid_nil, replica_uuid = uuid_nil;
 	struct vclock replica_clock;
 	uint32_t replica_version_id;
+	uint32_t crc_cluster;
 	vclock_create(&replica_clock);
 	xrow_decode_subscribe_xc(header, &replicaset_uuid, &replica_uuid,
-				 &replica_clock, &replica_version_id);
+				 &replica_clock, &replica_version_id,
+				 &crc_cluster);
 
 	/* Forbid connection to itself */
 	if (tt_uuid_is_equal(&replica_uuid, &INSTANCE_UUID))
@@ -1425,18 +1461,22 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	 * replica connect, and refuse a connection from a replica
 	 * which belongs to a different replica set.
 	 */
-	if (!tt_uuid_is_equal(&replicaset_uuid, &REPLICASET_UUID)) {
-		tnt_raise(ClientError, ER_REPLICASET_UUID_MISMATCH,
-			  tt_uuid_str(&REPLICASET_UUID),
-			  tt_uuid_str(&replicaset_uuid));
-	}
+//	if (!tt_uuid_is_equal(&replicaset_uuid, &REPLICASET_UUID)) {
+//		tnt_raise(ClientError, ER_REPLICASET_UUID_MISMATCH,
+//			  tt_uuid_str(&REPLICASET_UUID),
+//			  tt_uuid_str(&replicaset_uuid));
+//	}
 
 	/* Check replica uuid */
+	/* TODO: add or request anonymous. */
 	struct replica *replica = replica_by_uuid(&replica_uuid);
-	if (replica == NULL || replica->id == REPLICA_ID_NIL) {
-		tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
-			  tt_uuid_str(&replica_uuid),
-			  tt_uuid_str(&REPLICASET_UUID));
+	if ((replica == NULL || replica->id == REPLICA_ID_NIL)) {
+		/* Register replica if not found */
+		box_on_join(&replica_uuid);
+		replica = replica_by_uuid(&replica_uuid);
+//		tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
+//			  tt_uuid_str(&replica_uuid),
+//			  tt_uuid_str(&REPLICASET_UUID));
 	}
 
 	/* Forbid replication with disabled WAL */
@@ -1452,6 +1492,48 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	 */
 	struct xrow_header row;
 	struct vclock current_vclock;
+
+	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+	struct index *index = index_find_system_xc(space, 0);
+	struct iterator *it = index_create_iterator_xc(index, ITER_ALL,
+						       NULL, 0);
+	IteratorGuard iter_guard(it);
+	/* Calculate checksum. */
+	struct tuple *tuple;
+	uint32_t crc32c = 0;
+	while ((tuple = iterator_next_xc(it)) != NULL) {
+		uint32_t replica_id;
+		if (tuple_field_u32(tuple, BOX_CLUSTER_FIELD_GLOBAL_ID, &replica_id) < 0)
+			diag_raise();
+		const char *uuid_str;
+		uint32_t len;
+		if ((uuid_str = tuple_field_str(tuple, BOX_CLUSTER_FIELD_UUID,
+						&len)) == NULL)
+			diag_raise();
+		assert(len == UUID_STR_LEN);
+		replica_id = htonl(replica_id);
+		crc32c = crc32_calc(crc32c, (char *) &replica_id,
+				    sizeof(replica_id) / sizeof(char));
+		crc32c = crc32_calc(crc32c, uuid_str, len);
+	}
+	it = index_create_iterator_xc(index, ITER_ALL,
+				      NULL, 0);
+	IteratorGuard guard(it);
+	if (crc32c != crc_cluster) {
+		ssize_t size = index_size(index);
+		struct tuple *tuple;
+		while ((tuple = iterator_next_xc(it)) != NULL) {
+			encode_replica(&row, tuple, size);
+			coio_write_xrow(io, &row);
+			size = 0;
+		}
+	} else {
+		tuple = iterator_next_xc(it);
+		/*_cluster must contain at least one tuple */
+		assert(tuple != NULL);
+		encode_replica(&row, tuple, 0);
+		coio_write_xrow(io, &row);
+	}
 	wal_checkpoint(&current_vclock, true);
 	xrow_encode_vclock_xc(&row, &current_vclock);
 	/*
@@ -1464,7 +1546,21 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	row.replica_id = self->id;
 	row.sync = header->sync;
 	coio_write_xrow(io, &row);
-
+	/*
+	 * Hack with vclock. Until we are able to merge logs for system spaces
+	 * or detect identical ones we have to only subscribe on update from master.
+	 * In order to do that we have to assign replica_vclock to ours.
+	 */
+	bool is_empty = true;
+	for (uint32_t i = 1; i < VCLOCK_MAX; i++) {
+		if (vclock_get(&replica_clock, i) > 0) {
+			is_empty = false;
+			break;
+		}
+	}
+	if (is_empty) {
+		vclock_copy(&replica_clock, &replicaset.vclock);
+	}
 	/*
 	 * Process SUBSCRIBE request via replication relay
 	 * Send current recovery vector clock as a marker
@@ -1479,22 +1575,6 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	 */
 	relay_subscribe(io->fd, header->sync, replica, &replica_clock,
 			replica_version_id);
-}
-
-/** Insert a new cluster into _schema */
-static void
-box_set_replicaset_uuid(const struct tt_uuid *replicaset_uuid)
-{
-	tt_uuid uu;
-	/* Use UUID from the config or generate a new one */
-	if (!tt_uuid_is_nil(replicaset_uuid))
-		uu = *replicaset_uuid;
-	else
-		tt_uuid_create(&uu);
-	/* Save replica set UUID in _schema */
-	if (boxk(IPROTO_REPLACE, BOX_SCHEMA_ID, "[%s%s]", "cluster",
-		 tt_uuid_str(&uu)))
-		diag_raise();
 }
 
 void
@@ -1584,7 +1664,7 @@ bootstrap_master(const struct tt_uuid *replicaset_uuid)
 	}
 
 	/* Set UUID of a new replica set */
-	box_set_replicaset_uuid(replicaset_uuid);
+	box_schema_set_replicaset_uuid(replicaset_uuid);
 }
 
 /**

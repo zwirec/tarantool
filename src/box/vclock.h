@@ -167,6 +167,9 @@ vclock_sum(const struct vclock *vclock)
 int64_t
 vclock_follow(struct vclock *vclock, uint32_t replica_id, int64_t lsn);
 
+int64_t
+vclock_set(struct vclock *vclock, uint32_t replica_id, int64_t lsn);
+
 /**
  * \brief Format vclock to YAML-compatible string representation:
  * { replica_id: lsn, replica_id:lsn })

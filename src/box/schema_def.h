@@ -174,8 +174,10 @@ enum {
 
 /** _cluster fields. */
 enum {
-	BOX_CLUSTER_FIELD_ID = 0,
+	BOX_CLUSTER_FIELD_GLOBAL_ID = 0,
 	BOX_CLUSTER_FIELD_UUID = 1,
+	BOX_CLUSTER_LOCAL_ID = 2,
+	BOX_CLUSTER_REPLICASET_ID = 3,
 };
 
 /** _truncate fields. */
