@@ -31,6 +31,7 @@
 #include "applier.h"
 
 #include <msgpuck.h>
+#include <crc32.h>
 
 #include "xlog.h"
 #include "fiber.h"
@@ -48,8 +49,13 @@
 #include "error.h"
 #include "session.h"
 #include "cfg.h"
+#include "schema.h"
+#include "box.h"
+#include "txn.h"
+#include "tuple.h"
 
 STRS(applier_state, applier_STATE);
+
 
 static inline void
 applier_set_state(struct applier *applier, enum applier_state state)
@@ -266,7 +272,6 @@ applier_join(struct applier *applier)
 	struct xrow_header row;
 	xrow_encode_join_xc(&row, &INSTANCE_UUID);
 	coio_write_xrow(coio, &row);
-
 	/**
 	 * Tarantool < 1.7.0: if JOIN is successful, there is no "OK"
 	 * response, but a stream of rows from checkpoint.
@@ -330,6 +335,9 @@ applier_join(struct applier *applier)
 	 */
 	if (applier->version_id < version_id(1, 7, 0))
 		return;
+	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+	rlist_add_tail_entry(&space->before_replace,
+			     &applier->before_replace_cluster, link);
 
 	/*
 	 * Receive final data.
@@ -355,9 +363,91 @@ applier_join(struct applier *applier)
 		}
 	}
 	say_info("final data received");
-
+	trigger_clear(&applier->before_replace_cluster);
 	applier_set_state(applier, APPLIER_JOINED);
 	applier_set_state(applier, APPLIER_READY);
+}
+
+static void
+adapt_vclock(const uint32_t *map, struct vclock *vclock)
+{
+	struct vclock result;
+	vclock_create(&result);
+	for (uint32_t i = 0; i < VCLOCK_MAX; i++) {
+		if (map[i] == 0)
+			continue;
+		vclock_set(&result, i, vclock_get(vclock, map[i]));
+	}
+	vclock_copy(vclock, &result);
+}
+
+static void
+applier_cluster_info(struct applier *applier)
+{
+	if (applier->version_id < version_id(1, 9, 0))
+		return;;
+
+	struct xrow_header row;
+	struct ev_io *coio = &applier->io;
+	struct ibuf *ibuf = &applier->ibuf;
+
+	/* Set before trigger in order to handle _cluster updates.
+	 * Add it to tail in order to call global first.
+	 */
+	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+	rlist_add_tail_entry(&space->before_replace,
+			     &applier->before_replace_cluster, link);
+	say_info("Cluster info reception");
+
+	/*
+ 	 * Initiate cluster information load.
+ 	 */
+	memset(&row, 0, sizeof(row));
+	row.type = IPROTO_CLUSTER_INFO;
+	row.bodycnt = 0;
+	coio_write_xrow(coio, &row);
+
+	coio_read_xrow(coio, ibuf, &row);
+	if (iproto_type_is_error(row.type)) {
+		xrow_decode_error_xc(&row);
+	} else if (row.type != IPROTO_OK) {
+		tnt_raise(ClientError, ER_PROTOCOL,
+			  "Invalid cluster info response");
+	}
+	uint32_t cluster_len = 0;
+	const char *uuid;
+	xrow_decode_replica(&row, &uuid, &cluster_len);
+	if (cluster_len > 0) {
+		uuid = tt_cstr(uuid, UUID_STR_LEN);
+		/* Have to copy tmp buf, because static tt bufs may be overwritten. */
+		const char *tmp = tt_uuid_str(&applier->uuid);
+		char uuid_source[UUID_STR_LEN];
+		strncpy(uuid_source, tmp, UUID_STR_LEN);
+		/* Apply the first entry */
+
+		if (boxk(IPROTO_REPLACE, BOX_CLUSTER_ID, "[%u%s%s]",
+			 row.replica_id, uuid, uuid_source) < 0) {
+			diag_raise();
+		}
+
+		for (uint32_t i = 0; i < cluster_len - 1; i++) {
+			coio_read_xrow(coio, ibuf, &row);
+
+			if (iproto_type_is_error(row.type)) {
+				xrow_decode_error_xc(&row);
+			} else if (row.type != IPROTO_OK) {
+				tnt_raise(ClientError, ER_PROTOCOL,
+					  "Invalid cluster info response");
+			}
+			xrow_decode_replica(&row, &uuid, NULL);
+			uuid = tt_cstr(uuid, UUID_STR_LEN);
+			if (boxk(IPROTO_REPLACE, BOX_CLUSTER_ID, "[%u%s%s]",
+				 row.replica_id, uuid, uuid_source) < 0) {
+				diag_raise();
+			}
+		}
+	}
+	say_info("Cluster info has been received");
 }
 
 /**
@@ -367,17 +457,18 @@ static void
 applier_subscribe(struct applier *applier)
 {
 	assert(applier->subscribe_stream != NULL);
-
 	/* Send SUBSCRIBE request */
 	struct ev_io *coio = &applier->io;
 	struct ibuf *ibuf = &applier->ibuf;
 	struct xrow_header row;
-	struct vclock remote_vclock_at_subscribe;
-
+	struct vclock remote_vclock_at_subscribe, adapted_vclock;
+	vclock_create(&adapted_vclock);
+	vclock_copy(&adapted_vclock, &replicaset.vclock);
+	if (applier->version_id >= version_id(1, 9, 0))
+		adapt_vclock(applier->reversed_map, &adapted_vclock);
 	xrow_encode_subscribe_xc(&row, &REPLICASET_UUID, &INSTANCE_UUID,
-				 &replicaset.vclock);
+				 &adapted_vclock);
 	coio_write_xrow(coio, &row);
-
 	if (applier->state == APPLIER_READY) {
 		/*
 		 * Tarantool < 1.7.7 does not send periodic heartbeat
@@ -416,6 +507,7 @@ applier_subscribe(struct applier *applier)
 		 */
 		vclock_create(&remote_vclock_at_subscribe);
 		xrow_decode_vclock_xc(&row, &remote_vclock_at_subscribe);
+		adapt_vclock(applier->map, &remote_vclock_at_subscribe);
 	}
 	/**
 	 * Tarantool < 1.6.7:
@@ -441,7 +533,6 @@ applier_subscribe(struct applier *applier)
 	}
 
 	applier->lag = TIMEOUT_INFINITY;
-
 	/*
 	 * Process a stream of rows from the binary log.
 	 */
@@ -493,7 +584,8 @@ applier_subscribe(struct applier *applier)
 				  int2str(row.replica_id),
 				  tt_uuid_str(&REPLICASET_UUID));
 		}
-
+		if (applier->map[row.replica_id] > 0)
+			row.replica_id = applier->map[row.replica_id];
 		applier->lag = ev_now(loop()) - row.tm;
 		applier->last_row_time = ev_monotonic_now(loop());
 
@@ -568,6 +660,7 @@ applier_f(va_list ap)
 				 */
 				applier_join(applier);
 			}
+			applier_cluster_info(applier);
 			applier_subscribe(applier);
 			/*
 			 * subscribe() has an infinite loop which
@@ -634,6 +727,7 @@ applier_f(va_list ap)
 		*/
 reconnect:
 		applier_disconnect(applier, APPLIER_DISCONNECTED);
+		trigger_clear(&applier->before_replace_cluster);
 		fiber_sleep(replication_reconnect_timeout());
 	}
 	return 0;
@@ -668,6 +762,78 @@ applier_stop(struct applier *applier)
 	fiber_join(f);
 	applier_set_state(applier, APPLIER_OFF);
 	applier->reader = NULL;
+	trigger_clear(&applier->before_replace_cluster);
+}
+
+static void
+before_replace_cluster_f(struct trigger *trigger, void *event)
+{
+	struct txn_stmt *stmt = txn_current_stmt((struct txn *) event);
+	struct applier *applier = (struct applier *) trigger->data;
+	struct tuple * tuple = (stmt->new_tuple)?:stmt->old_tuple;
+
+	/* If delete or NOP do nothing. */
+	if (stmt->new_tuple == NULL || stmt->old_tuple == stmt->new_tuple) {
+		return;
+	}
+
+	uint32_t len;
+	const char *uuid_source = tuple_field_str_xc(tuple,
+						     BOX_CLUSTER_FIELD_SOURCE_UUID,
+						     &len);
+	if (strncmp(tt_uuid_str(&applier->uuid), uuid_source, UUID_STR_LEN) != 0) {
+		/* This replace is handled in the other trigger. */
+		return;
+	}
+
+	uint32_t remote_id;
+	remote_id = tuple_field_u32_xc(stmt->new_tuple, BOX_CLUSTER_FIELD_ID);
+
+	char *expr = tt_static_buf();
+	char *expr_end = expr;
+	if (stmt->old_tuple == NULL) {
+		/* If no mapping in _cluster with required uuid, create one. */
+		applier->map[remote_id] = replica_id_get_counter();
+		applier->reversed_map[replica_id_get_counter()] = remote_id;
+
+		expr_end = mp_encode_array(expr_end, 2);
+
+		/* Update new replica id in new tuple. */
+		expr_end = mp_encode_array(expr_end, 3);
+		expr_end = mp_encode_str(expr_end, "=", 1);
+		expr_end = mp_encode_uint(expr_end, BOX_CLUSTER_FIELD_ID + TUPLE_INDEX_BASE);
+		expr_end = mp_encode_uint(expr_end,
+					  applier->map[remote_id]);
+
+		/* Update uuid_source in new tuple.*/
+		expr_end = mp_encode_array(expr_end, 3);
+		expr_end = mp_encode_str(expr_end, "=", 1);
+		expr_end = mp_encode_uint(expr_end,
+					  BOX_CLUSTER_FIELD_SOURCE_UUID + TUPLE_INDEX_BASE);
+		expr_end = mp_encode_str(expr_end,
+					 tt_uuid_str(&INSTANCE_UUID),
+					 UUID_STR_LEN);
+		struct tuple* new_tuple;
+		if ((new_tuple =
+			     box_tuple_update(stmt->new_tuple,
+					      expr, expr_end)) == NULL) {
+			diag_raise();
+		}
+		tuple_ref(new_tuple);
+		tuple_unref(stmt->new_tuple);
+		stmt->new_tuple = new_tuple;
+	} else {
+		/* The tuple with required uuid is written.
+		 * Need to update only applier's mappings.
+		 */
+		uint32_t local_id = tuple_field_u32_xc(stmt->old_tuple,
+					      BOX_CLUSTER_FIELD_ID);
+		applier->map[remote_id] = local_id;
+		applier->reversed_map[local_id] = remote_id;
+		tuple_ref(stmt->old_tuple);
+		tuple_unref(stmt->new_tuple);
+		stmt->new_tuple = stmt->old_tuple;
+	}
 }
 
 struct applier *
@@ -697,7 +863,10 @@ applier_new(const char *uri, struct xstream *join_stream,
 	rlist_create(&applier->on_state);
 	fiber_cond_create(&applier->resume_cond);
 	fiber_cond_create(&applier->writer_cond);
-
+	trigger_create(&applier->before_replace_cluster,
+		       before_replace_cluster_f, applier, NULL);
+	memset(applier->map, 0, VCLOCK_MAX);
+	memset(applier->reversed_map, 0, VCLOCK_MAX);
 	return applier;
 }
 

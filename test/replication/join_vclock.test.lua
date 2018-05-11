@@ -30,7 +30,6 @@ test_run:cmd("switch replica1")
 cnt = box.space.test.index[0]:count()
 box.space.test.index.primary:max()[1] == cnt - 1
 test_run:cmd("switch default")
-
 replica_set.drop_all(test_run)
 box.space.test:drop()
 box.schema.user.revoke('guest', 'read,write,execute', 'universe')

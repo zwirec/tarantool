@@ -376,6 +376,15 @@ replicaset_sync(void);
 void
 replicaset_check_quorum(void);
 
+uint32_t
+replica_id_get_counter();
+
+/**
+ * Adds trigger on _cluster.
+ */
+void
+replication_add_trigger();
+
 #endif /* defined(__cplusplus) */
 
 #endif

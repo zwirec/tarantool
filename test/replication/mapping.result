@@ -1,0 +1,505 @@
+test_run = require('test_run').new()
+---
+...
+master_min_uuid = '42673fad-8386-4934-b89c-f90509148b9e'
+---
+...
+master_max_uuid = 'a61c8ead-622f-49c0-8026-d77f9416895a'
+---
+...
+replica_uuid = '3814ab36-a550-4aaf-846a-d80e3b7c4bcf'
+---
+...
+SERVERS = {"master1", "master2"}
+---
+...
+test_run:cmd('create server master1 with script="replication/mapping_master1.lua"')
+---
+- true
+...
+test_run:cmd('create server master2 with script="replication/mapping_master2.lua"')
+---
+- true
+...
+test_run:cmd(string.format('start server master1 with args="%s", wait_load=False, wait=False', master_min_uuid))
+---
+- true
+...
+test_run:cmd(string.format('start server master2 with args="%s", wait_load=False, wait=False', master_max_uuid))
+---
+- true
+...
+test_run:cmd('create server replica with script="replication/mapping_replica.lua"')
+---
+- true
+...
+-- The scenario of test is following.
+-- Launch two master servers(master-master pair). Switch off one of them and delete the one from _cluster
+-- table on the remaining. Launch replica-slave of the remaining. Launch the switched server back.
+-- Check replica id and xlog headers that they are mapped according to their _cluster tables.
+--
+test_run:wait_fullmesh(SERVERS)
+---
+...
+test_run:cmd("switch master1")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch master2")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd("stop server master2")
+---
+- true
+...
+test_run:cmd("switch master1")
+---
+- true
+...
+box.space._cluster.index.replica_id:delete{2}
+---
+- [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd(string.format('start server replica with args="%s", wait_load=False, wait=False', replica_uuid))
+---
+- true
+...
+test_run:cmd("switch master1")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [3, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch replica")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [2, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', '3814ab36-a550-4aaf-846a-d80e3b7c4bcf']
+  - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd(string.format('start server master2 with args="%s", wait_load=False, wait=False', master_max_uuid))
+---
+- true
+...
+-- can't use wait_fullmesh here because replica id on different nodes differs.
+test_run:cmd("switch master1")
+---
+- true
+...
+fiber = require("fiber")
+---
+...
+while box.info.replication[4] == nil or box.info.replication[4].upstream.status ~= "follow" do fiber.sleep(0.001) end
+---
+...
+test_run:cmd("switch master2")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [3, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', 'a61c8ead-622f-49c0-8026-d77f9416895a']
+  - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+box.space._schema:insert{"key1", 1}
+---
+- ['key1', 1]
+...
+xlog = require('xlog')
+---
+...
+fio = require('fio')
+---
+...
+list_dir = fio.listdir(box.cfg.wal_dir)
+---
+...
+table.sort(list_dir)
+---
+...
+path = fio.pathjoin(box.cfg.wal_dir, list_dir[#list_dir])
+---
+...
+row = nil
+---
+...
+for k, v in xlog.pairs(path) do if v.BODY.space_id == box.schema.SCHEMA_ID then row = v break end end
+---
+...
+row.BODY.space_id
+---
+- 272
+...
+row.HEADER.replica_id -- must be 2
+---
+- 2
+...
+test_run:cmd("switch master1")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [3, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [4, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+box.space._schema:get{"key1"}
+---
+- ['key1', 1]
+...
+xlog = require('xlog')
+---
+...
+fio = require('fio')
+---
+...
+list_dir = fio.listdir(box.cfg.wal_dir)
+---
+...
+table.sort(list_dir)
+---
+...
+path = fio.pathjoin(box.cfg.wal_dir, list_dir[#list_dir])
+---
+...
+row = nil
+---
+...
+for k, v in xlog.pairs(path) do if v.BODY.space_id == box.schema.SCHEMA_ID then row = v break end end
+---
+...
+row.BODY.space_id
+---
+- 272
+...
+row.HEADER.replica_id -- must be 4
+---
+- 4
+...
+test_run:cmd("switch replica")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [2, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', '3814ab36-a550-4aaf-846a-d80e3b7c4bcf']
+  - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [3, 'a61c8ead-622f-49c0-8026-d77f9416895a', '3814ab36-a550-4aaf-846a-d80e3b7c4bcf']
+...
+box.space._schema:get{"key1"}
+---
+- ['key1', 1]
+...
+xlog = require('xlog')
+---
+...
+fio = require('fio')
+---
+...
+list_dir = fio.listdir(box.cfg.wal_dir)
+---
+...
+table.sort(list_dir)
+---
+...
+path = fio.pathjoin(box.cfg.wal_dir, list_dir[#list_dir])
+---
+...
+row = nil
+---
+...
+for k, v in xlog.pairs(path) do if v.BODY.space_id == box.schema.SCHEMA_ID then row = v break end end
+---
+...
+row.BODY.space_id
+---
+- 272
+...
+row.HEADER.replica_id -- must be 3
+---
+- 3
+...
+-- cleanup
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd("stop server replica")
+---
+- true
+...
+test_run:cmd("cleanup server replica")
+---
+- true
+...
+test_run:drop_cluster(SERVERS)
+---
+...
+test_run:cmd(string.format('start server master1 with args="%s", wait_load=False, wait=False', master_max_uuid))
+---
+- true
+...
+test_run:cmd(string.format('start server master2 with args="%s", wait_load=False, wait=False', master_min_uuid))
+---
+- true
+...
+-- The second part of the test.
+-- The scenario is the same, but now the switched off server is
+-- the main in master-master pair (the one with lowest uuid).
+test_run:wait_fullmesh(SERVERS)
+---
+...
+test_run:cmd("switch master1")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch master2")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd("stop server master2")
+---
+- true
+...
+test_run:cmd("switch master1")
+---
+- true
+...
+box.space._cluster.index.replica_id:delete{1}
+---
+- [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd(string.format('start server replica with args="%s", wait_load=False, wait=False', replica_uuid))
+---
+- true
+...
+test_run:cmd("switch master1")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [3, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', 'a61c8ead-622f-49c0-8026-d77f9416895a']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch replica")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [3, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', '3814ab36-a550-4aaf-846a-d80e3b7c4bcf']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd(string.format('start server master2 with args="%s", wait_load=False, wait=False', master_min_uuid))
+---
+- true
+...
+-- can't use wait_fullmesh here because replica id on different nodes differs.
+test_run:cmd("switch master1")
+---
+- true
+...
+fiber = require("fiber")
+---
+...
+while box.info.replication[4] == nil or box.info.replication[4].upstream.status ~= "follow" do fiber.sleep(0.001) end
+---
+...
+test_run:cmd("switch master2")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [3, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [1, '42673fad-8386-4934-b89c-f90509148b9e', '42673fad-8386-4934-b89c-f90509148b9e']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+box.space._schema:insert{"key1", 1}
+---
+- ['key1', 1]
+...
+xlog = require('xlog')
+---
+...
+fio = require('fio')
+---
+...
+list_dir = fio.listdir(box.cfg.wal_dir)
+---
+...
+table.sort(list_dir)
+---
+...
+path = fio.pathjoin(box.cfg.wal_dir, list_dir[#list_dir])
+---
+...
+row = nil
+---
+...
+for k, v in xlog.pairs(path) do if v.BODY.space_id == box.schema.SCHEMA_ID then row = v break end end
+---
+...
+row.BODY.space_id
+---
+- 272
+...
+row.HEADER.replica_id -- must be 1
+---
+- 1
+...
+test_run:cmd("switch master1")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [3, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', 'a61c8ead-622f-49c0-8026-d77f9416895a']
+  - [4, '42673fad-8386-4934-b89c-f90509148b9e', 'a61c8ead-622f-49c0-8026-d77f9416895a']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+box.space._schema:get{"key1"}
+---
+- ['key1', 1]
+...
+xlog = require('xlog')
+---
+...
+fio = require('fio')
+---
+...
+list_dir = fio.listdir(box.cfg.wal_dir)
+---
+...
+table.sort(list_dir)
+---
+...
+path = fio.pathjoin(box.cfg.wal_dir, list_dir[#list_dir])
+---
+...
+row = nil
+---
+...
+for k, v in xlog.pairs(path) do if v.BODY.space_id == box.schema.SCHEMA_ID then row = v break end end
+---
+...
+row.BODY.space_id
+---
+- 272
+...
+row.HEADER.replica_id -- must be 4
+---
+- 4
+...
+test_run:cmd("switch replica")
+---
+- true
+...
+box.space._cluster:select{}
+---
+- - [3, '3814ab36-a550-4aaf-846a-d80e3b7c4bcf', '3814ab36-a550-4aaf-846a-d80e3b7c4bcf']
+  - [4, '42673fad-8386-4934-b89c-f90509148b9e', '3814ab36-a550-4aaf-846a-d80e3b7c4bcf']
+  - [2, 'a61c8ead-622f-49c0-8026-d77f9416895a', '42673fad-8386-4934-b89c-f90509148b9e']
+...
+box.space._schema:get{"key1"}
+---
+- ['key1', 1]
+...
+xlog = require('xlog')
+---
+...
+fio = require('fio')
+---
+...
+list_dir = fio.listdir(box.cfg.wal_dir)
+---
+...
+table.sort(list_dir)
+---
+...
+path = fio.pathjoin(box.cfg.wal_dir, list_dir[#list_dir])
+---
+...
+row = nil
+---
+...
+for k, v in xlog.pairs(path) do if v.BODY.space_id == box.schema.SCHEMA_ID then row = v break end end
+---
+...
+row.BODY.space_id
+---
+- 272
+...
+row.HEADER.replica_id -- must be 4
+---
+- 4
+...
+-- cleanup
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd("stop server replica")
+---
+- true
+...
+test_run:cmd("cleanup server replica")
+---
+- true
+...
+test_run:drop_cluster(SERVERS)
+---
+...

@@ -634,7 +634,6 @@ iproto_enqueue_batch(struct iproto_connection *con, struct ibuf *in)
 		msg->wpos = con->wpos;
 
 		msg->len = reqend - reqstart; /* total request length */
-
 		iproto_msg_decode(msg, &pos, reqend, &stop_input);
 		/*
 		 * This can't throw, but should not be
@@ -949,7 +948,7 @@ static void
 net_send_error(struct cmsg *msg);
 
 static void
-tx_process_join_subscribe(struct cmsg *msg);
+tx_process_replication_message(struct cmsg *msg);
 
 static void
 net_end_join(struct cmsg *msg);
@@ -994,13 +993,18 @@ static const struct cmsg_hop *dml_route[IPROTO_TYPE_STAT_MAX] = {
 };
 
 static const struct cmsg_hop join_route[] = {
-	{ tx_process_join_subscribe, &net_pipe },
+	{ tx_process_replication_message, &net_pipe },
 	{ net_end_join, NULL },
 };
 
 static const struct cmsg_hop subscribe_route[] = {
-	{ tx_process_join_subscribe, &net_pipe },
+	{ tx_process_replication_message, &net_pipe },
 	{ net_end_subscribe, NULL },
+};
+
+static const struct cmsg_hop cluster_info_route[] = {
+	{ tx_process_replication_message, &net_pipe },
+	{ net_end_join, NULL },
 };
 
 static const struct cmsg_hop error_route[] = {
@@ -1019,7 +1023,6 @@ iproto_msg_decode(struct iproto_msg *msg, const char **pos, const char *reqend,
 	assert(*pos == reqend);
 
 	type = msg->header.type;
-
 	/*
 	 * Parse request before putting it into the queue
 	 * to save tx some CPU. More complicated requests are
@@ -1054,6 +1057,10 @@ iproto_msg_decode(struct iproto_msg *msg, const char **pos, const char *reqend,
 		break;
 	case IPROTO_SUBSCRIBE:
 		cmsg_init(&msg->base, subscribe_route);
+		*stop_input = true;
+		break;
+	case IPROTO_CLUSTER_INFO:
+		cmsg_init(&msg->base, cluster_info_route);
 		*stop_input = true;
 		break;
 	case IPROTO_REQUEST_VOTE:
@@ -1458,7 +1465,7 @@ error:
 }
 
 static void
-tx_process_join_subscribe(struct cmsg *m)
+tx_process_replication_message(struct cmsg *m)
 {
 	struct iproto_msg *msg = tx_accept_msg(m);
 	struct iproto_connection *con = msg->connection;
@@ -1474,6 +1481,12 @@ tx_process_join_subscribe(struct cmsg *m)
 			 * will re-activate the watchers for us.
 			 */
 			box_process_join(&con->input, &msg->header);
+			break;
+		case IPROTO_CLUSTER_INFO:
+			/*
+			 * Send information about _cluster.
+			 */
+			box_process_cluster_info(&con->input, &msg->header);
 			break;
 		case IPROTO_SUBSCRIBE:
 			/*

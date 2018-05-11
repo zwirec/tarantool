@@ -52,6 +52,7 @@
 #include "memtx_tuple.h"
 #include "version.h"
 #include "sequence.h"
+#include "applier.h"
 
 /**
  * chap-sha1 of empty string, i.e.

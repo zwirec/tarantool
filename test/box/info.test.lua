@@ -8,7 +8,7 @@ box.info['unknown_variable']
 string.match(box.info.version, '^[1-9]') ~= nil
 string.match(box.info.pid, '^[1-9][0-9]*$') ~= nil
 box.info.id > 0
-box.info.uuid == box.space._cluster:get(box.info.id)[2]
+box.info.id == box.space._cluster:get(box.info.uuid)[1]
 box.info.lsn >= 0
 box.info.signature >= 0
 box.info.ro == false

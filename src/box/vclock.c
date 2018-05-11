@@ -56,6 +56,19 @@ vclock_follow(struct vclock *vclock, uint32_t replica_id, int64_t lsn)
 	return prev_lsn;
 }
 
+int64_t
+vclock_set(struct vclock *vclock, uint32_t replica_id, int64_t lsn)
+{
+	assert(lsn >= 0);
+	assert(replica_id < VCLOCK_MAX);
+	int64_t prev_lsn = vclock->lsn[replica_id];
+	vclock->map |= 1 << replica_id;
+	vclock->lsn[replica_id] = lsn;
+	vclock->signature += lsn - prev_lsn;
+	return prev_lsn;
+}
+
+
 CFORMAT(printf, 4, 0) static inline int
 rsnprintf(char **buf, char **pos, char **end, const char *fmt, ...)
 {

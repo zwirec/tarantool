@@ -61,7 +61,7 @@ def check_join(msg):
 server.admin("box.schema.user.grant('guest', 'write', 'space', '_cluster')")
 server.iproto.reconnect() # re-connect with new permissions
 server_id = check_join('join with granted permissions')
-server.iproto.py_con.space('_cluster').delete(server_id)
+server.iproto.py_con.eval("box.space._cluster.index.replica_id:delete{...}", [server_id])
 
 # JOIN with granted role
 server.admin("box.schema.user.revoke('guest', 'read', 'universe')")
@@ -69,7 +69,7 @@ server.admin("box.schema.user.revoke('guest', 'write', 'space', '_cluster')")
 server.admin("box.schema.user.grant('guest', 'replication')")
 server.iproto.reconnect() # re-connect with new permissions
 server_id = check_join('join with granted role')
-server.iproto.py_con.space('_cluster').delete(server_id)
+server.iproto.py_con.eval("box.space._cluster.index.replica_id:delete{...}", [server_id])
 
 print '-------------------------------------------------------------'
 print 'gh-707: Master crashes on JOIN if it does not have snapshot files'

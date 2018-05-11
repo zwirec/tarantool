@@ -27,7 +27,7 @@ box.info.id > 0
 ---
 - true
 ...
-box.info.uuid == box.space._cluster:get(box.info.id)[2]
+box.info.id == box.space._cluster:get(box.info.uuid)[1]
 ---
 - true
 ...

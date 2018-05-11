@@ -121,6 +121,11 @@ struct applier {
 	struct xstream *join_stream;
 	/** xstream to process rows during final JOIN and SUBSCRIBE */
 	struct xstream *subscribe_stream;
+
+	struct trigger before_replace_cluster;
+	/* TODO: must be replaced with scalable structure. */
+	uint32_t map[VCLOCK_MAX];
+	uint32_t reversed_map[VCLOCK_MAX];
 };
 
 /**

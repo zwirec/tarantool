@@ -1006,6 +1006,92 @@ xrow_encode_timestamp(struct xrow_header *row, uint32_t replica_id, double tm)
 	row->tm = tm;
 }
 
+int
+xrow_encode_replica(struct xrow_header *row, uint32_t replica_id,
+		    const char *uuid, ssize_t len)
+{
+	memset(row, 0, sizeof(*row));
+	size_t size = 8 * 3 + UUID_STR_LEN + mp_sizeof_uint(VCLOCK_MAX)
+		      + mp_sizeof_uint(UINT32_MAX);
+	char *buf = (char *) region_alloc(&fiber()->gc, size);
+	if (buf == NULL) {
+		diag_set(OutOfMemory, size, "region_alloc", "buf");
+		return -1;
+	}
+
+	char *data = buf;
+	if (uuid != NULL) {
+		if (len > 0) {
+			data = mp_encode_map(data, 2);
+			data = mp_encode_uint(data, IPROTO_CLUSTER_SIZE);
+			data = mp_encode_uint(data, len);
+		} else {
+			data = mp_encode_map(data, 1);
+		}
+		data = mp_encode_uint(data, IPROTO_INSTANCE_UUID);
+		data = mp_encode_str(data, uuid, UUID_STR_LEN);
+	} else {
+		data = mp_encode_map(data, 1);
+		data = mp_encode_uint(data, IPROTO_CLUSTER_SIZE);
+		data = mp_encode_uint(data, len);
+	}
+	assert(data <= buf + size);
+
+	row->body[0].iov_base = buf;
+	row->body[0].iov_len = (data - buf);
+	row->bodycnt = 1;
+
+	row->type = IPROTO_OK;
+	row->replica_id = replica_id;
+	return 0;
+}
+
+int
+xrow_decode_replica(struct xrow_header *row, const char **uuid, uint32_t *size)
+{
+	if (row->bodycnt == 0) {
+		diag_set(ClientError, ER_INVALID_MSGPACK, "decoding replica");
+		return -1;
+	}
+	const char *pos = (char *) row->body[0].iov_base;
+	if (mp_check(&pos, pos + row->body[0].iov_len)) {
+		diag_set(ClientError, ER_INVALID_MSGPACK, "decoding replica");
+		return -1;
+	}
+
+	pos = (char *) row->body[0].iov_base;
+	if (mp_typeof(*pos) != MP_MAP) {
+		diag_set(ClientError, ER_INVALID_MSGPACK, "decoding replica");
+		return -1;
+	}
+	uint32_t map_size = mp_decode_map(&pos);
+	for (uint32_t i = 0; i < map_size; i++) {
+		if (mp_typeof(*pos) != MP_UINT) {
+			mp_next(&pos); /* key */
+			mp_next(&pos); /* value */
+			continue;
+		}
+		uint8_t key = mp_decode_uint(&pos);
+		if (key == IPROTO_INSTANCE_UUID) {
+			uint32_t len;
+			*uuid = mp_decode_str(&pos, &len);
+			if (*uuid == NULL)
+				return -1;
+			assert(len == UUID_STR_LEN);
+			continue;
+		}
+		if (key == IPROTO_CLUSTER_SIZE) {
+			if (size != NULL)
+				*size = mp_decode_uint(&pos);
+			else
+				mp_next(&pos); /* value */
+			continue;
+		}
+		mp_next(&pos); /* value */
+	}
+	return 0;
+}
+
 void
 greeting_encode(char *greetingbuf, uint32_t version_id,
 		const struct tt_uuid *uuid, const char *salt, uint32_t salt_len)

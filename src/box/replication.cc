@@ -41,6 +41,9 @@
 #include "applier.h"
 #include "error.h"
 #include "vclock.h" /* VCLOCK_MAX */
+#include "txn.h"
+#include "schema.h"
+#include "tuple.h"
 
 uint32_t instance_id = REPLICA_ID_NIL;
 struct tt_uuid INSTANCE_UUID;
@@ -51,6 +54,12 @@ double replication_connect_timeout = 4.0; /* seconds */
 int replication_connect_quorum = REPLICATION_CONNECT_QUORUM_ALL;
 double replication_sync_lag = 10.0; /* seconds */
 bool replication_skip_conflict = false;
+/**
+ * Counter for replicas_id assigning.
+ * TODO: implement smarter assigning.
+ */
+uint32_t replicas_id_count = 0;
+struct trigger cluster_before_replace;
 
 struct replicaset replicaset;
 
@@ -95,6 +104,7 @@ replication_free(void)
 {
 	mempool_destroy(&replicaset.pool);
 	fiber_cond_destroy(&replicaset.applier.cond);
+	trigger_clear(&cluster_before_replace);
 }
 
 void
@@ -731,4 +741,121 @@ replica_by_uuid(const struct tt_uuid *uuid)
 	struct replica key;
 	key.uuid = *uuid;
 	return replica_hash_search(&replicaset.hash, &key);
+}
+
+uint32_t
+replica_id_get_counter()
+{
+	return replicas_id_count;
+}
+
+static void
+before_replace_cluster_f(struct trigger *trigger, void *event)
+{
+	(void) trigger;
+	struct txn_stmt *stmt = txn_current_stmt((struct txn *) event);
+	uint32_t len;
+	char *expr = tt_static_buf();
+	char *expr_end = expr;
+
+	if (stmt->new_tuple == NULL) {
+		/* Ignore replication of deletion the current instance.
+		 */
+		const char *uuid = tuple_field_str_xc(stmt->old_tuple,
+						      BOX_CLUSTER_FIELD_UUID,
+						      &len);
+		if (strncmp(tt_uuid_str(&INSTANCE_UUID), uuid,
+			    UUID_STR_LEN) == 0) {
+			tuple_ref(stmt->old_tuple);
+			stmt->new_tuple = stmt->old_tuple;
+		}
+		return;
+	}
+	if (stmt->old_tuple == NULL) {
+		/* Take max id in _cluster and increment it. */
+		struct tuple *result;
+		static char key;
+		mp_encode_array(&key, 0);
+		uint32_t max_id;
+		if (box_index_max(BOX_CLUSTER_ID, 1, &key, &key + 1, &result) < 0)
+			diag_raise();
+		if (result != NULL) {
+			max_id = tuple_field_u32_xc(result,
+						    BOX_CLUSTER_FIELD_ID);
+			if (replicas_id_count < max_id)
+				replicas_id_count = max_id;
+		}
+		replicas_id_count++;
+		if (replicas_id_count >= VCLOCK_MAX) {
+			tnt_raise(ClientError, ER_CFG, "replication",
+				  "too many replicas");
+		}
+	}
+	const char *uuid_source = tuple_field_str(stmt->new_tuple,
+						  BOX_CLUSTER_FIELD_SOURCE_UUID,
+						  &len);
+	if (uuid_source == NULL) {
+		/* Add source_uuid field if it is absent. */
+		expr_end = mp_encode_array(expr_end, 2);
+		expr_end = mp_encode_array(expr_end, 3);
+		expr_end = mp_encode_str(expr_end, "!", 1);
+		expr_end = mp_encode_uint(expr_end,
+					  BOX_CLUSTER_FIELD_SOURCE_UUID +
+						  TUPLE_INDEX_BASE);
+		expr_end = mp_encode_str(expr_end, tt_uuid_str(&INSTANCE_UUID),
+					 UUID_STR_LEN);
+	} else if (strncmp(tt_uuid_str(&INSTANCE_UUID),
+			   uuid_source, UUID_STR_LEN) != 0) {
+		/* This replace must be handled in the other trigger.
+		 * Check if this trigger exists.
+		 */
+		replicaset_foreach(replica) {
+			if (replica->applier != NULL && strncmp(tt_uuid_str(&replica->applier->uuid),
+				    uuid_source, UUID_STR_LEN) == 0)
+				return;
+		}
+		/* There is no applier trigger to handle this.
+		 * Ignore this tuple.
+		 */
+		tuple_ref(stmt->old_tuple);
+		tuple_unref(stmt->new_tuple);
+		stmt->new_tuple = stmt->old_tuple;
+		return;
+	} else {
+		/* Registration of new replica. */
+		expr_end = mp_encode_array(expr_end, 1);
+	}
+	if (stmt->old_tuple != NULL) {
+		/* We don't update old tuples. */
+		tuple_ref(stmt->old_tuple);
+		tuple_unref(stmt->new_tuple);
+		stmt->new_tuple = stmt->old_tuple;
+		return;
+	}
+	/* Update the replica id. */
+	expr_end = mp_encode_array(expr_end, 3);
+	expr_end = mp_encode_str(expr_end, "=", 1);
+	expr_end = mp_encode_uint(expr_end, BOX_CLUSTER_FIELD_ID +
+					    TUPLE_INDEX_BASE);
+	expr_end = mp_encode_uint(expr_end, replicas_id_count);
+	struct tuple *new_tuple;
+	if ((new_tuple =
+		     box_tuple_update(stmt->new_tuple,
+				      expr, expr_end)) == NULL) {
+		diag_raise();
+	}
+	tuple_ref(new_tuple);
+	tuple_unref(stmt->new_tuple);
+	stmt->new_tuple = new_tuple;
+}
+/**
+ * This trigger has to be set first.
+ */
+void
+replication_add_trigger()
+{
+	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+	trigger_create(&cluster_before_replace, before_replace_cluster_f,
+		       NULL, NULL);
+	trigger_add(&space->before_replace, &cluster_before_replace);
 }

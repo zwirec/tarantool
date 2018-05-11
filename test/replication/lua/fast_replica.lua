@@ -13,18 +13,23 @@ function join(inspector, n)
 end
 
 
-function call_all(callback)
+function call_all(inspector, callback)
     local all = box.space._cluster:select{}
+    local rid = 1
     for _, tuple in pairs(all) do
         local id = tuple[1]
         if id ~= box.info.id then
-            callback(id)
+            local exists = inspector:cmd('exists server replica'..tostring(rid - 1))
+            if exists then
+                callback(inspector, rid)
+            end
         end
+        rid = rid + 1
     end
 end
 
 function unregister(inspector, id)
-    box.space._cluster:delete{id}
+    box.space._cluster.index.replica_id:delete{id}
 end
 
 function start(inspector, id)
@@ -50,19 +55,19 @@ function drop(inspector, id)
 end
 
 function start_all(inspector)
-    call_all(function (id) start(inspector, id) end)
+    call_all(inspector, start)
 end
 
 function stop_all(inspector)
-    call_all(function (id) stop(inspector, id) end)
+    call_all(inspector, stop)
 end
 
 function wait_all(inspector)
-    call_all(function (id) wait(inspector, id) end)
+    call_all(inspector, wait)
 end
 
 function drop_all(inspector)
-    call_all(function (id) drop(inspector, id) end)
+    call_all(inspector, drop)
 end
 
 function vclock_diff(left, right)

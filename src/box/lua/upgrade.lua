@@ -958,8 +958,16 @@ local function create_vsequence_space()
     box.space._vsequence:format(sequence_format)
 end
 
+local function alter_cluster_space()
+    local _cluster = box.space[box.schema.CLUSTER_ID]
+    _cluster.index.primary:alter{parts={2, "string"}}
+    _cluster.index[1]:alter{parts={1, "unsigned"}}
+    _cluster.index[1]:rename("replica_id")
+end
+
 local function upgrade_to_1_10_0()
     create_vsequence_space()
+    alter_cluster_space()
 end
 
 
@@ -980,7 +988,6 @@ local function upgrade(options)
     setmetatable(options, {__index = {auto = false}})
 
     local version = get_version()
-
     local handlers = {
         {version = mkversion(1, 6, 8), func = upgrade_to_1_6_8, auto = false},
         {version = mkversion(1, 7, 1), func = upgrade_to_1_7_1, auto = false},

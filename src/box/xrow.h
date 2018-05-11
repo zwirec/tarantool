@@ -338,6 +338,13 @@ xrow_decode_request_vote(struct xrow_header *row, struct vclock *vclock,
 void
 xrow_encode_timestamp(struct xrow_header *row, uint32_t replica_id, double tm);
 
+int
+xrow_encode_replica(struct xrow_header *row, uint32_t replica_id,
+		    const char *uuid, ssize_t len);
+
+int
+xrow_decode_replica(struct xrow_header *row, const char **uuid, uint32_t *size);
+
 /**
  * Fast encode xrow header using the specified header fields.
  * It is faster than the xrow_header_encode, because uses
@@ -635,6 +642,14 @@ xrow_decode_request_vote_xc(struct xrow_header *row, struct vclock *vclock,
 			    bool *read_only)
 {
 	if (xrow_decode_request_vote(row, vclock, read_only) != 0)
+		diag_raise();
+}
+
+static inline void
+xrow_encode_replica_xc(struct xrow_header *row, uint32_t replica_id,
+		       const char *uuid, ssize_t len)
+{
+	if (xrow_encode_replica(row, replica_id, uuid, len) != 0)
 		diag_raise();
 }
 

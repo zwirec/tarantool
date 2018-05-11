@@ -178,6 +178,7 @@ enum {
 enum {
 	BOX_CLUSTER_FIELD_ID = 0,
 	BOX_CLUSTER_FIELD_UUID = 1,
+	BOX_CLUSTER_FIELD_SOURCE_UUID = 2,
 };
 
 /** _truncate fields. */

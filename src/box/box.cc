@@ -44,6 +44,7 @@
 #include "relay.h"
 #include "applier.h"
 #include <rmean.h>
+#include <crc32.h>
 #include "main.h"
 #include "tuple.h"
 #include "session.h"
@@ -223,12 +224,27 @@ box_clear_orphan(void)
 {
 	if (!is_orphan)
 		return; /* nothing to do */
-
 	is_orphan = false;
 	fiber_cond_broadcast(&ro_cond);
 
 	/* Update the title to reflect the new status. */
 	title("running");
+}
+
+/** Insert a new cluster into _schema */
+static void
+box_schema_set_replicaset_uuid(const struct tt_uuid *replicaset_uuid)
+{
+	tt_uuid uu;
+	/* Use UUID from the config or generate a new one */
+	if (!tt_uuid_is_nil(replicaset_uuid))
+		uu = *replicaset_uuid;
+	else
+		tt_uuid_create(&uu);
+	/* Save replica set UUID in _schema */
+	if (boxk(IPROTO_REPLACE, BOX_SCHEMA_ID, "[%s%s]", "cluster",
+		 tt_uuid_str(&uu)))
+		diag_raise();
 }
 
 struct wal_stream {
@@ -1205,13 +1221,17 @@ box_sequence_reset(uint32_t seq_id)
 	return sequence_data_delete(seq_id);
 }
 
+/*
+ * Register replica with given uuid. Assignment of replica_id will be handled
+ * in before_replace trigger.
+ */
 static inline void
-box_register_replica(uint32_t id, const struct tt_uuid *uuid)
+box_register_replica(const struct tt_uuid *uuid)
 {
-	if (boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "[%u%s]",
-		 (unsigned) id, tt_uuid_str(uuid)) != 0)
+	if (boxk(IPROTO_INSERT, BOX_CLUSTER_ID, "[%u%s%s]",
+		 0, tt_uuid_str(uuid),
+		 tt_uuid_str(&INSTANCE_UUID)) != 0)
 		diag_raise();
-	assert(replica_by_uuid(uuid)->id == id);
 }
 
 /**
@@ -1230,22 +1250,7 @@ box_on_join(const tt_uuid *instance_uuid)
 
 	box_check_writable_xc();
 
-	/** Find the largest existing replica id. */
-	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
-	struct index *index = index_find_system_xc(space, 0);
-	struct iterator *it = index_create_iterator_xc(index, ITER_ALL,
-						       NULL, 0);
-	IteratorGuard iter_guard(it);
-	struct tuple *tuple;
-	/** Assign a new replica id. */
-	uint32_t replica_id = 1;
-	while ((tuple = iterator_next_xc(it)) != NULL) {
-		if (tuple_field_u32_xc(tuple,
-				       BOX_CLUSTER_FIELD_ID) != replica_id)
-			break;
-		replica_id++;
-	}
-	box_register_replica(replica_id, instance_uuid);
+	box_register_replica(instance_uuid);
 }
 
 void
@@ -1411,6 +1416,46 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	row.sync = header->sync;
 	coio_write_xrow(io, &row);
 }
+/**
+ * Encode tuple from space _cluster.
+ * replica_id in xrow header is used for replica_id from tuple.
+ * @param row
+ * @param tuple
+ * @param size of replicaset
+ */
+static void
+encode_replica(struct xrow_header *row, struct tuple *tuple, ssize_t size)
+{
+	uint32_t id = 0;
+	uint32_t uuid_len = 0;
+	const char *uuid = NULL;
+	if (tuple != NULL) {
+		id = tuple_field_u32_xc(tuple, BOX_CLUSTER_FIELD_ID);
+		uuid = tuple_field_str_xc(tuple, BOX_CLUSTER_FIELD_UUID,
+					  &uuid_len);
+		assert(uuid_len == UUID_STR_LEN);
+	}
+	xrow_encode_replica_xc(row, id, uuid, size);
+}
+
+void
+box_process_cluster_info(struct ev_io *io, struct xrow_header *header)
+{
+	assert(header->type == IPROTO_CLUSTER_INFO);
+	struct xrow_header row;
+	struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
+	struct index *index = index_find_system_xc(space, 0);
+	struct iterator *it = index_create_iterator_xc(index, ITER_ALL,
+						       NULL, 0);
+	IteratorGuard iter_guard(it);
+	ssize_t size = index_size(index);
+	struct tuple *tuple = iterator_next_xc(it);
+	do {
+		encode_replica(&row, tuple, size);
+		coio_write_xrow(io, &row);
+		size = 0;
+	} while ((tuple = iterator_next_xc(it)) != NULL);
+}
 
 void
 box_process_subscribe(struct ev_io *io, struct xrow_header *header)
@@ -1420,7 +1465,6 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	/* Check that bootstrap has been finished */
 	if (!is_box_configured)
 		tnt_raise(ClientError, ER_LOADING);
-
 	struct tt_uuid replicaset_uuid = uuid_nil, replica_uuid = uuid_nil;
 	struct vclock replica_clock;
 	uint32_t replica_version_id;
@@ -1449,10 +1493,10 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 
 	/* Check replica uuid */
 	struct replica *replica = replica_by_uuid(&replica_uuid);
-	if (replica == NULL || replica->id == REPLICA_ID_NIL) {
-		tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
-			  tt_uuid_str(&replica_uuid),
-			  tt_uuid_str(&REPLICASET_UUID));
+	if ((replica == NULL || replica->id == REPLICA_ID_NIL)) {
+		/* Register replica if not found */
+		box_on_join(&replica_uuid);
+		replica = replica_by_uuid(&replica_uuid);
 	}
 
 	/* Forbid replication with disabled WAL */
@@ -1461,13 +1505,9 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 			  "wal_mode = 'none'");
 	}
 
-	/*
-	 * Send a response to SUBSCRIBE request, tell
-	 * the replica how many rows we have in stock for it,
-	 * and identify ourselves with our own replica id.
-	 */
-	struct xrow_header row;
 	struct vclock current_vclock;
+	struct xrow_header row;
+
 	wal_checkpoint(&current_vclock, true);
 	xrow_encode_vclock_xc(&row, &current_vclock);
 	/*
@@ -1480,7 +1520,21 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	row.replica_id = self->id;
 	row.sync = header->sync;
 	coio_write_xrow(io, &row);
-
+	/*
+	 * Hack with vclock. Until we are able to merge logs for system spaces
+	 * or detect identical ones we have to only subscribe on update from master.
+	 * In order to do that we have to assign replica_vclock to ours.
+	 */
+	bool is_empty = true;
+	for (uint32_t i = 1; i < VCLOCK_MAX; i++) {
+		if (vclock_get(&replica_clock, i) > 0) {
+			is_empty = false;
+			break;
+		}
+	}
+	if (is_empty) {
+		vclock_copy(&replica_clock, &replicaset.vclock);
+	}
 	/*
 	 * Process SUBSCRIBE request via replication relay
 	 * Send current recovery vector clock as a marker
@@ -1495,22 +1549,6 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	 */
 	relay_subscribe(io->fd, header->sync, replica, &replica_clock,
 			replica_version_id);
-}
-
-/** Insert a new cluster into _schema */
-static void
-box_set_replicaset_uuid(const struct tt_uuid *replicaset_uuid)
-{
-	tt_uuid uu;
-	/* Use UUID from the config or generate a new one */
-	if (!tt_uuid_is_nil(replicaset_uuid))
-		uu = *replicaset_uuid;
-	else
-		tt_uuid_create(&uu);
-	/* Save replica set UUID in _schema */
-	if (boxk(IPROTO_REPLACE, BOX_SCHEMA_ID, "[%s%s]", "cluster",
-		 tt_uuid_str(&uu)))
-		diag_raise();
 }
 
 void
@@ -1579,15 +1617,37 @@ static void
 bootstrap_master(const struct tt_uuid *replicaset_uuid)
 {
 	engine_bootstrap_xc();
+	size_t key_size = mp_sizeof_array(1) + mp_sizeof_uint(1);
+	char key[key_size];
+	char *key_end = key;
+	key_end = mp_encode_array(key_end, 1);
+	key_end = mp_encode_uint(key_end, 1);
 
-	uint32_t replica_id = 1;
-
-	/* Unregister a local replica if it was registered by bootstrap.bin */
-	if (boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "[%u]", 1) != 0)
+	struct port port_base;
+	if (box_select(BOX_CLUSTER_ID, 1, ITER_ALL, 0, 100, key, key_end,
+		       &port_base) != 0) {
 		diag_raise();
+	}
 
+	struct port_tuple *port = port_tuple(&port_base);
+	struct port_tuple_entry *entry = port->first;
+	const char *uuid = NULL;
+	assert(port->size <= 1);
+
+	if (entry->tuple != NULL) {
+		uint32_t len;
+		uuid = tuple_field_str_xc(entry->tuple, BOX_CLUSTER_FIELD_UUID,
+					  &len);
+		port_destroy(&port_base);
+		char uuid_cpy[UUID_STR_LEN + 1];
+		snprintf(uuid_cpy, UUID_STR_LEN + 1, "%s", uuid);
+
+		/* Unregister a local replica if it was registered by bootstrap.bin */
+		if (boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "[%s]", uuid_cpy) != 0)
+			diag_raise();
+	}
 	/* Register the first replica in the replica set */
-	box_register_replica(replica_id, &INSTANCE_UUID);
+	box_register_replica(&INSTANCE_UUID);
 	assert(replica_by_uuid(&INSTANCE_UUID)->id == 1);
 
 	/* Register other cluster members */
@@ -1595,12 +1655,11 @@ bootstrap_master(const struct tt_uuid *replicaset_uuid)
 		if (tt_uuid_is_equal(&replica->uuid, &INSTANCE_UUID))
 			continue;
 		assert(replica->applier != NULL);
-		box_register_replica(++replica_id, &replica->uuid);
-		assert(replica->id == replica_id);
+		box_register_replica(&replica->uuid);
 	}
 
 	/* Set UUID of a new replica set */
-	box_set_replicaset_uuid(replicaset_uuid);
+	box_schema_set_replicaset_uuid(replicaset_uuid);
 }
 
 /**
@@ -1762,6 +1821,7 @@ box_cfg_xc(void)
 	replication_sync_lag = box_check_replication_sync_lag();
 	xstream_create(&join_stream, apply_initial_join_row);
 	xstream_create(&subscribe_stream, apply_row);
+	replication_add_trigger();
 
 	struct vclock last_checkpoint_vclock;
 	int64_t last_checkpoint_lsn = checkpoint_last(&last_checkpoint_vclock);
