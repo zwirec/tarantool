@@ -406,6 +406,44 @@ tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
                         uint32_t path_len, uint32_t path_hash,
                         const char **field);
 
+/**
+ * Propagate @a field to MessagePack(field)[index].
+ * @param[in][out] field Field to propagate.
+ * @param index 1-based index to propagate to.
+ *
+ * @retval  0 Success, the index was found.
+ * @retval -1 Not found.
+ */
+int
+tuple_field_go_to_index(const char **field, uint64_t index);
+
+/**
+ * Propagate @a field to MessagePack(field)[key].
+ * @param[in][out] field Field to propagate.
+ * @param key Key to propagate to.
+ * @param len Length of @a key.
+ *
+ * @retval  0 Success, the index was found.
+ * @retval -1 Not found.
+ */
+int
+tuple_field_go_to_key(const char **field, const char *key, int len);
+
+/**
+ * Iterate through MessagePack along the JSON path.
+ * @param field MessagePack to go through.
+ * @param JSON path.
+ * @param offset Offset in @a path.
+ * @param len Length of @a path.
+ *
+ * @retval -1 Not found requested field. Diag is NOT set.
+ * @retval > 0 Invalid JSON on the returned position. Diag is set.
+ * @retval 0 Success.
+ */
+int
+tuple_field_go_to_path(const char **field, const char *path, uint32_t offset,
+		       uint32_t len);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */
