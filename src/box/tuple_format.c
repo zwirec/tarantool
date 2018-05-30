@@ -462,15 +462,7 @@ box_tuple_format_unref(box_tuple_format_t *format)
 	tuple_format_unref(format);
 }
 
-/**
- * Propagate @a field to MessagePack(field)[index].
- * @param[in][out] field Field to propagate.
- * @param index 1-based index to propagate to.
- *
- * @retval  0 Success, the index was found.
- * @retval -1 Not found.
- */
-static inline int
+int
 tuple_field_go_to_index(const char **field, uint64_t index)
 {
 	enum mp_type type = mp_typeof(**field);
@@ -508,16 +500,7 @@ tuple_field_go_to_index(const char **field, uint64_t index)
 	return -1;
 }
 
-/**
- * Propagate @a field to MessagePack(field)[key].
- * @param[in][out] field Field to propagate.
- * @param key Key to propagate to.
- * @param len Length of @a key.
- *
- * @retval  0 Success, the index was found.
- * @retval -1 Not found.
- */
-static inline int
+int
 tuple_field_go_to_key(const char **field, const char *key, int len)
 {
 	enum mp_type type = mp_typeof(**field);
@@ -543,6 +526,33 @@ tuple_field_go_to_key(const char **field, const char *key, int len)
 }
 
 int
+tuple_field_go_to_path(const char **field, const char *path, uint32_t offset,
+		       uint32_t len)
+{
+	struct json_path_parser parser;
+	struct json_path_node node;
+	int rc;
+	json_path_parser_create(&parser, path + offset, len - offset);
+	while ((rc = json_path_next(&parser, &node)) == 0) {
+		switch(node.type) {
+		case JSON_PATH_NUM:
+			rc = tuple_field_go_to_index(field, node.num);
+			break;
+		case JSON_PATH_STR:
+			rc = tuple_field_go_to_key(field, node.str, node.len);
+			break;
+		default:
+			assert(node.type == JSON_PATH_END);
+			return 0;
+		}
+		if (rc != 0)
+			return -1;
+	}
+	diag_set(ClientError, ER_INVALID_JSON, rc + offset, len, path);
+	return rc + offset;
+}
+
+int
 tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
                         const uint32_t *field_map, const char *path,
                         uint32_t path_len, uint32_t path_hash,
@@ -565,8 +575,10 @@ tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
 	struct json_path_node node;
 	json_path_parser_create(&parser, path, path_len);
 	int rc = json_path_next(&parser, &node);
-	if (rc != 0)
-		goto error;
+	if (rc != 0) {
+		diag_set(ClientError, ER_INVALID_JSON, rc, path_len, path);
+		return -1;
+	}
 	switch(node.type) {
 	case JSON_PATH_NUM: {
 		int index = node.num;
@@ -605,26 +617,12 @@ tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
 		*field = NULL;
 		return 0;
 	}
-	while ((rc = json_path_next(&parser, &node)) == 0) {
-		switch(node.type) {
-		case JSON_PATH_NUM:
-			rc = tuple_field_go_to_index(field, node.num);
-			break;
-		case JSON_PATH_STR:
-			rc = tuple_field_go_to_key(field, node.str, node.len);
-			break;
-		default:
-			assert(node.type == JSON_PATH_END);
-			return 0;
-		}
-		if (rc != 0) {
-			*field = NULL;
-			return 0;
-		}
+	rc = tuple_field_go_to_path(field, path, parser.offset, path_len);
+	if (rc == 0)
+		return 0;
+	if (rc < 0) {
+		*field = NULL;
+		return 0;
 	}
-error:
-	assert(rc > 0);
-	diag_set(ClientError, ER_ILLEGAL_PARAMS,
-		 tt_sprintf("error in path on position %d", rc));
 	return -1;
 }
