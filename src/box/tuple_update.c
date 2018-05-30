@@ -820,29 +820,33 @@ update_field_split(struct region *region, struct update_field *prev,
  * @retval  0 Success.
  * @retval -1 Error.
  */
-int
-update_create_rope(struct tuple_update *update, const char *tuple_data,
-		   const char *tuple_data_end, uint32_t field_count)
+struct rope *
+tuple_rope_new(struct region *region, const char *tuple_data,
+	       const char *tuple_data_end, uint32_t field_count)
 {
-	update->rope = rope_new(update->region);
-	if (update->rope == NULL)
-		return -1;
+	struct rope *rope = rope_new(region);
+	if (rope == NULL)
+		return NULL;
 	/* Initialize the rope with the old tuple. */
-
-	struct update_field *first = (struct update_field *)
-			update_alloc(update->region, sizeof(*first));
-	if (first == NULL)
-		return -1;
+	struct update_field *first =
+		(struct update_field *) update_alloc(region, sizeof(*first));
+	if (first == NULL) {
+		rope_delete(rope);
+		return NULL;
+	}
 	const char *field = tuple_data;
 	const char *end = tuple_data_end;
 
 	/* Add first field to rope */
 	mp_next(&tuple_data);
 	uint32_t field_len = tuple_data - field;
-	update_field_init(first, field, field_len,
-			  end - field - field_len);
+	update_field_init(first, field, field_len, end - field - field_len);
 
-	return rope_append(update->rope, first, field_count);
+	if (rope_append(rope, first, field_count) != 0) {
+		rope_delete(rope);
+		return NULL;
+	}
+	return rope;
 }
 
 static uint32_t
@@ -1152,7 +1156,9 @@ static int
 update_do_ops(struct tuple_update *update, const char *old_data,
 	      const char *old_data_end, uint32_t part_count)
 {
-	if (update_create_rope(update, old_data, old_data_end, part_count) != 0)
+	update->rope = tuple_rope_new(update->region, old_data, old_data_end,
+				      part_count);
+	if (update->rope == NULL)
 		return -1;
 	struct update_op *op = update->ops;
 	struct update_op *ops_end = op + update->op_count;
@@ -1173,7 +1179,9 @@ upsert_do_ops(struct tuple_update *update, const char *old_data,
 	      const char *old_data_end, uint32_t part_count,
 	      bool suppress_error)
 {
-	if (update_create_rope(update, old_data, old_data_end, part_count) != 0)
+	update->rope = tuple_rope_new(update->region, old_data, old_data_end,
+				      part_count);
+	if (update->rope == NULL)
 		return -1;
 	struct update_op *op = update->ops;
 	struct update_op *ops_end = op + update->op_count;
