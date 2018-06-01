@@ -744,6 +744,12 @@ replica_by_uuid(const struct tt_uuid *uuid)
 }
 
 uint32_t
+replica_id_inc_counter()
+{
+	return ++replicas_id_count;
+}
+
+uint32_t
 replica_id_get_counter()
 {
 	return replicas_id_count;

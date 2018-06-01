@@ -379,6 +379,9 @@ replicaset_check_quorum(void);
 uint32_t
 replica_id_get_counter();
 
+uint32_t
+replica_id_inc_counter();
+
 /**
  * Adds trigger on _cluster.
  */

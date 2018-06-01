@@ -1242,15 +1242,13 @@ box_register_replica(const struct tt_uuid *uuid)
  * @param instance_uuid
  */
 static void
-box_on_join(const tt_uuid *instance_uuid)
+box_add_subscriber(const tt_uuid *instance_uuid)
 {
 	struct replica *replica = replica_by_uuid(instance_uuid);
 	if (replica != NULL && replica->id != REPLICA_ID_NIL)
 		return; /* nothing to do - already registered */
-
-	box_check_writable_xc();
-
-	box_register_replica(instance_uuid);
+	uint32_t id = replica_id_inc_counter();
+	replicaset_add(id, instance_uuid);
 }
 
 void
@@ -1386,7 +1384,7 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	 * sending OK - if the hook fails, the error reaches the
 	 * client.
 	 */
-	box_on_join(&instance_uuid);
+	box_add_subscriber(&instance_uuid);
 
 	replica = replica_by_uuid(&instance_uuid);
 	assert(replica != NULL);
@@ -1495,7 +1493,7 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	struct replica *replica = replica_by_uuid(&replica_uuid);
 	if ((replica == NULL || replica->id == REPLICA_ID_NIL)) {
 		/* Register replica if not found */
-		box_on_join(&replica_uuid);
+		box_add_subscriber(&replica_uuid);
 		replica = replica_by_uuid(&replica_uuid);
 	}
 
@@ -1687,6 +1685,7 @@ bootstrap_from_master(struct replica *master)
 	 */
 
 	assert(!tt_uuid_is_nil(&INSTANCE_UUID));
+
 	applier_resume_to_state(applier, APPLIER_INITIAL_JOIN, TIMEOUT_INFINITY);
 
 	/*
@@ -1694,6 +1693,12 @@ bootstrap_from_master(struct replica *master)
 	 */
 	engine_begin_initial_recovery_xc(NULL);
 	applier_resume_to_state(applier, APPLIER_FINAL_JOIN, TIMEOUT_INFINITY);
+
+	/* Register the replica locally. As it is a subscriber,
+	 * it may not be registered on master.
+	 * Space _cluster is created during initial data reception.
+	 */
+	box_register_replica(&INSTANCE_UUID);
 
 	/*
 	 * Process final data (WALs).
