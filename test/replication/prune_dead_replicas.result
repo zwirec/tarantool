@@ -1,0 +1,329 @@
+test_run = require('test_run').new()
+---
+...
+replica_set = require('fast_replica')
+---
+...
+fiber = require('fiber')
+---
+...
+box.schema.user.grant('guest', 'replication')
+---
+...
+test_run:cmd("push filter 'lsn: [0-9]+' to 'lsn: <lsn>'")
+---
+- true
+...
+test_run:cmd("push filter 'uuid: .*' to 'uuid: <uuid>'")
+---
+- true
+...
+test_run:cmd("push filter 'idle: .*' to 'idle: <idle>'")
+---
+- true
+...
+test_run:cmd("push filter 'peer: .*' to 'peer: <peer>'")
+---
+- true
+...
+test_run:cmd("push filter 'lag: .*' to 'lag: <lag>'")
+---
+- true
+...
+test_run:cmd("push filter 'vclock: .*' to 'vclock: <vclock>'")
+---
+- true
+...
+test_run:cmd("push filter '(error: .builtin/.*[.]lua):[0-9]+' to '\\1'")
+---
+- true
+...
+box.replication.get_alive_replicas("name")
+---
+- error: 'builtin/box/schema.lua: Usage: box.replication.get_alive_replicas([timeout])'
+...
+alive = box.replication.get_alive_replicas(0.001)
+---
+...
+box.replication.prune_dead_replicas(alive)
+---
+...
+box.space._cluster:len() == 1
+---
+- true
+...
+replica_set.join(test_run, 2)
+---
+...
+while box.space._cluster:len() ~= 3 do fiber.sleep(0.001) end
+---
+...
+box.space._cluster:len() == 3
+---
+- true
+...
+box.info.replication
+---
+- 1:
+    id: 1
+    uuid: <uuid>
+    lsn: <lsn>
+  2:
+    id: 2
+    uuid: <uuid>
+    lsn: <lsn>
+    downstream:
+      vclock: <vclock>
+  3:
+    id: 3
+    uuid: <uuid>
+    lsn: <lsn>
+    downstream:
+      vclock: <vclock>
+...
+test_run:cmd("switch replica1")
+---
+- true
+...
+box.space._cluster:len() == 3
+---
+- true
+...
+box.info.replication
+---
+- 1:
+    id: 1
+    uuid: <uuid>
+    lsn: <lsn>
+    upstream:
+      status: follow
+      idle: <idle>
+      peer: <peer>
+      lag: <lag>
+  2:
+    id: 2
+    uuid: <uuid>
+    lsn: <lsn>
+  3:
+    id: 3
+    uuid: <uuid>
+    lsn: <lsn>
+...
+test_run:cmd("switch default")
+---
+- true
+...
+alive = box.replication.get_alive_replicas(0.001)
+---
+...
+box.replication.prune_dead_replicas(alive)
+---
+...
+-- nothing is deleted
+box.space._cluster:len() == 3
+---
+- true
+...
+box.info.replication
+---
+- 1:
+    id: 1
+    uuid: <uuid>
+    lsn: <lsn>
+  2:
+    id: 2
+    uuid: <uuid>
+    lsn: <lsn>
+    downstream:
+      vclock: <vclock>
+  3:
+    id: 3
+    uuid: <uuid>
+    lsn: <lsn>
+    downstream:
+      vclock: <vclock>
+...
+test_run:cmd("switch replica2")
+---
+- true
+...
+box.cfg{replication = {}}
+---
+...
+test_run:cmd("switch default")
+---
+- true
+...
+while box.info.replication[3].downstream ~= nil and box.info.replication[3].downstream.status ~= "stopped" do fiber.sleep(0.001) end
+---
+...
+alive = box.replication.get_alive_replicas(0.001)
+---
+...
+box.replication.prune_dead_replicas(alive)
+---
+...
+box.space._cluster:len() == 2
+---
+- true
+...
+box.info.replication
+---
+- 1:
+    id: 1
+    uuid: <uuid>
+    lsn: <lsn>
+  2:
+    id: 2
+    uuid: <uuid>
+    lsn: <lsn>
+    downstream:
+      vclock: <vclock>
+...
+test_run:cmd("restart server replica2 with cleanup=1")
+---
+- true
+...
+while box.space._cluster:len() ~= 3 do fiber.sleep(0.001) end
+---
+...
+test_run:cmd("switch default")
+---
+- true
+...
+ch = fiber.channel(1)
+---
+...
+-- The function get_alive_replicas consists of two checks of box.info.replication.
+-- Replica is considered to be alive if it is alive in one of these checks.
+-- Test these checks. In these test we highly rely on the fact that
+-- replica will be considered disconnected or restarts faster than
+-- specified timeout.
+-- First check sees replica alive, second sees it dead. Test this replica must not be deleted.
+func = function(timeout) ch:put(1) ch:put(box.replication.get_alive_replicas(timeout)) end
+---
+...
+f = fiber.create(func, 0.5)
+---
+...
+ch:get()
+---
+- 1
+...
+test_run:cmd("switch replica2")
+---
+- true
+...
+box.cfg{replication = {}}
+---
+...
+test_run:cmd("switch default")
+---
+- true
+...
+while box.info.replication[3].downstream ~= nil and box.info.replication[3].downstream.status ~= "stopped" do fiber.sleep(0.001) end
+---
+...
+alive = ch:get()
+---
+...
+box.replication.prune_dead_replicas(alive)
+---
+...
+box.space._cluster:len() == 3
+---
+- true
+...
+-- First check sees replica dead, second sees it alive. Test this replica must not be deleted.
+f = fiber.create(func, 1.0)
+---
+...
+ch:get()
+---
+- 1
+...
+test_run:cmd("restart server replica2 with cleanup=1")
+---
+- true
+...
+test_run:cmd("switch default")
+---
+- true
+...
+alive = ch:get()
+---
+...
+box.replication.prune_dead_replicas(alive)
+---
+...
+box.space._cluster:len() == 3
+---
+- true
+...
+test_run:cmd("switch replica1")
+---
+- true
+...
+test_run:cmd("stop server default")
+---
+- true
+...
+while box.info.replication[1].upstream.status == "follow" do fiber.sleep(0.001) end
+---
+...
+alive = box.replication.get_alive_replicas(0.001)
+---
+...
+box.replication.prune_dead_replicas(alive)
+---
+...
+box.space._cluster:len() == 1
+---
+- true
+...
+box.info.replication
+---
+- 2:
+    id: 2
+    uuid: <uuid>
+    lsn: <lsn>
+...
+test_run:cmd("deploy server default")
+---
+- true
+...
+test_run:cmd("start server default")
+---
+- true
+...
+test_run:cmd("switch default")
+---
+- true
+...
+test_run = require('test_run').new()
+---
+...
+replica_set = require('fast_replica')
+---
+...
+replica_set.drop_all(test_run)
+---
+...
+-- cleanup. Don't revoke guest privilege as it was lost on deploy.
+alive = box.replication.get_alive_replicas(0.001)
+---
+...
+box.replication.prune_dead_replicas(alive)
+---
+...
+box.space._cluster:len() == 1
+---
+- true
+...
+box.info.replication
+---
+- 1:
+    id: 1
+    uuid: <uuid>
+    lsn: <lsn>
+...

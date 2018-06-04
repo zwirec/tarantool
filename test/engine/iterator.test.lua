@@ -257,7 +257,7 @@ space:drop()
 
 inspector:cmd("clear filter")
 
-
+inspector:cmd("push filter '(error: .builtin/.*[.]lua):[0-9]+' to '\\1'")
 --
 -- gh-1875 Add support for index:pairs(key, iterator-type) syntax
 --

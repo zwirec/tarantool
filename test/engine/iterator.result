@@ -3812,6 +3812,10 @@ inspector:cmd("clear filter")
 ---
 - true
 ...
+inspector:cmd("push filter '(error: .builtin/.*[.]lua):[0-9]+' to '\\1'")
+---
+- true
+...
 --
 -- gh-1875 Add support for index:pairs(key, iterator-type) syntax
 --
@@ -4211,7 +4215,7 @@ s:replace{35}
 ...
 state, value = gen(param,state)
 ---
-- error: 'builtin/box/schema.lua:985: usage: next(param, state)'
+- error: 'builtin/box/schema.lua: usage: next(param, state)'
 ...
 value
 ---

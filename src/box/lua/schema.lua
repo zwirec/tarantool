@@ -7,6 +7,7 @@ local fun = require('fun')
 local log = require('log')
 local fio = require('fio')
 local json = require('json')
+local fiber = require('fiber')
 local session = box.session
 local internal = require('box.internal')
 local function setmap(table)
@@ -2306,6 +2307,65 @@ box.feedback.save = function(file_name)
     end
     fh:write(feedback)
     fh:close()
+end
+
+box.replication = {}
+
+local function replica_is_alive(replica_info)
+    if replica_info ~= nil and replica_info.uuid == box.info.uuid then
+        -- current replica is assumed to be alive.
+        return true
+    end
+    if replica_info == nil or
+            (replica_info.downstream == nil and replica_info.upstream == nil) then
+        return false
+    end
+    if replica_info.downstream ~= nil then
+        return replica_info.downstream.status ~= "disconnected" and
+                replica_info.downstream.status ~= "stopped"
+    else
+        -- upstream ~= nil
+        return replica_info.upstream.status ~= "disconnected" and
+                replica_info.upstream.status ~= "stopped"
+    end
+end
+
+box.replication.get_alive_replicas = function(timeout)
+    if timeout ~= nil then
+        if type(timeout) ~= 'number' then
+            error('Usage: box.replication.get_alive_replicas([timeout])')
+        end
+    end
+    local res = {}
+    local info_old = box.info.replication
+    local info_new = box.info.replication
+    timeout = timeout or 0.5
+    fiber.sleep(timeout)
+    info_new = box.info.replication
+    for i, new_value in pairs(info_new) do
+        local old_value = info_old[i]
+        if old_value == nil or old_value.uuid ~= new_value.uuid then
+            -- Replica was added during waiting period. We can't compare it with previous status.
+            -- We should assume it alive despite its status.
+            -- UUID wouldn't match only if old_replica was deleted and new replica was added at this time.
+            -- If the old replica was recovered with new id, we assume it alive too.
+            res[new_value.uuid] = i
+        elseif replica_is_alive(old_value) or replica_is_alive(new_value) then
+            res[new_value.uuid]= i
+        end
+    end
+    return res
+end
+
+box.replication.prune_dead_replicas = function(alive_replicas)
+    if type(alive_replicas) ~= 'table' then
+        error("Usage: box.replication.prune_dead_replicas(alive_replicas)")
+    end
+    for _, tuple in box.space._cluster:pairs() do
+        if alive_replicas[tuple[2]] == nil then
+            box.space._cluster.index.uuid:delete{tuple[2]}
+        end
+    end
 end
 
 box.NULL = msgpack.NULL
