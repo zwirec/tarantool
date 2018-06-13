@@ -48,6 +48,7 @@
 #include "replication.h"
 #include "schema.h"
 #include "gc.h"
+#include "ctl.h"
 
 static void
 txn_on_yield_or_stop(struct trigger *trigger, void *event)
@@ -197,7 +198,6 @@ memtx_engine_recover_snapshot(struct memtx_engine *memtx,
 	 */
 	if (!xlog_cursor_is_eof(&cursor))
 		panic("snapshot `%s' has no EOF marker", filename);
-
 	return 0;
 }
 

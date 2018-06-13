@@ -122,8 +122,8 @@ box_lua_ctl_init(struct lua_State *L)
 	lua_pushnumber(L, CTL_EVENT_SHUTDOWN);
 	lua_setfield(L, -2, "SHUTDOWN");
 	lua_pushnumber(L, CTL_EVENT_REPLICASET_ADD);
-	lua_setfield(L, -2, "CTL_EVENT_REPLICASET_ADD");
+	lua_setfield(L, -2, "REPLICASET_ADD");
 	lua_pushnumber(L, CTL_EVENT_REPLICASET_REMOVE);
-	lua_setfield(L, -2, "CTL_EVENT_REPLICASET_REMOVE");
+	lua_setfield(L, -2, "REPLICASET_REMOVE");
 	lua_pop(L, 2); /* box, ctl */
 }

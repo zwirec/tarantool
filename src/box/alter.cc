@@ -52,6 +52,7 @@
 #include "identifier.h"
 #include "version.h"
 #include "sequence.h"
+#include "ctl.h"
 
 /**
  * chap-sha1 of empty string, i.e.

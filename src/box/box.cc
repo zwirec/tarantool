@@ -113,6 +113,11 @@ static fiber_cond ro_cond;
  */
 static bool is_orphan = true;
 
+/**
+ * Fiber used for on_ctl_event trigger.
+ */
+static fiber *ro_checker;
+
 /* Use the shared instance of xstream for all appliers */
 static struct xstream join_stream;
 static struct xstream subscribe_stream;
@@ -1573,6 +1578,9 @@ box_set_replicaset_uuid(const struct tt_uuid *replicaset_uuid)
 void
 box_free(void)
 {
+	if (run_on_ctl_event_trigger_type(CTL_EVENT_SHUTDOWN) < 0)
+		say_error("ctl_trigger error in shutdown: %s",
+			  diag_last_error(diag_get())->errmsg);
 	/*
 	 * See gh-584 "box_free() is called even if box is not
 	 * initialized
@@ -1592,7 +1600,8 @@ box_free(void)
 		engine_shutdown();
 		wal_thread_stop();
 	}
-
+	if (!fiber_is_dead(ro_checker))
+		fiber_cancel(ro_checker);
 	fiber_cond_destroy(&ro_cond);
 }
 
@@ -1693,6 +1702,10 @@ bootstrap_from_master(struct replica *master)
 	engine_begin_initial_recovery_xc(NULL);
 	applier_resume_to_state(applier, APPLIER_FINAL_JOIN, TIMEOUT_INFINITY);
 
+	if (run_on_ctl_event_trigger_type(CTL_EVENT_SYSTEM_SPACE_RECOVERY) < 0)
+		say_error("ctl_trigger error in system space recovery: %s",
+			  diag_last_error(diag_get())->errmsg);
+
 	/*
 	 * Process final data (WALs).
 	 */
@@ -1755,11 +1768,35 @@ tx_prio_cb(struct ev_loop *loop, ev_watcher *watcher, int events)
 	cbus_process(endpoint);
 }
 
+static int
+check_ro_f(MAYBE_UNUSED va_list ap)
+{
+	double timeout = TIMEOUT_INFINITY;
+	struct on_ctl_event_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
+	while (true) {
+		if (box_wait_ro(!box_is_ro(), timeout) != 0) {
+			if (fiber_is_cancelled())
+				break;
+			else
+				return -1;
+		}
+		if (run_on_ctl_event_trigger_type(
+			box_is_ro() ? CTL_EVENT_READ_ONLY:
+					      CTL_EVENT_READ_WRITE) < 0)
+			say_error("ctl_trigger error in %s: %s",
+				  box_is_ro() ? "read_only" :"read_write",
+				  diag_last_error(diag_get())->errmsg);
+	}
+	return 0;
+}
+
 void
 box_init(void)
 {
 	fiber_cond_create(&ro_cond);
-
+	ro_checker = fiber_new_xc("check_ro", check_ro_f);
+	fiber_start(ro_checker, NULL);
 	user_cache_init();
 	/*
 	 * The order is important: to initialize sessions,
@@ -1885,6 +1922,9 @@ box_cfg_xc(void)
 		 */
 		memtx_engine_recover_snapshot_xc(memtx,
 				&last_checkpoint_vclock);
+		if (run_on_ctl_event_trigger_type(CTL_EVENT_SYSTEM_SPACE_RECOVERY) < 0)
+			say_error("ctl_trigger error in system space recovery: %s",
+				  diag_last_error(diag_get())->errmsg);
 
 		engine_begin_final_recovery_xc();
 		recovery_follow_local(recovery, &wal_stream.base, "hot_standby",
