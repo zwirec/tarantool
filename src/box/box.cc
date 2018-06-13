@@ -72,6 +72,7 @@
 #include "call.h"
 #include "func.h"
 #include "sequence.h"
+#include "ctl.h"
 
 static char status[64] = "unknown";
 
@@ -821,6 +822,13 @@ box_set_net_msg_max(void)
 	fiber_pool_set_max_size(&tx_fiber_pool,
 				new_iproto_msg_max *
 				IPROTO_FIBER_POOL_SIZE_FACTOR);
+}
+
+void
+box_set_on_ctl_event(void)
+{
+	if (cfg_reset_on_ctl_event() < 0)
+		diag_raise();
 }
 
 /* }}} configuration bindings */
@@ -1808,6 +1816,7 @@ box_cfg_xc(void)
 	box_set_replication_connect_timeout();
 	box_set_replication_connect_quorum();
 	box_set_replication_skip_conflict();
+	box_set_on_ctl_event();
 	replication_sync_lag = box_check_replication_sync_lag();
 	xstream_create(&join_stream, apply_initial_join_row);
 	xstream_create(&subscribe_stream, apply_row);

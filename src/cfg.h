@@ -32,6 +32,7 @@
  */
 
 #include <stdint.h>
+#include <lua/trigger.h>
 
 #if defined(__cplusplus)
 extern "C" {
@@ -61,6 +62,9 @@ cfg_getarr_size(const char *name);
 const char *
 cfg_getarr_elem(const char *name, int i);
 
+int
+cfg_reset_trigger(const char *name, struct rlist *list,
+		  lbox_push_event_f push_event, lbox_pop_event_f pop_event);
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

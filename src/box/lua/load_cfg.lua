@@ -1,7 +1,11 @@
 -- load_cfg.lua - internal file
 
 local log = require('log')
-local json = require('json')
+local json = require("json").new()
+json.cfg{
+    encode_use_tostring    = true,
+}
+
 local private = require('box.internal')
 local urilib = require('uri')
 local math = require('math')
@@ -64,6 +68,7 @@ local default_cfg = {
     feedback_host         = "https://feedback.tarantool.io",
     feedback_interval     = 3600,
     net_msg_max           = 768,
+    on_ctl_event          = nil,
 }
 
 -- types of available options
@@ -125,6 +130,7 @@ local template_cfg = {
     feedback_host         = 'string',
     feedback_interval     = 'number',
     net_msg_max           = 'number',
+    on_ctl_event          = 'function, table',
 }
 
 local function normalize_uri(port)
@@ -216,6 +222,7 @@ local dynamic_cfg = {
     replicaset_uuid         = check_replicaset_uuid,
     replication_skip_conflict = private.cfg_set_replication_skip_conflict,
     net_msg_max             = private.cfg_set_net_msg_max,
+    on_ctl_event            = private.cfg_set_on_ctl_event,
 }
 
 local dynamic_cfg_skip_at_load = {
@@ -232,6 +239,7 @@ local dynamic_cfg_skip_at_load = {
     force_recovery          = true,
     instance_uuid           = true,
     replicaset_uuid         = true,
+    on_ctl_event            = true,
 }
 
 local function convert_gb(size)

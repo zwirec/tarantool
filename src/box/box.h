@@ -191,6 +191,7 @@ void box_set_replication_connect_timeout(void);
 void box_set_replication_connect_quorum(void);
 void box_set_replication_skip_conflict(void);
 void box_set_net_msg_max(void);
+void box_set_on_ctl_event(void);
 
 extern "C" {
 #endif /* defined(__cplusplus) */

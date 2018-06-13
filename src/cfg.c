@@ -153,3 +153,40 @@ cfg_getarr_elem(const char *name, int i)
 	lua_pop(tarantool_L, 2);
 	return val;
 }
+
+int
+cfg_reset_trigger(const char *name, struct rlist *list,
+		  lbox_push_event_f push_event, lbox_pop_event_f pop_event)
+{
+	cfg_get(name);
+	struct lua_State *L = tarantool_L;
+	if (lua_isnil(L, -1))
+		return 0;
+	if (!lua_isfunction(L, -1) && !lua_istable(L, -1)) {
+		return -1;
+	}
+	if (lua_istable(L, -1)) {
+		lua_pushinteger(L, 1);
+		lua_gettable(L, -2);
+		if (!luaL_isnull(L, lua_gettop(L)) && !lua_isfunction(L, -1))
+			return -1;
+		bool is_nil = luaL_isnull(L, lua_gettop(L));
+		if (is_nil) {
+			lua_pop(L, 1);
+			lua_pushnil(L);
+		}
+		lua_pushinteger(L, 2);
+		lua_gettable(L, -3);
+		if (!lua_isfunction(L, -1) && !lua_isnil(L, -1))
+			return -1;
+		if (is_nil && lua_isnil(L, -1)) {
+			return 0;
+		}
+	} else {
+		lua_pushnil(L);
+	}
+	int rc = lbox_trigger_reset(L, lua_gettop(L), list,
+				  push_event, pop_event);
+	lua_pop(L, 1);
+	return rc;
+}

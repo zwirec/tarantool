@@ -1,6 +1,3 @@
-#ifndef INCLUDES_TARANTOOL_LUA_CTL_H
-#define INCLUDES_TARANTOOL_LUA_CTL_H
-
 /*
  * Copyright 2010-2018, Tarantool AUTHORS, please see AUTHORS file.
  *
@@ -31,20 +28,36 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include <lib/small/small/rlist.h>
+#include <trigger.h>
+#include <box/ctl.h>
+#include "errcode.h"
+#include "error.h"
+#include <exception.h>
 
-#if defined(__cplusplus)
-extern "C" {
-#endif /* defined(__cplusplus) */
-
-struct lua_State;
-
-void
-box_lua_ctl_init(struct lua_State *L);
+RLIST_HEAD(on_ctl_event);
 
 int
-lbox_push_on_ctl_event(struct lua_State *L, void *event);
-#if defined(__cplusplus)
-} /* extern "C" */
-#endif /* defined(__cplusplus) */
+run_on_ctl_event_triggers(const struct on_ctl_event_ctx *result) {
+	return trigger_run(&on_ctl_event, (void *) result);
+}
 
-#endif /* INCLUDES_TARANTOOL_LUA_CTL_H */
+int
+run_on_ctl_event_trigger_type(enum ctl_event_type type)
+{
+	struct on_ctl_event_ctx ctx = {};
+	ctx.type = type;
+	return run_on_ctl_event_triggers(&ctx);
+}
+
+int
+cfg_reset_on_ctl_event()
+{
+	if (cfg_reset_trigger("on_ctl_event", &on_ctl_event,
+		lbox_push_on_ctl_event, NULL) < 0) {
+		diag_set(ClientError, ER_CFG, "on_ctl_event",
+			 "expected function or table");
+		return -1;
+	}
+	return 0;
+}

@@ -35,6 +35,8 @@
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+#include <lua/trigger.h>
+#include <box/ctl.h>
 
 #include "lua/utils.h"
 
@@ -64,9 +66,37 @@ lbox_ctl_wait_rw(struct lua_State *L)
 	return 0;
 }
 
+
+int
+lbox_push_on_ctl_event(struct lua_State *L, void *event)
+{
+	struct on_ctl_event_ctx *ctx = (struct on_ctl_event_ctx *) event;
+	lua_newtable(L);
+	lua_pushstring(L, "type");
+	lua_pushinteger(L, ctx->type);
+	lua_settable(L, -3);
+
+	if (ctx->type == CTL_EVENT_REPLICASET_ADD ||
+		ctx->type == CTL_EVENT_REPLICASET_REMOVE) {
+		lua_pushstring(L, "replica_id");
+		luaL_pushuint64(L, ctx->replica_id);
+		lua_settable(L, -3);
+	}
+	return 1;
+}
+
+static int
+lbox_on_ctl_event(struct lua_State *L)
+{
+	return lbox_trigger_reset(L, 2, &on_ctl_event,
+				  lbox_push_on_ctl_event, NULL);
+}
+
+
 static const struct luaL_Reg lbox_ctl_lib[] = {
 	{"wait_ro", lbox_ctl_wait_ro},
 	{"wait_rw", lbox_ctl_wait_rw},
+	{"on_ctl_event", lbox_on_ctl_event},
 	{NULL, NULL}
 };
 
@@ -75,4 +105,25 @@ box_lua_ctl_init(struct lua_State *L)
 {
 	luaL_register_module(L, "box.ctl", lbox_ctl_lib);
 	lua_pop(L, 1);
+
+	luaL_findtable(L, LUA_GLOBALSINDEX, "box.ctl", 1);
+	lua_newtable(L);
+	lua_setfield(L, -2, "event");
+	lua_getfield(L, -1, "event");
+
+	lua_pushnumber(L, CTL_EVENT_SYSTEM_SPACE_RECOVERY);
+	lua_setfield(L, -2, "SYSTEM_SPACE_RECOVERY");
+	lua_pushnumber(L, CTL_EVENT_LOCAL_RECOVERY);
+	lua_setfield(L, -2, "LOCAL_RECOVERY");
+	lua_pushnumber(L, CTL_EVENT_READ_ONLY);
+	lua_setfield(L, -2, "READ_ONLY");
+	lua_pushnumber(L, CTL_EVENT_READ_WRITE);
+	lua_setfield(L, -2, "READ_WRITE");
+	lua_pushnumber(L, CTL_EVENT_SHUTDOWN);
+	lua_setfield(L, -2, "SHUTDOWN");
+	lua_pushnumber(L, CTL_EVENT_REPLICASET_ADD);
+	lua_setfield(L, -2, "CTL_EVENT_REPLICASET_ADD");
+	lua_pushnumber(L, CTL_EVENT_REPLICASET_REMOVE);
+	lua_setfield(L, -2, "CTL_EVENT_REPLICASET_REMOVE");
+	lua_pop(L, 2); /* box, ctl */
 }
