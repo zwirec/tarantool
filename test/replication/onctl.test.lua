@@ -16,6 +16,7 @@ READ_WRITE
 REPLICASET_ADD
 -- must be one entry. Deletion of initial tuple in _cluster space.
 REPLICASET_REMOVE
+REPLICA_CONNECTION_ERROR
 
 REPLICASET_ADD = {}
 REPLICASET_REMOVE = {}
@@ -39,6 +40,7 @@ test_run:cmd("start server replica")
 
 REPLICASET_ADD
 REPLICASET_REMOVE
+REPLICA_CONNECTION_ERROR
 
 new_replica_id
 deleted_replica_id
@@ -80,8 +82,9 @@ test_run:cmd("restart server replica")
 -- TODO: test SHUTDOWN, when it is possible to grep logs of killed replica.
 --test_run:grep_log('replica', 'test replica shutdown')
 
-
 test_run:cmd("switch master")
+REPLICA_CONNECTION_ERROR
+
 box.schema.user.revoke('guest', 'replication')
 _ = box.space._cluster:delete{2}
 

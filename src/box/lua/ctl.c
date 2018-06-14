@@ -37,6 +37,7 @@
 #include <lualib.h>
 #include <lua/trigger.h>
 #include <box/ctl.h>
+#include <tt_uuid.h>
 
 #include "lua/utils.h"
 
@@ -77,7 +78,8 @@ lbox_push_on_ctl_event(struct lua_State *L, void *event)
 	lua_settable(L, -3);
 
 	if (ctx->type == CTL_EVENT_REPLICASET_ADD ||
-		ctx->type == CTL_EVENT_REPLICASET_REMOVE) {
+		ctx->type == CTL_EVENT_REPLICASET_REMOVE ||
+		ctx->type == CTL_EVENT_REPLICA_CONNECTION_ERROR) {
 		lua_pushstring(L, "replica_id");
 		luaL_pushuint64(L, ctx->replica_id);
 		lua_settable(L, -3);
@@ -125,5 +127,7 @@ box_lua_ctl_init(struct lua_State *L)
 	lua_setfield(L, -2, "REPLICASET_ADD");
 	lua_pushnumber(L, CTL_EVENT_REPLICASET_REMOVE);
 	lua_setfield(L, -2, "REPLICASET_REMOVE");
+	lua_pushnumber(L, CTL_EVENT_REPLICA_CONNECTION_ERROR);
+	lua_setfield(L, -2, "REPLICA_CONNECTION_ERROR");
 	lua_pop(L, 2); /* box, ctl */
 }

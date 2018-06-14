@@ -50,6 +50,10 @@ REPLICASET_REMOVE
 ---
 - - 1
 ...
+REPLICA_CONNECTION_ERROR
+---
+- []
+...
 REPLICASET_ADD = {}
 ---
 ...
@@ -91,6 +95,10 @@ REPLICASET_ADD
 - - 2
 ...
 REPLICASET_REMOVE
+---
+- []
+...
+REPLICA_CONNECTION_ERROR
 ---
 - []
 ...
@@ -185,6 +193,10 @@ test_run:cmd("restart server replica")
 test_run:cmd("switch master")
 ---
 - true
+...
+REPLICA_CONNECTION_ERROR
+---
+- - 2
 ...
 box.schema.user.revoke('guest', 'replication')
 ---

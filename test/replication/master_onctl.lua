@@ -7,6 +7,7 @@ READ_ONLY = 0
 READ_WRITE = 0
 REPLICASET_ADD = {}
 REPLICASET_REMOVE = {}
+REPLICA_CONNECTION_ERROR = {}
 
 local function onctl(ctx)
     if ctx.type == box.ctl.event.SYSTEM_SPACE_RECOVERY then
@@ -21,6 +22,8 @@ local function onctl(ctx)
         table.insert(REPLICASET_ADD, ctx.replica_id)
     elseif ctx.type == box.ctl.event.REPLICASET_REMOVE then
         table.insert(REPLICASET_REMOVE, ctx.replica_id)
+    elseif ctx.type == box.ctl.event.REPLICA_CONNECTION_ERROR then
+        table.insert(REPLICA_CONNECTION_ERROR, ctx.replica_id)
     end
 end
 
