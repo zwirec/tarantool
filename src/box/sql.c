@@ -451,7 +451,13 @@ int tarantoolSqlite3EphemeralInsert(struct space *space, const char *tuple,
 {
 	assert(space != NULL);
 	mp_tuple_assert(tuple, tuple_end);
-	if (space_ephemeral_replace(space, tuple, tuple_end) != 0)
+	struct request request;
+	memset(&request, 0, sizeof(request));
+	request.type = IPROTO_REPLACE;
+	request.tuple = tuple;
+	request.tuple_end = tuple_end;
+	struct tuple *result;
+	if (space_execute_dml(space, NULL, &request, &result) != 0)
 		return SQL_TARANTOOL_INSERT_FAIL;
 	return SQLITE_OK;
 }
@@ -516,11 +522,20 @@ int tarantoolSqlite3EphemeralDelete(BtCursor *pCur)
 	if (key == NULL)
 		return SQL_TARANTOOL_DELETE_FAIL;
 
-	int rc = space_ephemeral_delete(pCur->space, key);
-	if (rc != 0) {
+	mp_tuple_assert(key, key + key_size);
+	struct request request;
+	struct tuple *result;
+	memset(&request, 0, sizeof(request));
+	request.type = IPROTO_DELETE;
+	request.key = key;
+	request.key_end = key + key_size;
+
+	if (space_execute_dml(pCur->space, NULL, &request, &result) != 0) {
 		diag_log();
 		return SQL_TARANTOOL_DELETE_FAIL;
 	}
+	if (result != NULL)
+		box_tuple_unref(result);
 	return SQLITE_OK;
 }
 
@@ -596,14 +611,24 @@ int tarantoolSqlite3EphemeralClearTable(BtCursor *pCur)
 	struct tuple *tuple;
 	char *key;
 	uint32_t  key_size;
+	struct request request;
+	struct tuple *result;
+	memset(&request, 0, sizeof(request));
+	request.type = IPROTO_DELETE;
 
 	while (iterator_next(it, &tuple) == 0 && tuple != NULL) {
 		key = tuple_extract_key(tuple, it->index->def->key_def,
 					&key_size);
-		if (space_ephemeral_delete(pCur->space, key) != 0) {
+		mp_tuple_assert(key, key + key_size);
+		request.key = key;
+		request.key_end = key + key_size;
+		if (space_execute_dml(pCur->space, NULL, &request,
+				      &result) != 0) {
 			iterator_delete(it);
 			return SQL_TARANTOOL_DELETE_FAIL;
 		}
+		if (result != NULL)
+			box_tuple_unref(result);
 	}
 	iterator_delete(it);
 

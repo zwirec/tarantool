@@ -404,6 +404,100 @@ int
 box_process1(struct request *request, box_tuple_t **result);
 
 /**
+ * Execute an INSERT request for ephemeral spaces.
+ *
+ * \param space ephemeral space.
+ * \param tuple encoded tuple in
+ * MsgPack Array format.
+ * \param tuple_end end of @a tuple.
+ * \param[out] result a new tuple.
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_ephemeral_insert(struct space *space, const char *tuple,
+		     const char *tuple_end, box_tuple_t **result);
+
+/**
+ * Execute an REPLACE request for ephemeral spaces.
+ *
+ * \param space ephemeral space.
+ * \param tuple encoded tuple in
+ * MsgPack Array format.
+ * \param tuple_end end of @a tuple.
+ * \param[out] result a new tuple.
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_ephemeral_replace(struct space *space, const char *tuple,
+		      const char *tuple_end, box_tuple_t **result);
+
+/**
+ * Execute an DELETE request for ephemeral spaces.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier
+ * \param key encoded key in
+ * MsgPack Array format.
+ * \param key_end the end of encoded \a key.
+ * \param[out] result an old tuple.
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_ephemeral_delete(struct space *space, uint32_t index_id, const char *key,
+		     const char *key_end, box_tuple_t **result);
+
+/**
+ * Execute an UPDATE request for ephemeral spaces.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier
+ * \param key encoded key in
+ * MsgPack Array format.
+ * \param key_end the end of encoded \a key.
+ * \param ops encoded operations in
+ * MsgPack Arrat format.
+ * \param ops_end the end of encoded \a ops.
+ * \param index_base 0 if fieldnos in
+ * update operations are zero-based
+ * indexed (like C) or 1 if for one-based
+ * indexed field ids (like Lua).
+ * \param[out] result a new tuple.
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_ephemeral_update(struct space *space, uint32_t index_id, const char *key,
+		     const char *key_end, const char *ops, const char *ops_end,
+		     int index_base, box_tuple_t **result);
+
+/**
+ * Execute an UPSERT request for ephemeral spaces.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier
+ * \param ops encoded operations in
+ * MsgPack Arrat format.
+ * \param ops_end the end of encoded \a ops.
+ * \param tuple encoded tuple in
+ * MsgPack Array format.
+ * \param tuple_end end of @a tuple.
+ * \param index_base 0 if fieldnos in update
+ * operations are zero-based
+ * indexed (like C) or 1 if for one-based
+ * indexed field ids (like Lua).
+ * \param[out] result a new tuple.
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_ephemeral_upsert(struct space *space, uint32_t index_id, const char *tuple,
+		     const char *tuple_end, const char *ops,
+		     const char *ops_end, int index_base, box_tuple_t **result);
+
+/**
  * Execute request on given space.
  *
  * \param request Request to be executed
