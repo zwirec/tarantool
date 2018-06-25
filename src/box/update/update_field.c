@@ -32,17 +32,37 @@
 #include "trivia/util.h"
 #include "msgpuck.h"
 #include "diag.h"
+#include "json/path.h"
 #include "box/error.h"
 #include "box/tuple_dictionary.h"
 
 /* {{{ error helpers */
+
+/**
+ * Convert a field ID to update into string. ID can be a field
+ * number, a name or a path.
+ * @param op Operation to convert ID of.
+ * @param index_base Index base for non-negative fields to
+ *        convert them into 1 based form.
+ * @return String with field ID.
+ */
+static inline const char *
+update_err_field_str(const struct update_op *op, int index_base)
+{
+	if (op->path != NULL)
+		return tt_sprintf("'%.*s'", op->path_len, op->path);
+	else if (op->field_no >= 0)
+		return tt_sprintf("%d", op->field_no + index_base);
+	else
+		return tt_sprintf("%d", op->field_no);
+}
 
 static inline int
 update_err_arg_type(const struct update_op *op, int index_base,
 		    const char *needed_type)
 {
 	diag_set(ClientError, ER_UPDATE_ARG_TYPE, (char)op->opcode,
-		 index_base + op->field_no, needed_type);
+		 update_err_field_str(op, index_base), needed_type);
 	return -1;
 }
 
@@ -50,14 +70,15 @@ static inline int
 update_err_int_overflow(const struct update_op *op, int index_base)
 {
 	diag_set(ClientError, ER_UPDATE_INTEGER_OVERFLOW, op->opcode,
-		 index_base + op->field_no);
+		 update_err_field_str(op, index_base));
 	return -1;
 }
 
 static inline int
 update_err_splice_bound(const struct update_op *op, int index_base)
 {
-	diag_set(ClientError, ER_SPLICE, index_base + op->field_no,
+	diag_set(ClientError, ER_UPDATE_SPLICE,
+		 update_err_field_str(op, index_base),
 		 "offset is out of bound");
 	return -1;
 }
@@ -65,16 +86,21 @@ update_err_splice_bound(const struct update_op *op, int index_base)
 int
 update_err_no_such_field(const struct update_op *op, int index_base)
 {
-	diag_set(ClientError, ER_NO_SUCH_FIELD, op->field_no >= 0 ?
-		 index_base + op->field_no : op->field_no);
+	if (op->path == NULL) {
+		diag_set(ClientError, ER_NO_SUCH_FIELD, op->field_no >= 0 ?
+			 index_base + op->field_no : op->field_no);
+	} else {
+		diag_set(ClientError, ER_NO_SUCH_FIELD_NAME, op->path_len,
+			 op->path);
+	}
 	return -1;
 }
 
 int
 update_err(const struct update_op *op, int index_base, const char *reason)
 {
-	diag_set(ClientError, ER_UPDATE_FIELD, index_base + op->field_no,
-		 reason);
+	diag_set(ClientError, ER_UPDATE_FIELD,
+		 update_err_field_str(op, index_base), reason);
 	return -1;
 }
 
@@ -91,6 +117,8 @@ update_field_sizeof(struct update_field *field)
 		return field->scalar.op->new_field_len;
 	case UPDATE_ARRAY:
 		return update_array_sizeof(field);
+	case UPDATE_BAR:
+		return update_bar_sizeof(field);
 	default:
 		unreachable();
 	}
@@ -114,6 +142,8 @@ update_field_store(struct update_field *field, char *out, char *out_end)
 		return field->scalar.op->new_field_len;
 	case UPDATE_ARRAY:
 		return update_array_store(field, out, out_end);
+	case UPDATE_BAR:
+		return update_bar_store(field, out, out_end);
 	default:
 		unreachable();
 	}
@@ -534,6 +564,9 @@ update_op_decode(struct update_op *op, int index_base,
 	switch(mp_typeof(**expr)) {
 	case MP_INT:
 	case MP_UINT: {
+		op->path = NULL;
+		op->path_offset = 0;
+		op->path_len = 0;
 		if (mp_read_i32(op, expr, index_base, &field_no) != 0)
 			return -1;
 		if (field_no - index_base >= 0) {
@@ -551,12 +584,42 @@ update_op_decode(struct update_op *op, int index_base,
 		const char *path = mp_decode_str(expr, &len);
 		uint32_t hash = field_name_hash(path, len);
 		uint32_t field_no;
+		op->path = path;
+		op->path_len = len;
 		if (tuple_fieldno_by_name(dict, path, len, hash,
-					  &field_no) != 0) {
+					  &field_no) == 0) {
+			op->field_no = (int32_t) field_no;
+			op->path_offset = len;
+			break;
+		}
+		struct json_path_parser parser;
+		json_path_parser_create(&parser, path, len);
+		struct json_path_node node;
+		int rc = json_path_next(&parser, &node);
+		if (rc != 0) {
+			diag_set(ClientError, ER_INVALID_JSON, rc, len, path);
+			return -1;
+		}
+		switch (node.type) {
+		case JSON_PATH_NUM:
+			if (node.num == 0)
+				goto err_no_name;
+			op->field_no = (int32_t)node.num - 1;
+			break;
+		case JSON_PATH_STR:
+			hash = field_name_hash(node.str, node.len);
+			if (tuple_fieldno_by_name(dict, node.str, node.len,
+						  hash, &field_no) == 0) {
+				op->field_no = (int32_t) field_no;
+				break;
+			}
+			FALLTHROUGH;
+		default:
+err_no_name:
 			diag_set(ClientError, ER_NO_SUCH_FIELD_NAME, len, path);
 			return -1;
 		}
-		op->field_no = (int32_t) field_no;
+		op->path_offset = parser.offset;
 		break;
 	}
 	default:

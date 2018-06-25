@@ -422,12 +422,16 @@ tuple_field_go_to_index(const char **field, uint64_t index);
  * @param[in][out] field Field to propagate.
  * @param key Key to propagate to.
  * @param len Length of @a key.
+ * @param[out] mp_key When the target field is value in a map,
+ *             here the pointer to MessagePack key is saved. Else
+ *             NULL is saved.
  *
  * @retval  0 Success, the index was found.
  * @retval -1 Not found.
  */
 int
-tuple_field_go_to_key(const char **field, const char *key, int len);
+tuple_field_go_to_key(const char **field, const char *key, int len,
+		      const char **mp_key);
 
 /**
  * Iterate through MessagePack along the JSON path.

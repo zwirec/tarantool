@@ -501,7 +501,8 @@ tuple_field_go_to_index(const char **field, uint64_t index)
 }
 
 int
-tuple_field_go_to_key(const char **field, const char *key, int len)
+tuple_field_go_to_key(const char **field, const char *key, int len,
+		      const char **mp_key)
 {
 	enum mp_type type = mp_typeof(**field);
 	if (type != MP_MAP)
@@ -510,6 +511,7 @@ tuple_field_go_to_key(const char **field, const char *key, int len)
 	for (; count > 0; --count) {
 		type = mp_typeof(**field);
 		if (type == MP_STR) {
+			*mp_key = *field;
 			uint32_t value_len;
 			const char *value = mp_decode_str(field, &value_len);
 			if (value_len == (uint)len &&
@@ -532,6 +534,7 @@ tuple_field_go_to_path(const char **field, const char *path, uint32_t offset,
 	struct json_path_parser parser;
 	struct json_path_node node;
 	int rc;
+	const char *unused_mp_key;
 	json_path_parser_create(&parser, path + offset, len - offset);
 	while ((rc = json_path_next(&parser, &node)) == 0) {
 		switch(node.type) {
@@ -539,7 +542,8 @@ tuple_field_go_to_path(const char **field, const char *path, uint32_t offset,
 			rc = tuple_field_go_to_index(field, node.num);
 			break;
 		case JSON_PATH_STR:
-			rc = tuple_field_go_to_key(field, node.str, node.len);
+			rc = tuple_field_go_to_key(field, node.str, node.len,
+						   &unused_mp_key);
 			break;
 		default:
 			assert(node.type == JSON_PATH_END);

@@ -31,6 +31,7 @@
  * SUCH DAMAGE.
  */
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -91,6 +92,13 @@ json_path_parser_create(struct json_path_parser *parser, const char *src,
 	parser->src_len = src_len;
 	parser->offset = 0;
 	parser->symbol_count = 0;
+}
+
+/** Check if @a parser had reached end of the path. */
+static inline bool
+json_path_parser_is_eof(const struct json_path_parser *parser)
+{
+	return parser->offset == parser->src_len;
 }
 
 /**
