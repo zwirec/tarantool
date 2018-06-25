@@ -331,6 +331,7 @@ t;
   - 'box.error.CHECKPOINT_IN_PROGRESS : 120'
   - 'box.error.FIELD_TYPE : 23'
   - 'box.error.WRONG_SPACE_FORMAT : 141'
+  - 'box.error.UPDATE_FIELD_NAME : 86'
   - 'box.error.UNKNOWN_UPDATE_OP : 28'
   - 'box.error.WRONG_COLLATION_OPTIONS : 151'
   - 'box.error.CURSOR_NO_TRANSACTION : 80'

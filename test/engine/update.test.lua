@@ -143,8 +143,6 @@ t:update({{'=', 'field2', {13, 14, 15}}})
 t:update({{':', 'field4', 3, 3, 'bbccdd'}, {'+', 'field6', 50}, {'!', 7, 300}})
 -- Any JSON path is initially a field name. And only then JSON.
 t:update({{'+', '[1]', 50}})
--- JSON paths are not allowed yet.
-t:update({{'=', 'field2[1]', 13}})
 
 s:update({1}, {{'=', 'field3', {d = 30, e = 31, f = 32}}})
 

@@ -269,3 +269,39 @@ t:update({{'=', 3, map}})
 s:update(1, {{'=', 3, map}})
 
 s:drop()
+
+--
+-- gh-1261: update by JSON path.
+--
+format = {}
+format[1] = {'field1', 'unsigned'}
+format[2] = {'field2', 'array'}
+format[3] = {'field3', 'number'}
+format[4] = {'field4', 'integer'}
+s = box.schema.create_space('test', {format = format})
+pk = s:create_index('pk')
+test_run:cmd("setopt delimiter ';'")
+t = s:replace({
+	1, {
+		2, 3, {
+			4, {
+				5, 6
+			}, 7
+		}, 8, 9
+	}, 10, 11
+});
+test_run:cmd("setopt delimiter ''");
+
+-- Test bar '=' on existing fields.
+t:update({{'=', '[2][3][2][1]', 5000}})
+t:update({{'=', '[2][3][2][1]', 5000}, {'=', '[2][3][1]', 4000}})
+t:update({{'=', 'field2[2]', 3000}, {'=', 'field3', 10000}, {'+', 'field4', 5}})
+
+-- Test bar '!' and bar '=' on non-existing fields.
+t:update({{'!', '[2][3][2][1]', 4.5}})
+t:update({{'!', '[2][3][2][2]', 4.5}})
+
+-- Test bar '#'.
+t:update({{'#', '[2][3]', 1}})
+
+s:drop()

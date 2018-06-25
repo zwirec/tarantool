@@ -240,13 +240,20 @@ do_op_array_insert(struct update_op *op, struct update_field *field,
 {
 	assert(field->type == UPDATE_ARRAY);
 	struct rope *rope = field->array.rope;
+	struct update_array_item *item;
+	if (op->path != NULL) {
+		item = update_array_extract_item(field, op, ctx->index_base);
+		if (item == NULL)
+			return -1;
+		return do_op_bar_insert(op, &item->field, ctx);
+	}
+
 	if (update_op_adjust_field_no(op, rope_size(rope) + 1,
 				      ctx->index_base) != 0)
 		return -1;
 
-	struct update_array_item *item =
-		(struct update_array_item *) rope_alloc(rope->ctx,
-							sizeof(*item));
+	item = (struct update_array_item *) rope_alloc(rope->ctx,
+						       sizeof(*item));
 	if (item == NULL)
 		return -1;
 	update_array_item_create(item, UPDATE_NOP, op->arg.set.value,
@@ -261,18 +268,23 @@ do_op_array_set(struct update_op *op, struct update_field *field,
 	assert(field->type == UPDATE_ARRAY);
 	struct rope *rope = field->array.rope;
 	/* Intepret '=' for n +1 field as insert. */
-	if (op->field_no == (int32_t) rope_size(rope))
+	if (op->field_no == (int32_t) rope_size(rope)) {
+		op->opcode = '!';
 		return do_op_array_insert(op, field, ctx);
+	}
 
 	struct update_array_item *item =
 		update_array_extract_item(field, op, ctx->index_base);
 	if (item == NULL)
 		return -1;
-	op->new_field_len = op->arg.set.length;
-	/* Ignore the previous op, if any. */
-	item->field.type = UPDATE_SCALAR;
-	item->field.scalar.op = op;
-	return 0;
+	if (op->path == NULL) {
+		op->new_field_len = op->arg.set.length;
+		/* Ignore the previous op, if any. */
+		item->field.type = UPDATE_SCALAR;
+		item->field.scalar.op = op;
+		return 0;
+	}
+	return do_op_bar_set(op, &item->field, ctx);
 }
 
 int
@@ -284,6 +296,13 @@ do_op_array_delete(struct update_op *op, struct update_field *field,
 	if (update_op_adjust_field_no(op, rope_size(rope),
 				      ctx->index_base) != 0)
 		return -1;
+	if (op->path != NULL) {
+		struct update_array_item *item =
+			update_array_extract_item(field, op, ctx->index_base);
+		if (item == NULL)
+			return -1;
+		return do_op_bar_delete(op, &item->field, ctx);
+	}
 	uint32_t delete_count = op->arg.del.count;
 	if ((uint64_t) op->field_no + delete_count > rope_size(rope))
 		delete_count = rope_size(rope) - op->field_no;
@@ -311,6 +330,8 @@ do_op_array_##op_type(struct update_op *op, struct update_field *field, \
 			 op->field_no, "double update of the same field"); \
 		return -1; \
 	} \
+	if (op->path != NULL) \
+		return do_op_bar_##op_type(op, &item->field, ctx); \
 	if (update_op_do_##op_type(op, item->field.data, \
 				   ctx->index_base) != 0) \
 		return -1; \

@@ -172,6 +172,9 @@ struct update_op {
 	uint32_t new_field_len;
 	/** Opcode symbol: = + - / ... */
 	uint8_t opcode;
+	const char *path;
+	int path_len;
+	int path_offset;
 };
 
 /**
@@ -204,6 +207,7 @@ enum update_type {
 	UPDATE_SCALAR,
 	/** Field is updated array. Check the rope for updates. */
 	UPDATE_ARRAY,
+	UPDATE_BAR,
 };
 
 /**
@@ -226,6 +230,34 @@ struct update_field {
 		struct {
 			struct rope *rope;
 		} array;
+		struct {
+			struct update_op *op;
+			/**
+			 * For insertion/deletion to change parent
+			 * header.
+			 */
+			const char *parent;
+			union {
+				/**
+				 * For scalar bar; insertion into
+				 * array; deletion. This is the
+				 * point to delete, change on
+				 * insert after.
+				 */
+				struct {
+					const char *point;
+					uint32_t point_size;
+				};
+				/*
+				 * For insertion into map. New
+				 * key.
+				 */
+				struct {
+					const char *key;
+					uint32_t key_len;
+				};
+			};
+		} bar;
 	};
 };
 
@@ -297,6 +329,12 @@ update_array_create(struct update_field *field, struct region *region,
 OP_DECL_GENERIC(array)
 
 /* }}} update_field.array */
+
+/* {{{ update_field.bar */
+
+OP_DECL_GENERIC(bar)
+
+/* }}} update_field.bar */
 
 /* {{{ scalar helpers */
 

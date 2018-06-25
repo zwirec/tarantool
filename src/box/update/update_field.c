@@ -2,6 +2,7 @@
 #include "trivia/util.h"
 #include "msgpuck.h"
 #include "diag.h"
+#include "json/path.h"
 #include "box/error.h"
 #include "box/tuple_dictionary.h"
 
@@ -16,6 +17,8 @@ update_field_sizeof(struct update_field *field)
 		return field->scalar.op->new_field_len;
 	case UPDATE_ARRAY:
 		return update_array_sizeof(field);
+	case UPDATE_BAR:
+		return update_bar_sizeof(field);
 	default:
 		unreachable();
 	}
@@ -39,6 +42,8 @@ update_field_store(struct update_field *field, char *out, char *out_end)
 		return field->scalar.op->new_field_len;
 	case UPDATE_ARRAY:
 		return update_array_store(field, out, out_end);
+	case UPDATE_BAR:
+		return update_bar_store(field, out, out_end);
 	default:
 		unreachable();
 	}
@@ -525,6 +530,7 @@ update_op_decode(struct update_op *op, int index_base,
 			diag_set(ClientError, ER_NO_SUCH_FIELD, field_no);
 			return -1;
 		}
+		op->path = NULL;
 		break;
 	}
 	case MP_STR: {
@@ -532,12 +538,53 @@ update_op_decode(struct update_op *op, int index_base,
 		uint32_t hash = field_name_hash(path, len);
 		uint32_t field_no;
 		if (tuple_fieldno_by_name(dict, path, len, hash,
-					  &field_no) != 0) {
+					  &field_no) == 0) {
+			op->field_no = (int32_t) field_no;
+			op->path = NULL;
+			break;
+		}
+		struct json_path_parser parser;
+		json_path_parser_create(&parser, path, len);
+		struct json_path_node node;
+		int rc = json_path_next(&parser, &node);
+		if (rc != 0) {
+			diag_set(ClientError, ER_INVALID_JSON, rc,
+				 tt_cstr(path, len));
+			return -1;
+		}
+		switch (node.type) {
+		case JSON_PATH_NUM:
+			if (node.num == 0)
+				goto err_no_name;
+			op->field_no = (int32_t)node.num - 1;
+			break;
+		case JSON_PATH_STR:
+			hash = field_name_hash(node.str, node.len);
+			if (tuple_fieldno_by_name(dict, node.str, node.len,
+						  hash, &field_no) == 0) {
+				op->field_no = (int32_t) field_no;
+				break;
+			}
+			FALLTHROUGH;
+		default:
+err_no_name:
 			diag_set(ClientError, ER_NO_SUCH_FIELD_NAME,
 				 tt_cstr(path, len));
 			return -1;
 		}
-		op->field_no = (int32_t) field_no;
+		op->path_offset = parser.offset;
+		rc = json_path_next(&parser, &node);
+		if (rc != 0) {
+			diag_set(ClientError, ER_INVALID_JSON, rc,
+				 tt_cstr(path, len));
+			return -1;
+		}
+		if (node.type != JSON_PATH_END) {
+			op->path = path;
+			op->path_len = len;
+		} else {
+			op->path = NULL;
+		}
 		break;
 	}
 	default:
