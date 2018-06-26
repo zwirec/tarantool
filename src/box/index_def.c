@@ -31,6 +31,7 @@
 #include "index_def.h"
 #include "schema_def.h"
 #include "identifier.h"
+#include "fiber.h"
 
 const char *index_type_strs[] = { "HASH", "TREE", "BITSET", "RTREE" };
 
@@ -308,4 +309,120 @@ index_def_is_valid(struct index_def *index_def, const char *space_name)
 		}
 	}
 	return true;
+}
+
+/**
+ * Fill index_opts structure from opts field in tuple of space _index
+ * Throw an error is unrecognized option.
+ *
+ * @param opts[out] result options.
+ * @param map options to decode.
+ * @param region region to use for memory alloc.
+ *
+ * @retval not NULL Success.
+ * @retval NULL Error.
+ */
+static inline int
+index_opts_decode(struct index_opts *opts, const char *map,
+		  struct region *region)
+{
+	index_opts_create(opts);
+	if (opts_decode(opts, index_opts_reg, &map, ER_WRONG_INDEX_OPTIONS,
+			BOX_INDEX_FIELD_OPTS, region) != 0) {
+		return -1;
+	}
+	if (opts->distance == rtree_index_distance_type_MAX) {
+		diag_set(ClientError, ER_WRONG_INDEX_OPTIONS,
+			  BOX_INDEX_FIELD_OPTS, "distance must be either "\
+			  "'euclid' or 'manhattan'");
+		return -1;
+	}
+	if (opts->sql != NULL) {
+		char *sql = strdup(opts->sql);
+		if (sql == NULL) {
+			opts->sql = NULL;
+			diag_set(OutOfMemory, strlen(opts->sql) + 1, "strdup",
+				 "sql");
+			return -1;
+		}
+		opts->sql = sql;
+	}
+	if (opts->range_size <= 0) {
+		diag_set(ClientError, ER_WRONG_INDEX_OPTIONS,
+			 BOX_INDEX_FIELD_OPTS,
+			 "range_size must be greater than 0");
+		return -1;
+	}
+	if (opts->page_size <= 0 || opts->page_size > opts->range_size) {
+		diag_set(ClientError, ER_WRONG_INDEX_OPTIONS,
+			 BOX_INDEX_FIELD_OPTS,
+			 "page_size must be greater than 0 and "
+			 "less than or equal to range_size");
+		return -1;
+	}
+	if (opts->run_count_per_level <= 0) {
+		diag_set(ClientError, ER_WRONG_INDEX_OPTIONS,
+			 BOX_INDEX_FIELD_OPTS,
+			 "run_count_per_level must be greater than 0");
+		return -1;
+	}
+	if (opts->run_size_ratio <= 1) {
+		diag_set(ClientError, ER_WRONG_INDEX_OPTIONS,
+			 BOX_INDEX_FIELD_OPTS,
+			 "run_size_ratio must be greater than 1");
+		return -1;
+	}
+	if (opts->bloom_fpr <= 0 || opts->bloom_fpr > 1) {
+		diag_set(ClientError, ER_WRONG_INDEX_OPTIONS,
+			 BOX_INDEX_FIELD_OPTS,
+			 "bloom_fpr must be greater than 0 and "
+			 "less than or equal to 1");
+		return -1;
+	}
+	return 0;
+}
+
+struct index_def *
+index_def_new_decode(uint32_t space_id, uint32_t index_id,
+		     struct field_def *fields,
+		     uint32_t field_count, const char *name,
+		     uint32_t name_len, const char *type_field,
+		     const char *opts_field, const char *parts,
+		     const char *space_name, struct key_def *pk_def)
+{
+	struct index_opts opts;
+	enum index_type type = STR2ENUM(index_type, type_field);
+	if (index_opts_decode(&opts, opts_field, &fiber()->gc) != 0)
+		return NULL;
+	if (name_len > BOX_NAME_MAX) {
+		diag_set(ClientError, ER_MODIFY_INDEX,
+			 tt_cstr(name, BOX_INVALID_NAME_MAX),
+			 space_name, "index name is too long");
+		return NULL;
+	}
+	if (identifier_check(name, name_len) != 0)
+		return NULL;
+	struct key_def *key_def = NULL;
+	uint32_t part_count = mp_decode_array(&parts);
+	struct key_part_def *part_def =
+		(struct key_part_def *) malloc(sizeof(*part_def) * part_count);
+	if (part_def == NULL) {
+		diag_set(OutOfMemory, sizeof(*part_def) * part_count,
+			 "malloc", "key_part_def");
+		return NULL;
+	}
+	if (key_def_decode_parts(part_def, part_count, &parts,
+				 fields, field_count) != 0) {
+		free(part_def);
+		return NULL;
+	}
+	key_def = key_def_new_with_parts(part_def, part_count);
+	free(part_def);
+	if (key_def == NULL)
+		return NULL;
+	struct index_def *index_def =
+		index_def_new(space_id, index_id, name, name_len, type, &opts,
+			      key_def, pk_def);
+	key_def_delete(key_def);
+	return index_def;
 }

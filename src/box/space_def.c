@@ -34,6 +34,10 @@
 #include "error.h"
 #include "sql.h"
 #include "msgpuck.h"
+#include "tuple_format.h"
+#include "schema_def.h"
+#include "identifier.h"
+#include "small/region.h"
 
 /**
  * Make checks from msgpack.
@@ -350,4 +354,155 @@ checks_array_decode(const char **str, uint32_t len, char *opt, uint32_t errcode,
 error:
 	sql_expr_list_delete(db, checks);
 	return  -1;
+}
+
+/**
+ * Decode field definition from MessagePack map. Format:
+ * {name: <string>, type: <string>}. Type is optional.
+ * @param[out] field Field to decode to.
+ * @param data MessagePack map to decode.
+ * @param space_name Name of a space, from which the field is got.
+ *        Used in error messages.
+ * @param name_len Length of @a space_name.
+ * @param errcode Error code to use for client errors. Either
+ *        create or modify space errors.
+ * @param fieldno Field number to decode. Used in error messages.
+ * @param region Region to allocate field name.
+ *
+ * @retval 0 Success.
+ * @retval -1 Error.
+ */
+static inline int
+field_def_decode(struct field_def *field, const char **data,
+		 const char *space_name, uint32_t name_len,
+		 uint32_t errcode, uint32_t fieldno, struct region *region)
+{
+	if (mp_typeof(**data) != MP_MAP) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d is not map",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	int count = mp_decode_map(data);
+	*field = field_def_default;
+	bool is_action_missing = true;
+	uint32_t action_literal_len = strlen("nullable_action");
+	for (int i = 0; i < count; ++i) {
+		if (mp_typeof(**data) != MP_STR) {
+			diag_set(ClientError, errcode,
+				  tt_cstr(space_name, name_len),
+				  tt_sprintf("field %d format is not map"\
+					     " with string keys",
+					     fieldno + TUPLE_INDEX_BASE));
+			return -1;
+		}
+		uint32_t key_len;
+		const char *key = mp_decode_str(data, &key_len);
+		if (opts_parse_key(field, field_def_reg, key, key_len, data,
+				   ER_WRONG_SPACE_FORMAT,
+				   fieldno + TUPLE_INDEX_BASE, region,
+				   true) != 0)
+			return -1;
+		if (is_action_missing &&
+		    key_len == action_literal_len &&
+		    memcmp(key, "nullable_action", action_literal_len) == 0)
+			is_action_missing = false;
+	}
+	if (is_action_missing) {
+		field->nullable_action = field->is_nullable ?
+			ON_CONFLICT_ACTION_NONE
+			: ON_CONFLICT_ACTION_DEFAULT;
+	}
+	if (field->name == NULL) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d name is not specified",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	size_t field_name_len = strlen(field->name);
+	if (field_name_len > BOX_NAME_MAX) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d name is too long",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	if (identifier_check(field->name, field_name_len))
+		return -1;
+	if (field->type == field_type_MAX) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d has unknown field type",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	if (field->nullable_action == on_conflict_action_MAX) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d has unknown field on conflict "
+				     "nullable action",
+				     fieldno + TUPLE_INDEX_BASE));
+		return -1;
+	}
+	if (!((field->is_nullable && field->nullable_action ==
+	       ON_CONFLICT_ACTION_NONE)
+	      || (!field->is_nullable
+		  && field->nullable_action != ON_CONFLICT_ACTION_NONE))) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("field %d has conflicting nullability and "
+				     "nullable action properties", fieldno +
+				     TUPLE_INDEX_BASE));
+		return -1;
+	}
+	if (field->coll_id != COLL_NONE &&
+	    field->type != FIELD_TYPE_STRING &&
+	    field->type != FIELD_TYPE_SCALAR &&
+	    field->type != FIELD_TYPE_ANY) {
+		diag_set(ClientError, errcode, tt_cstr(space_name, name_len),
+			  tt_sprintf("collation is reasonable only for "
+				     "string, scalar and any fields"));
+		return -1;
+	}
+
+	const char *dv = field->default_value;
+	if (dv != NULL) {
+		field->default_value_expr = sql_expr_compile(sql_get(), dv,
+							     strlen(dv));
+		if (field->default_value_expr == NULL)
+			return -1;
+	}
+	return 0;
+}
+
+int
+space_format_decode(struct field_def **field, const char *data,
+		    uint32_t *out_count, const char *space_name,
+		    uint32_t name_len, uint32_t errcode, struct region *region)
+{
+	/* Type is checked by _space format. */
+	assert(mp_typeof(*data) == MP_ARRAY);
+	*field = NULL;
+	uint32_t count = mp_decode_array(&data);
+	*out_count = count;
+	if (count == 0)
+		return 0;
+	size_t size = count * sizeof(struct field_def);
+	struct field_def *region_defs =
+		(struct field_def *) region_alloc(region, size);
+	if (region_defs == NULL) {
+		diag_set(OutOfMemory, size, "region_alloc", "region_defs");
+		return -1;
+	}
+	/*
+	 * Nullify to prevent a case when decoding will fail in
+	 * the middle and space_def_destroy_fields() below will
+	 * work with garbage pointers.
+	 */
+	memset(region_defs, 0, size);
+	for (uint32_t i = 0; i < count; ++i) {
+		if (field_def_decode(&region_defs[i], &data, space_name,
+				     name_len, errcode, i, region) != 0) {
+			space_def_destroy_fields(region_defs, count);
+			return -1;
+		}
+	}
+	*field = region_defs;
+	return 0;
 }

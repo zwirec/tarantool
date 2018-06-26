@@ -358,6 +358,32 @@ index_def_cmp(const struct index_def *key1, const struct index_def *key2);
 bool
 index_def_is_valid(struct index_def *index_def, const char *space_name);
 
+/**
+ * Create a index_def object from given arguments.
+ *
+ * @param space_id Id of space index created for.
+ * @param index_id Id of new index.
+ * @param fields Fields definition.
+ * @param field_count Number of fields.
+ * @param name Index name.
+ * @param name_len Length of index name.
+ * @param type_field Indx type as C-string.
+ * @param opts_field Options packed with MsgPack.
+ * @param parts Parts packed with MsgPack.
+ * @param space_name Name of space index created for.
+ * @param pk_def Primary key definition.
+ *
+ * @retval not NULL Success.
+ * @retval NULL Error.
+ */
+struct index_def *
+index_def_new_decode(uint32_t space_id, uint32_t index_id,
+		     struct field_def *fields,
+		     uint32_t field_count, const char *name,
+		     uint32_t name_len, const char *type_field,
+		     const char *opts_field, const char *parts,
+		     const char *space_name, struct key_def *pk_def);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 

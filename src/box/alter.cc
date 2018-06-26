@@ -30,27 +30,18 @@
  */
 #include "alter.h"
 #include "schema.h"
-#include "user.h"
-#include "space.h"
-#include "index.h"
 #include "func.h"
 #include "coll_id_cache.h"
 #include "coll_id_def.h"
 #include "txn.h"
 #include "tuple.h"
-#include "fiber.h" /* for gc_pool */
 #include "scoped_guard.h"
 #include "third_party/base64.h"
-#include <new> /* for placement new */
-#include <stdio.h> /* snprintf() */
-#include <ctype.h>
 #include "replication.h" /* for replica_set_id() */
 #include "session.h" /* to fetch the current user. */
-#include "vclock.h" /* VCLOCK_MAX */
 #include "xrow.h"
 #include "iproto_constants.h"
 #include "identifier.h"
-#include "version.h"
 #include "sequence.h"
 #include "sql.h"
 
@@ -167,61 +158,6 @@ err:
 }
 
 /**
- * Fill index_opts structure from opts field in tuple of space _index
- * Throw an error is unrecognized option.
- */
-static void
-index_opts_decode(struct index_opts *opts, const char *map,
-		  struct region *region)
-{
-	index_opts_create(opts);
-	if (opts_decode(opts, index_opts_reg, &map, ER_WRONG_INDEX_OPTIONS,
-			BOX_INDEX_FIELD_OPTS, region) != 0)
-		diag_raise();
-	if (opts->distance == rtree_index_distance_type_MAX) {
-		tnt_raise(ClientError, ER_WRONG_INDEX_OPTIONS,
-			  BOX_INDEX_FIELD_OPTS, "distance must be either "\
-			  "'euclid' or 'manhattan'");
-	}
-	if (opts->sql != NULL) {
-		char *sql = strdup(opts->sql);
-		if (sql == NULL) {
-			opts->sql = NULL;
-			tnt_raise(OutOfMemory, strlen(opts->sql) + 1, "strdup",
-				  "sql");
-		}
-		opts->sql = sql;
-	}
-	if (opts->range_size <= 0) {
-		tnt_raise(ClientError, ER_WRONG_INDEX_OPTIONS,
-			  BOX_INDEX_FIELD_OPTS,
-			  "range_size must be greater than 0");
-	}
-	if (opts->page_size <= 0 || opts->page_size > opts->range_size) {
-		tnt_raise(ClientError, ER_WRONG_INDEX_OPTIONS,
-			  BOX_INDEX_FIELD_OPTS,
-			  "page_size must be greater than 0 and "
-			  "less than or equal to range_size");
-	}
-	if (opts->run_count_per_level <= 0) {
-		tnt_raise(ClientError, ER_WRONG_INDEX_OPTIONS,
-			  BOX_INDEX_FIELD_OPTS,
-			  "run_count_per_level must be greater than 0");
-	}
-	if (opts->run_size_ratio <= 1) {
-		tnt_raise(ClientError, ER_WRONG_INDEX_OPTIONS,
-			  BOX_INDEX_FIELD_OPTS,
-			  "run_size_ratio must be greater than 1");
-	}
-	if (opts->bloom_fpr <= 0 || opts->bloom_fpr > 1) {
-		tnt_raise(ClientError, ER_WRONG_INDEX_OPTIONS,
-			  BOX_INDEX_FIELD_OPTS,
-			  "bloom_fpr must be greater than 0 and "
-			  "less than or equal to 1");
-	}
-}
-
-/**
  * Create a index_def object from a record in _index
  * system space.
  *
@@ -237,50 +173,22 @@ static struct index_def *
 index_def_new_from_tuple(struct tuple *tuple, struct space *space)
 {
 	index_def_check_tuple(tuple);
-
-	struct index_opts opts;
 	uint32_t id = tuple_field_u32_xc(tuple, BOX_INDEX_FIELD_SPACE_ID);
 	uint32_t index_id = tuple_field_u32_xc(tuple, BOX_INDEX_FIELD_ID);
-	enum index_type type =
-		STR2ENUM(index_type, tuple_field_cstr_xc(tuple,
-							 BOX_INDEX_FIELD_TYPE));
 	uint32_t name_len;
 	const char *name = tuple_field_str_xc(tuple, BOX_INDEX_FIELD_NAME,
 					      &name_len);
+	const char *type_field = tuple_field_cstr_xc(tuple,
+						     BOX_INDEX_FIELD_TYPE);
 	const char *opts_field =
-		tuple_field_with_type_xc(tuple, BOX_INDEX_FIELD_OPTS,
-					 MP_MAP);
-	index_opts_decode(&opts, opts_field, &fiber()->gc);
+		tuple_field_with_type_xc(tuple, BOX_INDEX_FIELD_OPTS, MP_MAP);
 	const char *parts = tuple_field(tuple, BOX_INDEX_FIELD_PARTS);
-	uint32_t part_count = mp_decode_array(&parts);
-	if (name_len > BOX_NAME_MAX) {
-		tnt_raise(ClientError, ER_MODIFY_INDEX,
-			  tt_cstr(name, BOX_INVALID_NAME_MAX),
-			  space_name(space), "index name is too long");
-	}
-	identifier_check_xc(name, name_len);
-	struct key_def *key_def = NULL;
-	struct key_part_def *part_def = (struct key_part_def *)
-			malloc(sizeof(*part_def) * part_count);
-	if (part_def == NULL) {
-		tnt_raise(OutOfMemory, sizeof(*part_def) * part_count,
-			  "malloc", "key_part_def");
-	}
-	auto key_def_guard = make_scoped_guard([&] {
-		free(part_def);
-		if (key_def != NULL)
-			key_def_delete(key_def);
-	});
-	if (key_def_decode_parts(part_def, part_count, &parts,
-				 space->def->fields,
-				 space->def->field_count) != 0)
-		diag_raise();
-	key_def = key_def_new_with_parts(part_def, part_count);
-	if (key_def == NULL)
-		diag_raise();
 	struct index_def *index_def =
-		index_def_new(id, index_id, name, name_len, type,
-			      &opts, key_def, space_index_key_def(space, 0));
+		index_def_new_decode(id, index_id, space->def->fields,
+				     space->def->field_count, name, name_len,
+				     type_field, opts_field, parts,
+				     space_name(space),
+				     space_index_key_def(space, 0));
 	if (index_def == NULL)
 		diag_raise();
 	auto index_def_guard = make_scoped_guard([=] { index_def_delete(index_def); });
@@ -313,149 +221,6 @@ space_opts_decode(struct space_opts *opts, const char *map,
 		}
 		opts->sql = sql;
 	}
-}
-
-/**
- * Decode field definition from MessagePack map. Format:
- * {name: <string>, type: <string>}. Type is optional.
- * @param[out] field Field to decode to.
- * @param data MessagePack map to decode.
- * @param space_name Name of a space, from which the field is got.
- *        Used in error messages.
- * @param name_len Length of @a space_name.
- * @param errcode Error code to use for client errors. Either
- *        create or modify space errors.
- * @param fieldno Field number to decode. Used in error messages.
- * @param region Region to allocate field name.
- */
-static void
-field_def_decode(struct field_def *field, const char **data,
-		 const char *space_name, uint32_t name_len,
-		 uint32_t errcode, uint32_t fieldno, struct region *region)
-{
-	if (mp_typeof(**data) != MP_MAP) {
-		tnt_raise(ClientError, errcode, tt_cstr(space_name, name_len),
-			  tt_sprintf("field %d is not map",
-				     fieldno + TUPLE_INDEX_BASE));
-	}
-	int count = mp_decode_map(data);
-	*field = field_def_default;
-	bool is_action_missing = true;
-	uint32_t action_literal_len = strlen("nullable_action");
-	for (int i = 0; i < count; ++i) {
-		if (mp_typeof(**data) != MP_STR) {
-			tnt_raise(ClientError, errcode,
-				  tt_cstr(space_name, name_len),
-				  tt_sprintf("field %d format is not map"\
-					     " with string keys",
-					     fieldno + TUPLE_INDEX_BASE));
-		}
-		uint32_t key_len;
-		const char *key = mp_decode_str(data, &key_len);
-		if (opts_parse_key(field, field_def_reg, key, key_len, data,
-				   ER_WRONG_SPACE_FORMAT,
-				   fieldno + TUPLE_INDEX_BASE, region,
-				   true) != 0)
-			diag_raise();
-		if (is_action_missing &&
-		    key_len == action_literal_len &&
-		    memcmp(key, "nullable_action", action_literal_len) == 0)
-			is_action_missing = false;
-	}
-	if (is_action_missing) {
-		field->nullable_action = field->is_nullable ?
-			ON_CONFLICT_ACTION_NONE
-			: ON_CONFLICT_ACTION_DEFAULT;
-	}
-	if (field->name == NULL) {
-		tnt_raise(ClientError, errcode, tt_cstr(space_name, name_len),
-			  tt_sprintf("field %d name is not specified",
-				     fieldno + TUPLE_INDEX_BASE));
-	}
-	size_t field_name_len = strlen(field->name);
-	if (field_name_len > BOX_NAME_MAX) {
-		tnt_raise(ClientError, errcode, tt_cstr(space_name, name_len),
-			  tt_sprintf("field %d name is too long",
-				     fieldno + TUPLE_INDEX_BASE));
-	}
-	identifier_check_xc(field->name, field_name_len);
-	if (field->type == field_type_MAX) {
-		tnt_raise(ClientError, errcode, tt_cstr(space_name, name_len),
-			  tt_sprintf("field %d has unknown field type",
-				     fieldno + TUPLE_INDEX_BASE));
-	}
-	if (field->nullable_action == on_conflict_action_MAX) {
-		tnt_raise(ClientError, errcode, tt_cstr(space_name, name_len),
-			  tt_sprintf("field %d has unknown field on conflict "
-				     "nullable action",
-				     fieldno + TUPLE_INDEX_BASE));
-	}
-	if (!((field->is_nullable && field->nullable_action ==
-	       ON_CONFLICT_ACTION_NONE)
-	      || (!field->is_nullable
-		  && field->nullable_action != ON_CONFLICT_ACTION_NONE))) {
-		tnt_raise(ClientError, errcode, tt_cstr(space_name, name_len),
-			  tt_sprintf("field %d has conflicting nullability and "
-				     "nullable action properties", fieldno +
-				     TUPLE_INDEX_BASE));
-	}
-	if (field->coll_id != COLL_NONE &&
-	    field->type != FIELD_TYPE_STRING &&
-	    field->type != FIELD_TYPE_SCALAR &&
-	    field->type != FIELD_TYPE_ANY) {
-		tnt_raise(ClientError, errcode, tt_cstr(space_name, name_len),
-			  tt_sprintf("collation is reasonable only for "
-				     "string, scalar and any fields"));
-	}
-
-	const char *dv = field->default_value;
-	if (dv != NULL) {
-		field->default_value_expr = sql_expr_compile(sql_get(), dv,
-							     strlen(dv));
-		if (field->default_value_expr == NULL)
-			diag_raise();
-	}
-}
-
-/**
- * Decode MessagePack array of fields.
- * @param data MessagePack array of fields.
- * @param[out] out_count Length of a result array.
- * @param space_name Space name to use in error messages.
- * @param errcode Errcode for client errors.
- * @param region Region to allocate result array.
- *
- * @retval Array of fields.
- */
-static struct field_def *
-space_format_decode(const char *data, uint32_t *out_count,
-		    const char *space_name, uint32_t name_len,
-		    uint32_t errcode, struct region *region)
-{
-	/* Type is checked by _space format. */
-	assert(mp_typeof(*data) == MP_ARRAY);
-	uint32_t count = mp_decode_array(&data);
-	*out_count = count;
-	if (count == 0)
-		return NULL;
-	size_t size = count * sizeof(struct field_def);
-	struct field_def *region_defs =
-		(struct field_def *) region_alloc_xc(region, size);
-	/*
-	 * Nullify to prevent a case when decoding will fail in
-	 * the middle and space_def_destroy_fields() below will
-	 * work with garbage pointers.
-	 */
-	memset(region_defs, 0, size);
-	auto fields_guard = make_scoped_guard([=] {
-		space_def_destroy_fields(region_defs, count);
-	});
-	for (uint32_t i = 0; i < count; ++i) {
-		field_def_decode(&region_defs[i], &data, space_name, name_len,
-				 errcode, i, region);
-	}
-	fields_guard.is_active = false;
-	return region_defs;
 }
 
 /**
@@ -508,8 +273,9 @@ space_def_new_from_tuple(struct tuple *tuple, uint32_t errcode,
 	const char *format =
 		tuple_field_with_type_xc(tuple, BOX_SPACE_FIELD_FORMAT,
 					 MP_ARRAY);
-	fields = space_format_decode(format, &field_count, name,
-				     name_len, errcode, region);
+	if (space_format_decode(&fields, format, &field_count, name, name_len,
+				errcode, region) != 0)
+		diag_raise();
 	auto fields_guard = make_scoped_guard([=] {
 		space_def_destroy_fields(fields, field_count);
 	});
