@@ -42,6 +42,18 @@ struct lua_State;
 char *
 lbox_encode_tuple_on_gc(struct lua_State *L, int idx, size_t *p_len);
 
+/**
+ * Get space from Lua stack.
+ *
+ * @param L Lua stack to get space from.
+ * @param idx Index by which to get the space from @a L.
+ *
+ * @retval struct space *space - success.
+ * @retval NULL - error.
+ */
+struct space *
+lua_checkephemeralspace(struct lua_State *L, int idx);
+
 void
 box_lua_misc_init(struct lua_State *L);
 

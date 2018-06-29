@@ -1,0 +1,165 @@
+-- Ephemeral space: create and drop
+s = box.schema.space.create_ephemeral()
+---
+...
+s.index
+---
+- []
+...
+s.engine
+---
+- memtx
+...
+s.field_count
+---
+- 0
+...
+s:drop()
+---
+...
+format = {{name='field1', type='unsigned'}, {name='field2', type='string'}}
+---
+...
+options = {engine = 'memtx', field_count = 7, format = format}
+---
+...
+s = box.schema.space.create_ephemeral(options)
+---
+...
+s.index
+---
+- []
+...
+s.engine
+---
+- memtx
+...
+s.field_count
+---
+- 7
+...
+s:drop()
+---
+...
+s = box.schema.space.create_ephemeral({engine = 'other'})
+---
+- error: Space engine 'other' does not exist
+...
+s = box.schema.space.create_ephemeral({field_count = 'asd'})
+---
+- error: Illegal parameters, options parameter 'field_count' should be of type number
+...
+s = box.schema.space.create_ephemeral({format = 'a'})
+---
+- error: Illegal parameters, options parameter 'format' should be of type table
+...
+-- Multiple creation and drop
+for j = 1,10 do for i=1,10 do s = box.schema.space.create_ephemeral(); s:drop(); end; collectgarbage('collect'); end
+---
+...
+-- Multiple drop
+s = box.schema.space.create_ephemeral()
+---
+...
+s:drop()
+---
+...
+s:drop()
+---
+- error: 'builtin/box/schema.lua:529: The space is dropped and can not be used'
+...
+-- Drop using function from box.schema
+s = box.schema.space.create_ephemeral()
+---
+...
+box.schema.space.drop_ephemeral(s)
+---
+...
+s
+---
+- []
+...
+-- Ephemeral space: methods
+format = {{name='field1', type='unsigned'}, {name='field2', type='string'}}
+---
+...
+options = {engine = 'memtx', field_count = 7, format = format}
+---
+...
+s = box.schema.space.create_ephemeral(options)
+---
+...
+s:format()
+---
+- - name: field1
+    type: unsigned
+  - name: field2
+    type: string
+...
+s:run_triggers(true)
+---
+...
+s:drop()
+---
+...
+format = {}
+---
+...
+format[1] = {name = 'aaa', type = 'unsigned'}
+---
+...
+format[2] = {name = 'bbb', type = 'unsigned'}
+---
+...
+format[3] = {name = 'ccc', type = 'unsigned'}
+---
+...
+format[4] = {name = 'ddd', type = 'unsigned'}
+---
+...
+s = box.schema.space.create_ephemeral({format = format})
+---
+...
+s:frommap({ddd = 1, aaa = 2, ccc = 3, bbb = 4})
+---
+- [2, 4, 3, 1]
+...
+s:frommap({ddd = 1, aaa = 2, bbb = 3})
+---
+- [2, 3, null, 1]
+...
+s:frommap({ddd = 1, aaa = 2, ccc = 3, eee = 4})
+---
+- null
+- Unknown field 'eee'
+...
+s:frommap()
+---
+- error: 'builtin/box/schema.lua:1583: Usage: space:frommap(map, opts)'
+...
+s:frommap({})
+---
+- []
+...
+s:frommap({ddd = 1, aaa = 2, ccc = 3, bbb = 4}, {table = true})
+---
+- - 2
+  - 4
+  - 3
+  - 1
+...
+s:frommap({ddd = 1, aaa = 2, ccc = 3, bbb = 4}, {table = false})
+---
+- [2, 4, 3, 1]
+...
+s:frommap({ddd = 1, aaa = 2, ccc = 3, bbb = box.NULL})
+---
+- [2, null, 3, 1]
+...
+s:frommap({ddd = 1, aaa = 2, ccc = 3, bbb = 4}, {dummy = true})
+---
+- [2, 4, 3, 1]
+...
+s:drop()
+---
+...

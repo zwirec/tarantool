@@ -477,6 +477,63 @@ box.schema.space.create = function(name, options)
     return box.space[id], "created"
 end
 
+local space_new_ephemeral = box.internal.space.space_new_ephemeral
+box.internal.space.space_new_ephemeral = nil
+local space_delete_ephemeral = box.internal.space.space_delete_ephemeral
+box.internal.space.space_delete_ephemeral = nil
+local space_ephemeral_methods = box.internal.space_ephemeral_methods
+box.internal.space_ephemeral_methods = nil
+local space_ephemeral_mt = {}
+
+box.schema.space.create_ephemeral = function(options)
+    local options_template = {
+        engine = 'string',
+        field_count = 'number',
+        format = 'table',
+    }
+    local options_defaults = {
+        engine = 'memtx',
+        field_count = 0,
+    }
+    check_param_table(options, options_template)
+    options = update_param_table(options, options_defaults)
+    local format = options.format and options.format or {}
+    check_param(format, 'format', 'table')
+    format = update_format(format)
+
+    local space = {}
+    space.space = space_new_ephemeral(options.engine,
+                                      options.field_count, format)
+    space.space_format = format
+    space.engine = options.engine
+    space.field_count = options.field_count
+    space.index = {}
+    setmetatable(space, space_ephemeral_mt)
+    -- Set GC for result
+    space.proxy = newproxy(true)
+    getmetatable(space.proxy).__gc = function(self)
+        space:drop()
+    end
+    return space
+end
+
+box.schema.space.drop_ephemeral = function(space)
+    check_param(space.space, 'space', 'cdata')
+    space_delete_ephemeral(space.space)
+    getmetatable(space.proxy).__gc = nil
+    for k,_ in pairs(space) do
+        space[k] = nil
+    end
+    local dropped_mt = {
+        __index = function()
+            error('The space is dropped and can not be used')
+        end
+    }
+    setmetatable(space, dropped_mt)
+end
+
+box.schema.create_ephemeral_space = box.schema.space.create_ephemeral
+
 -- space format - the metadata about space fields
 function box.schema.space.format(id, format)
     local _space = box.space._space
@@ -1080,6 +1137,12 @@ local function check_space_arg(space, method)
         error(string.format(fmt, method, method))
     end
 end
+local function check_ephemeral_space_arg(space, method)
+    if type(space) ~= 'table' or param_type(space.space) ~= 'cdata' then
+        local fmt = 'Use space:%s(...) instead of space.%s(...)'
+        error(string.format(fmt, method, method))
+    end
+end
 box.internal.check_space_arg = check_space_arg -- for net.box
 
 -- Helper function for nicer error messages
@@ -1504,6 +1567,30 @@ space_mt.run_triggers = function(space, yesno)
 end
 space_mt.frommap = box.internal.space.frommap
 space_mt.__index = space_mt
+
+-- Metatable for ephemeral space
+space_ephemeral_mt.format = function(space)
+    check_ephemeral_space_arg(space, 'format')
+    return space.space_format
+end
+space_ephemeral_mt.run_triggers = function(space, yesno)
+    check_ephemeral_space_arg(space, 'run_triggers')
+    builtin.space_run_triggers(space.space, yesno)
+end
+space_ephemeral_mt.frommap = function(space, map, options)
+    check_ephemeral_space_arg(space, 'frommap')
+    if type(map) ~= 'table' then
+        error('Usage: space:frommap(map, opts)')
+    end
+    options = options or {}
+    return space_ephemeral_methods.frommap(space.space, map, options)
+end
+space_ephemeral_mt.bsize = function(space)
+    check_ephemeral_space_arg(space, 'bsize')
+    return builtin.space_bsize(space.space)
+end
+space_ephemeral_mt.drop = box.schema.space.drop_ephemeral
+space_ephemeral_mt.__index = space_ephemeral_mt
 
 box.schema.index_mt = base_index_mt
 box.schema.memtx_index_mt = memtx_index_mt

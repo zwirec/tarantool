@@ -39,6 +39,8 @@
 #include "box/port.h"
 #include "box/lua/tuple.h"
 
+static uint32_t CTID_STRUCT_SPACE_POINTER = 0;
+
 /** {{{ Miscellaneous utils **/
 
 char *
@@ -53,6 +55,19 @@ lbox_encode_tuple_on_gc(lua_State *L, int idx, size_t *p_len)
 	mpstream_flush(&stream);
 	*p_len = region_used(gc) - used;
 	return (char *) region_join_xc(gc, *p_len);
+}
+
+struct space *
+lua_checkephemeralspace(struct lua_State *L, int idx)
+{
+	uint32_t ctypeid = 0;
+	void *data = luaL_checkcdata(L, idx, &ctypeid);
+	if (ctypeid != CTID_STRUCT_SPACE_POINTER) {
+		luaL_error(L, "Invalid argument #%d (space expected, got %s)",
+			   idx, lua_typename(L, ctypeid));
+		return NULL;
+	}
+	return *(struct space **) data;
 }
 
 /* }}} */
@@ -115,6 +130,12 @@ lbox_select(lua_State *L)
 void
 box_lua_misc_init(struct lua_State *L)
 {
+	int rc = luaL_cdef(L, "struct space;");
+	assert(rc == 0);
+	(void) rc;
+	CTID_STRUCT_SPACE_POINTER = luaL_ctypeid(L, "struct space *");
+	assert(CTID_STRUCT_SPACE_POINTER != 0);
+
 	static const struct luaL_Reg boxlib_internal[] = {
 		{"select", lbox_select},
 		{NULL, NULL}

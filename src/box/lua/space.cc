@@ -49,6 +49,7 @@ extern "C" {
 #include "box/sequence.h"
 #include "box/coll_id_cache.h"
 #include "box/replication.h" /* GROUP_LOCAL */
+#include "box/lua/misc.h"
 
 /**
  * Trigger function for all spaces
@@ -441,19 +442,154 @@ static struct trigger on_alter_space_in_lua = {
 };
 
 /**
+ * Create an ephemeral space and push in on Lua stack.
+ *
+ * @param L Lua stack in which ephemeral space will be pushed to.
+ * @param space_def Space definition of ephemeral space.
+ * @param index_def Index definition of new index for ephemeral
+ * space.
+ *
+ * @retval not nil ephemeral space created.
+ * @retval nil error, A reason is returned in
+ * the second value.
+ */
+static inline int
+box_space_new_ephemeral(struct lua_State *L, struct space_def *space_def,
+			struct index_def *index_def)
+{
+	struct rlist key_list;
+	rlist_create(&key_list);
+	if (index_def != NULL)
+		rlist_add_entry(&key_list, index_def, link);
+	struct space *space = space_new_ephemeral(space_def, &key_list);
+	space_def_delete(space_def);
+	if (index_def != NULL)
+		index_def_delete(index_def);
+	if (space == NULL)
+		return luaT_error(L);
+	uint32_t ctypeid = luaL_ctypeid(L, "struct space *");
+	struct space **ptr =
+		(struct space **) luaL_pushcdata(L, ctypeid);
+	*ptr = space;
+	return 1;
+}
+
+/**
+ * Create an ephemeral space.
+ *
+ * @param L Lua stack to next get arguments from:
+ * const char *engine_name, uint32_t field_count,
+ * tuple format
+ *
+ * @retval not nil ephemeral space created.
+ * @retval nil error, A reason is returned in
+ * the second value.
+ */
+static int
+lbox_space_new_ephemeral(struct lua_State *L)
+{
+	if (lua_gettop(L) != 3 || !lua_istable(L, 3))
+		return luaL_error(L, "Error with creating ephemeral space");
+	const char *engine_name = luaL_checkstring (L, 1);
+	uint32_t exact_field_count = luaL_checknumber (L, 2);
+	size_t format_len;
+	const char *format = lbox_encode_tuple_on_gc(L, 3, &format_len);
+
+	struct region *region = &fiber()->gc;
+	uint32_t field_count;
+	struct field_def *fields;
+	const char *name = "ephemeral";
+	uint32_t name_len = strlen(name);
+
+	if (space_format_decode(&fields, format, &field_count, name, name_len,
+				ER_CREATE_SPACE, region) != 0)
+		return luaT_error(L);
+	if (exact_field_count != 0 && exact_field_count < field_count) {
+		return luaL_error(L, "exact_field_count must be either 0 or"\
+				  ">= formatted field count");
+	}
+	struct space_def *space_def =
+		space_def_new(0, 0, exact_field_count, name, name_len,
+			      engine_name, strlen(engine_name),
+			      &space_opts_default, fields, field_count);
+	space_def_destroy_fields(fields, field_count);
+	if (space_def == NULL)
+		return luaT_error(L);
+	return box_space_new_ephemeral(L, space_def, NULL);
+}
+
+/**
+ * Delete an ephemeral space.
+ *
+ * @param L Lua stack to get space from.
+ */
+static int
+lbox_space_delete_ephemeral(struct lua_State *L)
+{
+	if (lua_gettop(L) != 1)
+		return luaL_error(L, "Usage: ephemeral_space:drop()");
+	struct space *space = lua_checkephemeralspace(L, 1);
+	space_delete(space);
+	return 0;
+}
+
+/**
  * Make a tuple or a table Lua object by map.
- * @param Lua space object.
- * @param Lua map table object.
- * @param Lua opts table object (optional).
+ *
+ * @param L Lua stack to next get table map from.
+ * Map should be on second position in this stack.
+ * @param space space to get format from.
+ * @param table flag to decide what to return.
+ *
  * @retval not nil A tuple or a table conforming to a space
- *         format.
- * @retval nil, err Can not built a tuple. A reason is returned in
- *         the second value.
+ * format.
+ * @retval nil, err Can not built a tuple. A reason is returned
+ * in the second value.
+ */
+static inline int
+box_space_frommap(struct lua_State *L, struct space *space, bool table)
+{
+	assert(space->format != NULL);
+	struct tuple_dictionary *dict = space->format->dict;
+	lua_createtable(L, space->def->field_count, 0);
+
+	lua_pushnil(L);
+	while (lua_next(L, 2) != 0) {
+		uint32_t fieldno;
+		size_t key_len;
+		const char *key = lua_tolstring(L, -2, &key_len);
+		uint32_t key_hash = lua_hashstring(L, -2);
+		if (tuple_fieldno_by_name(dict, key, key_len, key_hash,
+					  &fieldno)) {
+			lua_pushnil(L);
+			lua_pushstring(L, tt_sprintf("Unknown field '%s'",
+						     key));
+			return 2;
+		}
+		lua_rawseti(L, -3, fieldno+1);
+	}
+	if (table)
+		return 1;
+
+	lua_replace(L, 1);
+	lua_settop(L, 1);
+	return lbox_tuple_new(L);
+}
+
+/**
+ * Make a tuple or a table Lua object by map for usual
+ * spaces.
+ *
+ * @param L Lua stack to next get arguments from:
+ * uint32_t space_id, table map, table options (optional)
+ * @retval not nil A tuple or a table conforming to a space
+ * format.
+ * @retval nil, err Can not built a tuple. A reason is returned
+ * in the second value.
  */
 static int
 lbox_space_frommap(struct lua_State *L)
 {
-	struct tuple_dictionary *dict = NULL;
 	uint32_t id = 0;
 	struct space *space = NULL;
 	int argc = lua_gettop(L);
@@ -478,34 +614,33 @@ lbox_space_frommap(struct lua_State *L)
 					     "doesn't exist", id));
 		return 2;
 	}
-	assert(space->format != NULL);
-
-	dict = space->format->dict;
-	lua_createtable(L, space->def->field_count, 0);
-
-	lua_pushnil(L);
-	while (lua_next(L, 2) != 0) {
-		uint32_t fieldno;
-		size_t key_len;
-		const char *key = lua_tolstring(L, -2, &key_len);
-		uint32_t key_hash = lua_hashstring(L, -2);
-		if (tuple_fieldno_by_name(dict, key, key_len, key_hash,
-					  &fieldno)) {
-			lua_pushnil(L);
-			lua_pushstring(L, tt_sprintf("Unknown field '%s'",
-						     key));
-			return 2;
-		}
-		lua_rawseti(L, -3, fieldno+1);
-	}
-	if (table)
-		return 1;
-
-	lua_replace(L, 1);
-	lua_settop(L, 1);
-	return lbox_tuple_new(L);
+	return box_space_frommap(L, space, table);
 usage_error:
 	return luaL_error(L, "Usage: space:frommap(map, opts)");
+}
+
+/**
+ * Make a tuple or a table Lua object by map for ephemeral
+ * spaces.
+ *
+ * @param L Lua stack to next get arguments from:
+ * struct space *space, table map, table options
+ * @retval not nil A tuple or a table conforming to a space
+ * format.
+ * @retval nil, err Can not built a tuple. A reason is returned
+ * in the second value.
+ */
+static int
+lbox_space_frommap_ephemeral(struct lua_State *L)
+{
+	if (lua_gettop(L) != 3 || !lua_istable(L, 2) || !lua_istable(L, 3))
+		return luaL_error(L, "Usage: space:frommap(map, opts)");
+	struct space *space = lua_checkephemeralspace(L, 1);
+	lua_getfield(L, 3, "table");
+	if (!lua_isboolean(L, -1) && !lua_isnil(L, -1))
+		return luaL_error(L, "Usage: space:frommap(map, opts)");
+	bool table = lua_toboolean(L, -1);
+	return box_space_frommap(L, space, table);
 }
 
 void
@@ -595,12 +730,25 @@ box_lua_space_init(struct lua_State *L)
 	lua_setfield(L, -2, "REPLICA_MAX");
 	lua_pushnumber(L, SQL_BIND_PARAMETER_MAX);
 	lua_setfield(L, -2, "SQL_BIND_PARAMETER_MAX");
-	lua_pop(L, 2); /* box, schema */
+	lua_pop(L, 1); /* schema */
+	lua_getfield(L, -1, "internal");
+	lua_newtable(L);
+	lua_setfield(L, -2, "space_ephemeral_methods");
+	lua_pop(L, 2); /* box, internal */
 
 	static const struct luaL_Reg space_internal_lib[] = {
 		{"frommap", lbox_space_frommap},
+		{"space_new_ephemeral", lbox_space_new_ephemeral},
+		{"space_delete_ephemeral", lbox_space_delete_ephemeral},
 		{NULL, NULL}
 	};
 	luaL_register(L, "box.internal.space", space_internal_lib);
+	lua_pop(L, 1);
+	static const struct luaL_Reg space_ephemeral_lib[] = {
+		{"frommap", lbox_space_frommap_ephemeral},
+		{NULL, NULL}
+	};
+	luaL_register(L, "box.internal.space_ephemeral_methods",
+		      space_ephemeral_lib);
 	lua_pop(L, 1);
 }
