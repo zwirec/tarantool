@@ -135,7 +135,7 @@ s:frommap({ddd = 1, aaa = 2, ccc = 3, eee = 4})
 ...
 s:frommap()
 ---
-- error: 'builtin/box/schema.lua:1583: Usage: space:frommap(map, opts)'
+- error: 'builtin/box/schema.lua:1659: Usage: space:frommap(map, opts)'
 ...
 s:frommap({})
 ---
@@ -162,4 +162,86 @@ s:frommap({ddd = 1, aaa = 2, ccc = 3, bbb = 4}, {dummy = true})
 ...
 s:drop()
 ---
+...
+-- Ephemeral space: index create and drop.
+s = box.schema.space.create_ephemeral()
+---
+...
+i = s:create_index('a')
+---
+...
+i.unique
+---
+- true
+...
+i.parts
+---
+- - - 0
+    - unsigned
+...
+i.id
+---
+- 0
+...
+i.name
+---
+- a
+...
+i:drop()
+---
+...
+i = s:create_index('a', {parts={{5,'string', collation='Unicode'}}})
+---
+...
+i.parts
+---
+- - field: 4
+    collation: 1
+    type: string
+...
+i:drop()
+---
+...
+i = s:create_index('a', {parts={2, 'unsigned', 3, 'unsigned'}})
+---
+...
+i.parts
+---
+- - - 1
+    - unsigned
+  - - 2
+    - unsigned
+...
+i:drop()
+---
+...
+-- Double creation of index for ephemeral space.
+i = s:create_index('a')
+---
+...
+i = s:create_index('a')
+---
+- error: Index 'a' already exists
+...
+i:drop()
+---
+...
+i = s:create_index('a')
+---
+...
+i = s:create_index('a', {if_not_exists=true})
+---
+...
+i:drop()
+---
+...
+-- Ephemeral space can have only primary index with id == 0.
+i = s:create_index('a', {id = 10})
+---
+- error: Ephemeral space does not support non-primary index
+...
+i = s:create_index('a', {type = 'bitset', parts = {1, 'unsigned', 2, 'unsigned'}})
+---
+- error: 'Can''t create or modify index ''a'' in space ''ephemeral'': primary key
+    must be unique'
 ...

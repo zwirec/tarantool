@@ -534,6 +534,69 @@ lbox_space_delete_ephemeral(struct lua_State *L)
 }
 
 /**
+ * Create an index for ephemeral space.
+ *
+ * @param L Lua stack to next get arguments from:
+ * struct space *space, uint32_t iid, const char *name,
+ * const char *type_field, tuple index_opts, tuple parts
+ *
+ * @retval not nil index for ephemeral space created.
+ * @retval nil error
+ */
+static int
+lbox_index_new_ephemeral(struct lua_State *L)
+{
+	uint32_t argc = lua_gettop(L);
+	if (argc != 6)
+		return luaL_error(L, "Using: ephemeral:create_index(opts");
+	struct space *space = lua_checkephemeralspace(L, 1);
+	uint32_t index_id = luaL_checknumber (L, 2);
+	const char *name = luaL_checkstring (L, 3);
+	const char *type_field = luaL_checkstring(L, 4);
+	const char *opts_field = luaL_checkstring(L, 5);
+	const char *parts = luaL_checkstring(L, 6);
+	if (index_id != 0) {
+		diag_set(ClientError, ER_UNSUPPORTED, "Ephemeral space",
+			 "non-primary index");
+		return luaT_error(L);
+	}
+
+	struct space_def *space_def = space_def_dup(space->def);
+	if (space_def == NULL)
+		return luaT_error(L);
+	struct index_def *index_def =
+		index_def_new_decode(0, index_id, space->def->fields,
+				     space->def->field_count, name,
+				     strlen(name), type_field, opts_field,
+				     parts, space_name(space), NULL);
+	if (index_def == NULL)
+		return luaT_error(L);
+	if (!index_def_is_valid(index_def, space_name(space)) ||
+	    space_check_index_def(space, index_def) != 0) {
+		index_def_delete(index_def);
+		return luaT_error(L);
+	}
+	space_delete(space);
+	return box_space_new_ephemeral(L, space_def, index_def);
+}
+
+/**
+ * Drop primary index of ephemeral space.
+ *
+ * @param L Lua stack to get space from.
+ */
+static int
+lbox_index_drop_ephemeral(struct lua_State *L)
+{
+	struct space *space = lua_checkephemeralspace(L, 1);
+	struct space_def *space_def = space_def_dup(space->def);
+	if (space_def == NULL)
+		return luaT_error(L);
+	space_delete(space);
+	return box_space_new_ephemeral(L, space_def, NULL);
+}
+
+/**
  * Make a tuple or a table Lua object by map.
  *
  * @param L Lua stack to next get table map from.
@@ -740,6 +803,8 @@ box_lua_space_init(struct lua_State *L)
 		{"frommap", lbox_space_frommap},
 		{"space_new_ephemeral", lbox_space_new_ephemeral},
 		{"space_delete_ephemeral", lbox_space_delete_ephemeral},
+		{"index_new_ephemeral", lbox_index_new_ephemeral},
+		{"index_delete_ephemeral", lbox_index_drop_ephemeral},
 		{NULL, NULL}
 	};
 	luaL_register(L, "box.internal.space", space_internal_lib);

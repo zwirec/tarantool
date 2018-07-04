@@ -56,3 +56,36 @@ s:frommap({ddd = 1, aaa = 2, ccc = 3, bbb = 4}, {table = false})
 s:frommap({ddd = 1, aaa = 2, ccc = 3, bbb = box.NULL})
 s:frommap({ddd = 1, aaa = 2, ccc = 3, bbb = 4}, {dummy = true})
 s:drop()
+
+
+-- Ephemeral space: index create and drop.
+s = box.schema.space.create_ephemeral()
+
+i = s:create_index('a')
+i.unique
+i.parts
+i.id
+i.name
+i:drop()
+
+i = s:create_index('a', {parts={{5,'string', collation='Unicode'}}})
+i.parts
+i:drop()
+
+i = s:create_index('a', {parts={2, 'unsigned', 3, 'unsigned'}})
+i.parts
+i:drop()
+
+-- Double creation of index for ephemeral space.
+i = s:create_index('a')
+i = s:create_index('a')
+i:drop()
+
+i = s:create_index('a')
+i = s:create_index('a', {if_not_exists=true})
+i:drop()
+
+-- Ephemeral space can have only primary index with id == 0.
+i = s:create_index('a', {id = 10})
+
+i = s:create_index('a', {type = 'bitset', parts = {1, 'unsigned', 2, 'unsigned'}})

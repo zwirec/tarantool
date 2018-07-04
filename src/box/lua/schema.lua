@@ -765,23 +765,7 @@ for k, v in pairs(index_options) do
     alter_index_template[k] = v
 end
 
---
--- check_param_table() template for create_index(), includes
--- all index options and if_not_exists specifier
---
-local create_index_template = table.deepcopy(alter_index_template)
-create_index_template.if_not_exists = "boolean"
-
-box.schema.index.create = function(space_id, name, options)
-    check_param(space_id, 'space_id', 'number')
-    check_param(name, 'name', 'string')
-    check_param_table(options, create_index_template)
-    local space = box.space[space_id]
-    if not space then
-        box.error(box.error.NO_SUCH_SPACE, '#'..tostring(space_id))
-    end
-    local format = space:format()
-
+local create_index_options = function(options, format, engine)
     local options_defaults = {
         type = 'tree',
     }
@@ -803,7 +787,7 @@ box.schema.index.create = function(space_id, name, options)
         end
     end
     options = update_param_table(options, options_defaults)
-    if space.engine == 'vinyl' then
+    if engine == 'vinyl' then
         options_defaults = {
             page_size = box.cfg.vinyl_page_size,
             range_size = box.cfg.vinyl_range_size,
@@ -815,6 +799,57 @@ box.schema.index.create = function(space_id, name, options)
         options_defaults = {}
     end
     options = update_param_table(options, options_defaults)
+    return options
+end
+
+local update_index_options = function(options, parts)
+    -- create_index() options contains type, parts, etc,
+    -- stored separately. Remove these members from index_opts
+    local index_opts = {
+            dimension = options.dimension,
+            unique = options.unique,
+            distance = options.distance,
+            page_size = options.page_size,
+            range_size = options.range_size,
+            run_count_per_level = options.run_count_per_level,
+            run_size_ratio = options.run_size_ratio,
+            bloom_fpr = options.bloom_fpr,
+    }
+    local field_type_aliases = {
+        num = 'unsigned'; -- Deprecated since 1.7.2
+        uint = 'unsigned';
+        str = 'string';
+        int = 'integer';
+        ['*'] = 'any';
+    };
+    for _, part in pairs(parts) do
+        local field_type = part.type:lower()
+        part.type = field_type_aliases[field_type] or field_type
+        if field_type == 'num' then
+            log.warn("field type '%s' is deprecated since Tarantool 1.7, "..
+                     "please use '%s' instead", field_type, part.type)
+        end
+    end
+    return index_opts
+end
+
+--
+-- check_param_table() template for create_index(), includes
+-- all index options and if_not_exists specifier
+--
+local create_index_template = table.deepcopy(alter_index_template)
+create_index_template.if_not_exists = "boolean"
+
+box.schema.index.create = function(space_id, name, options)
+    check_param(space_id, 'space_id', 'number')
+    check_param(name, 'name', 'string')
+    check_param_table(options, create_index_template)
+    local space = box.space[space_id]
+    if not space then
+        box.error(box.error.NO_SUCH_SPACE, '#'..tostring(space_id))
+    end
+    local format = space:format()
+    options = create_index_options(options, format, space.engine)
 
     local _index = box.space[box.schema.INDEX_ID]
     local _vindex = box.space[box.schema.VINDEX_ID]
@@ -844,31 +879,7 @@ box.schema.index.create = function(space_id, name, options)
         update_index_parts(format, options.parts)
     -- create_index() options contains type, parts, etc,
     -- stored separately. Remove these members from index_opts
-    local index_opts = {
-            dimension = options.dimension,
-            unique = options.unique,
-            distance = options.distance,
-            page_size = options.page_size,
-            range_size = options.range_size,
-            run_count_per_level = options.run_count_per_level,
-            run_size_ratio = options.run_size_ratio,
-            bloom_fpr = options.bloom_fpr,
-    }
-    local field_type_aliases = {
-        num = 'unsigned'; -- Deprecated since 1.7.2
-        uint = 'unsigned';
-        str = 'string';
-        int = 'integer';
-        ['*'] = 'any';
-    };
-    for _, part in pairs(parts) do
-        local field_type = part.type:lower()
-        part.type = field_type_aliases[field_type] or field_type
-        if field_type == 'num' then
-            log.warn("field type '%s' is deprecated since Tarantool 1.7, "..
-                     "please use '%s' instead", field_type, part.type)
-        end
-    end
+    local index_opts = update_index_options(options, parts)
     local _space_sequence = box.space[box.schema.SPACE_SEQUENCE_ID]
     local sequence_is_generated = false
     local sequence = options.sequence or nil -- ignore sequence = false
@@ -1082,6 +1093,67 @@ ffi.metatype(iterator_t, {
         return "<iterator state>"
     end;
 })
+
+local index_new_ephemeral = box.internal.space.index_new_ephemeral
+box.internal.space.index_new_ephemeral = nil
+local index_delete_ephemeral = box.internal.space.index_delete_ephemeral
+box.internal.space.index_delete_ephemeral = nil
+local index_ephemeral_mt = {}
+
+local create_ephemeral_index = function(space, name, options)
+    if type(space) ~= 'table' then
+        error("Usage: space:create_index(name, opts)")
+    end
+    check_param(name, 'name', 'string')
+    check_param_table(options, create_index_template)
+    local format = space:format()
+    options = create_index_options(options, format, space.engine)
+    local iid = options.id or 0
+    if space.index[iid] then
+        if options.if_not_exists then
+            return space.index[iid], "not created"
+        else
+            box.error(box.error.INDEX_EXISTS, name)
+        end
+    end
+    local parts, parts_can_be_simplified =
+        update_index_parts(format, options.parts)
+    local index_opts = update_index_options(options, parts)
+    if parts_can_be_simplified then
+        parts = simplify_index_parts(parts)
+    end
+    space.space = index_new_ephemeral(space.space, iid, name, options.type,
+                                      msgpack.encode(index_opts),
+                                      msgpack.encode(parts))
+    space.index[iid] = {}
+    space.index[iid].unique = index_opts.unique or true
+    space.index[iid].parts = parts
+    space.index[iid].id = iid
+    space.index[iid].name = name
+    space.index[iid].type = type
+    space.index[iid].options = options
+    space.index[iid].space = space
+    space.index[name] = space.index[iid]
+    setmetatable(space.index[iid], index_ephemeral_mt)
+    return space.index[name]
+end
+
+local drop_ephemeral_index = function(index)
+    if type(index) ~= 'table' then
+        error("Usage: index:drop()")
+    end
+    index.space.space = index_delete_ephemeral(index.space.space)
+    index.space.index[index.name] = nil
+    index.space.index[index.id] = nil
+    for k,_ in pairs(index) do
+        index[k] = nil
+    end
+    local dropped_mt = {
+        __index = function()
+            error('The index is dropped and can not be used')
+        end
+    }
+end
 
 local iterator_gen = function(param, state)
     --[[
@@ -1568,6 +1640,10 @@ end
 space_mt.frommap = box.internal.space.frommap
 space_mt.__index = space_mt
 
+-- Metatable for primary index of ephemeral space
+index_ephemeral_mt.drop = drop_ephemeral_index
+index_ephemeral_mt.__index = index_ephemeral_mt
+
 -- Metatable for ephemeral space
 space_ephemeral_mt.format = function(space)
     check_ephemeral_space_arg(space, 'format')
@@ -1589,6 +1665,7 @@ space_ephemeral_mt.bsize = function(space)
     check_ephemeral_space_arg(space, 'bsize')
     return builtin.space_bsize(space.space)
 end
+space_ephemeral_mt.create_index = create_ephemeral_index
 space_ephemeral_mt.drop = box.schema.space.drop_ephemeral
 space_ephemeral_mt.__index = space_ephemeral_mt
 
