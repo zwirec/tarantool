@@ -186,6 +186,60 @@ error:
 	return -1;
 }
 
+int
+update_array_create_with_child(struct update_field *field,
+			       struct update_field *child, int32_t field_no,
+			       struct region *region, const char *header)
+{
+	assert(child->type == UPDATE_BAR || child->type == UPDATE_ROUTE);
+	const char *data = header;
+	uint32_t field_count = mp_decode_array(&data);
+	const char *first_field = data;
+	const char *first_field_end = first_field;
+	mp_next(&first_field_end);
+	struct rope *rope = rope_new(region);
+	if (rope == NULL)
+		return -1;
+	struct update_array_item *item =
+		(struct update_array_item *) rope_alloc(rope->ctx,
+							sizeof(*item));
+	if (item == NULL)
+		goto error;
+	const char *end = first_field_end;
+	if (field_no > 0) {
+		for (int32_t i = 1; i < field_no; ++i)
+			mp_next(&end);
+		update_array_item_create(item, UPDATE_NOP, first_field,
+					 first_field_end - first_field,
+					 end - first_field_end);
+		if (rope_append(rope, item, field_no) != 0)
+			goto error;
+		item = (struct update_array_item *) rope_alloc(rope->ctx,
+							       sizeof(*item));
+		if (item == NULL)
+			goto error;
+		first_field = end;
+		first_field_end = first_field;
+		mp_next(&first_field_end);
+		end = first_field_end;
+	}
+	for (uint32_t i = field_no + 1; i < field_count; ++i)
+		mp_next(&end);
+	item->field = *child;
+	update_array_item_create(item, child->type, first_field,
+				 first_field_end - first_field,
+				 end - first_field_end);
+	field->type = UPDATE_ARRAY;
+	field->data = header;
+	field->size = end - header;
+	field->array.rope = rope;
+	if (rope_append(rope, item, field_count - field_no) == 0)
+		return 0;
+error:
+	rope_delete(rope);
+	return -1;
+}
+
 uint32_t
 update_array_sizeof(struct update_field *field)
 {

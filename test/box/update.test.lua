@@ -387,4 +387,53 @@ t2:update({{':', '[4].str', 2, 2, 'e'}})
 -- Test errors.
 t:update({{'+', 'g[3]', 50}})
 
+--
+-- Complex updates. Intersected paths, different types.
+--
+
+--
+-- 1. intersected paths with the same operation.
+--
+
+-- Difference in the last part.
+t:update({{'=', '[3][3][1][1]', 325}, {'=', '[3][3][1][2]', 375}})
+-- Different starting from the non-last part.
+t:update({{'=', '[3][3][1][1]', 325}, {'=', '[3][3][2][2]', 475}})
+t = {1}
+t[2] = setmetatable({}, {__serialize = 'map'})
+t[3] = {}
+test_run:cmd("setopt delimiter ';'")
+t[4] = {
+	1,
+	2,
+	3,
+	{
+		4,
+		5,
+		6,
+		7,
+		{
+			8,
+			9,
+			{10, 11, 12},
+			13,
+			14,
+		},
+		15,
+		16,
+		{17, 18, 19}
+	},
+	20,
+	21,
+	22
+};
+test_run:cmd("setopt delimiter ''");
+t = s:replace(t)
+-- Non-first and non-last field updates.
+t:update({{'=', '[4][4][5][3][2]', 11000}, {'=', '[4][4][8][3]', 19000}})
+-- Triple intersection with enabled fast jump by route.
+t:update({{'=', '[4][4][3]', 6000}, {'=', '[4][4][5][2]', 9000}, {'=', '[4][4][8][2]', 18000}})
+-- Triple intersection with no optimizations.
+t:update({{'=', '[4][3]', 3000}, {'=', '[4][4][2]', 5000}, {'=', '[4][4][5][1]', 8000}})
+
 s:drop()

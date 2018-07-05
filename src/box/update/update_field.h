@@ -232,6 +232,7 @@ enum update_type {
 	 * nodes. And this is the most common case.
 	 */
 	UPDATE_BAR,
+	UPDATE_ROUTE,
 };
 
 /**
@@ -299,6 +300,11 @@ struct update_field {
 				};
 			};
 		} bar;
+		struct {
+			const char *path;
+			int path_len;
+			struct update_field *next_hop;
+		} route;
 	};
 };
 
@@ -369,6 +375,11 @@ update_array_create(struct update_field *field, struct region *region,
 		    const char *header, const char *data, const char *data_end,
 		    uint32_t field_count);
 
+int
+update_array_create_with_child(struct update_field *field,
+			       struct update_field *child, int32_t field_no,
+			       struct region *region, const char *header);
+
 OP_DECL_GENERIC(array)
 
 /* }}} update_field.array */
@@ -384,6 +395,16 @@ OP_DECL_GENERIC(nop)
 OP_DECL_GENERIC(bar)
 
 /* }}} update_field.bar */
+
+/* {{{ update_field.route */
+
+int
+update_route_branch(struct update_field *field, struct update_op *new_op,
+		    struct update_ctx *ctx);
+
+OP_DECL_GENERIC(route)
+
+/* }}} update_field.route */
 
 #undef OP_DECL_GENERIC
 
@@ -401,6 +422,8 @@ do_op_##op_type(struct update_op *op, struct update_field *field, \
 		return do_op_nop_##op_type(op, field, ctx); \
 	case UPDATE_BAR: \
 		return do_op_bar_##op_type(op, field, ctx); \
+	case UPDATE_ROUTE: \
+		return do_op_route_##op_type(op, field, ctx); \
 	default: \
 		unreachable(); \
 	} \

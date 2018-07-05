@@ -31,6 +31,7 @@
  * SUCH DAMAGE.
  */
 #include <stdint.h>
+#include <string.h>
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -77,6 +78,19 @@ struct json_path_node {
 		uint64_t num;
 	};
 };
+
+static inline bool
+json_path_node_eq(const struct json_path_node *n1,
+		  const struct json_path_node *n2)
+{
+	if (n1->type != n2->type)
+		return false;
+	if (n1->type == JSON_PATH_NUM)
+		return n1->num == n2->num;
+	if (n1->type == JSON_PATH_END)
+		return true;
+	return n1->len == n2->len && memcmp(n1->str, n2->str, n1->len);
+}
 
 /**
  * Create @a parser.

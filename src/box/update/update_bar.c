@@ -190,14 +190,12 @@ int
 do_op_bar_set(struct update_op *op, struct update_field *field,
 	      struct update_ctx *ctx)
 {
-	(void) op;
-	(void) field;
-	(void) ctx;
 	assert(op->opcode == '=');
 	assert(field->type == UPDATE_BAR);
-	diag_set(ClientError, ER_UNSUPPORTED, "update",
-		 "intersected JSON paths");
-	return -1;
+	if (update_route_branch(field, op, ctx) != 0)
+		return -1;
+	assert(field->type == UPDATE_ROUTE);
+	return do_op_set(op, field->route.next_hop, ctx);
 }
 
 int
