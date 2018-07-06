@@ -137,7 +137,7 @@ struct op_set_arg {
 
 /** Argument of DELETE operation. */
 struct op_del_arg {
-	uint32_t count;
+	uint64_t count;
 };
 
 /**
@@ -355,15 +355,7 @@ static int
 read_arg_delete(int index_base, struct update_op *op,
 		const char **expr)
 {
-	if (mp_typeof(**expr) == MP_UINT) {
-		op->arg.del.count = (uint32_t) mp_decode_uint(expr);
-		return 0;
-	} else {
-		diag_set(ClientError, ER_UPDATE_ARG_TYPE, (char)op->opcode,
-			 index_base + op->field_no,
-			 "a number of fields to delete");
-		return -1;
-	}
+	return mp_read_uint(index_base, op, expr, &op->arg.del.count);
 }
 
 static int
