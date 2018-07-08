@@ -6,22 +6,27 @@
 # READLINE_LIBRARIES
 #
 
+find_library(CURSES_CURSES_LIBRARY NAMES libcurses.a)
+find_library(CURSES_NCURSES_LIBRARY NAMES libncurses.a)
+find_library(CURSES_FORM_LIBRARY NAMES libform.a)
 find_package(Curses)
 if(NOT CURSES_FOUND)
     find_package(Termcap)
 endif()
 
+set(READLINE_STATIC libreadline.a)
+
 if (DEFINED READLINE_ROOT)
   set(_FIND_OPTS NO_CMAKE NO_CMAKE_SYSTEM_PATH)
   find_library(READLINE_LIBRARY
-    NAMES readline
+    NAMES ${READLINE_STATIC} readline
     HINTS ${READLINE_ROOT}/lib
     ${_FIND_OPTS})
   find_path(READLINE_INCLUDE_DIR
     NAMES readline/readline.h
     HINTS ${READLINE_ROOT}/include ${_FIND_OPTS})
 else()
-  find_library(READLINE_LIBRARY NAMES readline)
+	find_library(READLINE_LIBRARY NAMES ${READLINE_STATIC} readline)
   find_path(READLINE_INCLUDE_DIR readline/readline.h)
 endif()
 

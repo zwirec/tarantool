@@ -107,11 +107,12 @@ endif ()
 
 add_library(core STATIC ${core_sources})
 target_link_libraries(core
-    salad small pthread
+    salad small
     ${LIBEV_LIBRARIES}
     ${LIBEIO_LIBRARIES}
     ${LIBCORO_LIBRARIES}
     ${MSGPUCK_LIBRARIES}
+    dl pthread
 )
 
 add_library(stat STATIC rmean.c latency.c histogram.c)
@@ -218,7 +219,16 @@ target_link_libraries(server core bit uri uuid ${ICU_LIBRARIES})
 set (reexport_libraries server core misc bitset csv
      ${LUAJIT_LIBRARIES} ${MSGPUCK_LIBRARIES} ${ICU_LIBRARIES})
 
+set(Z_STATIC libz.a)
+find_library(Z_LIBRARY NAMES ${Z_STATIC} z)
+
+set(M_STATIC libm.a)
+find_library(M_LIBRARY NAMES ${M_STATIC} m)
+
 set (common_libraries
+    ssl
+    crypto
+
     ${reexport_libraries}
     ${LIBYAML_LIBRARIES}
     ${READLINE_LIBRARIES}
@@ -247,6 +257,8 @@ endif()
 
 set (common_libraries ${common_libraries} ${LIBUUID_LIBRARIES})
 set (common_libraries ${common_libraries} PARENT_SCOPE)
+
+set (generic_libraries pthread dl)
 
 add_subdirectory(lib)
 add_subdirectory(box)
@@ -294,7 +306,9 @@ if (TARGET_OS_DARWIN)
     set_target_properties(tarantool PROPERTIES
         LINK_FLAGS "-Wl,-exported_symbols_list,${exports_file}")
 else ()
+    message(${reexport_libraries} ${common_libraries})
     target_link_libraries(tarantool
+	                  ${generic_libraries}
                           -Wl,--whole-archive box ${reexport_libraries}
                           salad -Wl,--no-whole-archive
                           ${common_libraries})
