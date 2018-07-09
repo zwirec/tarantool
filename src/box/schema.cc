@@ -277,7 +277,7 @@ schema_find_id(uint32_t system_space_id, uint32_t index_id,
 void
 schema_init()
 {
-	struct key_part_def key_parts[2];
+	struct key_part_def key_parts[4];
 	for (uint32_t i = 0; i < lengthof(key_parts); i++)
 		key_parts[i] = key_part_def_default;
 
@@ -342,6 +342,7 @@ schema_init()
 	 * _cluster - association instance uuid <-> instance id
 	 * The real index is defined in the snapshot.
 	 */
+
 	sc_space_new(BOX_CLUSTER_ID, "_cluster", key_parts, 1,
 		     &on_replace_cluster, NULL);
 
@@ -352,6 +353,21 @@ schema_init()
 	key_parts[1].type = FIELD_TYPE_UNSIGNED;
 	sc_space_new(BOX_INDEX_ID, "_index", key_parts, 2,
 		     &alter_space_on_replace_index, &on_stmt_begin_index);
+
+	/*
+	 * _promotion - a space to broadcast master promotion
+	 * messages.
+	 */
+	key_parts[0].fieldno = BOX_PROMOTION_FIELD_ID;
+	key_parts[0].type = FIELD_TYPE_UNSIGNED;
+	key_parts[1].fieldno = BOX_PROMOTION_FIELD_ROUND_UUID;
+	key_parts[1].type = FIELD_TYPE_STRING;
+	key_parts[2].fieldno = BOX_PROMOTION_FIELD_PHASE;
+	key_parts[2].type = FIELD_TYPE_UNSIGNED;
+	key_parts[3].fieldno = BOX_PROMOTION_FIELD_SOURCE_UUID;
+	key_parts[3].type = FIELD_TYPE_STRING;
+	sc_space_new(BOX_PROMOTION_ID, "_promotion", key_parts, 4,
+		     &alter_space_on_replace_promotion, NULL);
 
 	/*
 	 * _vinyl_deferred_delete - blackhole that is needed
