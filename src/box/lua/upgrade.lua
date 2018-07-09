@@ -997,9 +997,29 @@ local function create_vinyl_deferred_delete_space()
                   'blackhole', 0, {group_id = 1}, format}
 end
 
+local function create_promotion_space()
+    log.info('create space _promotion')
+    local format = {
+        {name = 'id', type = 'unsigned'},
+        {name = 'round_uuid', type = 'string'},
+        {name = 'step', type = 'unsigned'},
+        {name = 'source_uuid', type = 'string'},
+        {name = 'ts', type = 'number'},
+        {name = 'type', type = 'string'},
+        {name = 'value', type = 'map', is_nullable = true}
+    }
+    box.space._space:insert({box.space._promotion.id, ADMIN, '_promotion',
+                             'memtx', 0, setmap({}), format})
+    log.info('create index primary on _promotion')
+    box.space._index:insert({box.space._promotion.id, 0, 'primary', 'tree',
+                             {unique = true}, {{0, 'unsigned'}, {1, 'string'},
+                             {2, 'unsigned'}, {3, 'string'}}})
+end
+
 local function upgrade_to_1_10_2()
     upgrade_priv_to_1_10_2()
     create_vinyl_deferred_delete_space()
+    create_promotion_space()
 end
 
 local function get_version()
