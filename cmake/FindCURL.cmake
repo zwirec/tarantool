@@ -70,14 +70,14 @@ FIND_PACKAGE_HANDLE_STANDARD_ARGS(CURL
 
 find_library(Z_LIBRARY NAMES
 #libz used in a libssl library
-#libz.a
+    libz.a
     z
 )
 
 if(CURL_FOUND)
-	set(CURL_LIBRARIES ${CURL_LIBRARY} ${Z_LIBRARY})
+    set(CURL_LIBRARIES ${CURL_LIBRARY} ${Z_LIBRARY})
   set(CURL_INCLUDE_DIRS ${CURL_INCLUDE_DIR})
-  set(CMAKE_REQUIRED_LIBRARIES ${CURL_LIBRARIES} ssl crypto ${Z_LIBRARY})
+  set(CMAKE_REQUIRED_LIBRARIES ${CURL_LIBRARIES} crypto ssl pthread ${Z_LIBRARY} dl)
   set(CMAKE_REQUIRED_INCLUDES ${CURL_INCLUDE_DIRS})
   check_c_source_runs("
     #include <curl/curl.h>
