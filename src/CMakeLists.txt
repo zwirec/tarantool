@@ -119,7 +119,7 @@ add_library(stat STATIC rmean.c latency.c histogram.c)
 target_link_libraries(stat core)
 
 if (ENABLE_BACKTRACE AND NOT TARGET_OS_DARWIN)
-	target_link_libraries(core gcc_s ${UNWIND_LIBRARIES})
+    target_link_libraries(core gcc_s ${UNWIND_LIBRARIES})
 endif()
 
 if (CC_HAS_WNO_IMPLICIT_FALLTHROUGH)
@@ -226,14 +226,11 @@ set(M_STATIC libm.a)
 find_library(M_LIBRARY NAMES ${M_STATIC} m)
 
 set (common_libraries
-    ssl
-    crypto
-
     ${reexport_libraries}
     ${LIBYAML_LIBRARIES}
     ${READLINE_LIBRARIES}
-    ${OPENSSL_LIBRARIES}
     ${CURL_LIBRARIES}
+    ${OPENSSL_LIBRARIES}
 )
 
 if (TARGET_OS_LINUX OR TARGET_OS_DEBIAN_FREEBSD)
@@ -279,9 +276,9 @@ add_custom_command(
             ${exports_file} ${CMAKE_SYSTEM_NAME})
 
 add_executable(
-	tarantool main.cc
-	${LIBUTIL_FREEBSD_SRC}/flopen.c
-	${LIBUTIL_FREEBSD_SRC}/pidfile.c)
+    tarantool main.cc
+    ${LIBUTIL_FREEBSD_SRC}/flopen.c
+    ${LIBUTIL_FREEBSD_SRC}/pidfile.c)
 
 add_dependencies(tarantool build_bundled_libs preprocess_exports)
 
@@ -308,7 +305,7 @@ if (TARGET_OS_DARWIN)
 else ()
     message(${reexport_libraries} ${common_libraries})
     target_link_libraries(tarantool
-	                  ${generic_libraries}
+                      ${generic_libraries}
                           -Wl,--whole-archive box ${reexport_libraries}
                           salad -Wl,--no-whole-archive
                           ${common_libraries})
