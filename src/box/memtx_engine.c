@@ -160,7 +160,7 @@ memtx_build_secondary_keys(struct space *space, void *param)
 		}
 
 		for (uint32_t j = 1; j < space->index_count; j++) {
-			if (index_build(space->index[j], pk) < 0)
+			if (index_build(space->index[j], space, pk) < 0)
 				return -1;
 		}
 
@@ -449,8 +449,8 @@ memtx_engine_rollback_statement(struct engine *engine, struct txn *txn,
 		struct tuple *unused;
 		struct index *index = space->index[i];
 		/* Rollback must not fail. */
-		if (index_replace(index, stmt->new_tuple, stmt->old_tuple,
-				  DUP_INSERT, &unused) != 0) {
+		if (index_replace(index, space, stmt->new_tuple,
+				  stmt->old_tuple, DUP_INSERT, &unused) != 0) {
 			diag_log();
 			unreachable();
 			panic("failed to rollback change");

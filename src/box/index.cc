@@ -510,7 +510,7 @@ index_delete(struct index *index)
 }
 
 int
-index_build(struct index *index, struct index *pk)
+index_build(struct index *index, struct space *space, struct index *pk)
 {
 	ssize_t n_tuples = index_size(pk);
 	if (n_tuples < 0)
@@ -539,7 +539,7 @@ index_build(struct index *index, struct index *pk)
 			break;
 		if (tuple == NULL)
 			break;
-		rc = index_build_next(index, tuple);
+		rc = index_build_next(index, space, tuple);
 		if (rc != 0)
 			break;
 	}
@@ -671,10 +671,11 @@ generic_index_get(struct index *index, const char *key,
 }
 
 int
-generic_index_replace(struct index *index, struct tuple *old_tuple,
-		      struct tuple *new_tuple, enum dup_replace_mode mode,
-		      struct tuple **result)
+generic_index_replace(struct index *index, struct space *space,
+		      struct tuple *old_tuple, struct tuple *new_tuple,
+		      enum dup_replace_mode mode, struct tuple **result)
 {
+	(void)space;
 	(void)old_tuple;
 	(void)new_tuple;
 	(void)mode;
@@ -722,10 +723,11 @@ generic_index_reserve(struct index *, uint32_t)
 }
 
 int
-generic_index_build_next(struct index *index, struct tuple *tuple)
+generic_index_build_next(struct index *index, struct space *space,
+			 struct tuple *tuple)
 {
 	struct tuple *unused;
-	return index_replace(index, NULL, tuple, DUP_INSERT, &unused);
+	return index_replace(index, space, NULL, tuple, DUP_INSERT, &unused);
 }
 
 void

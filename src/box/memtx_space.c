@@ -124,7 +124,7 @@ memtx_space_replace_build_next(struct space *space, struct tuple *old_tuple,
 		panic("Failed to commit transaction when loading "
 		      "from snapshot");
 	}
-	if (index_build_next(space->index[0], new_tuple) != 0)
+	if (index_build_next(space->index[0], space, new_tuple) != 0)
 		return -1;
 	memtx_space_update_bsize(space, NULL, new_tuple);
 	tuple_ref(new_tuple);
@@ -141,7 +141,7 @@ memtx_space_replace_primary_key(struct space *space, struct tuple *old_tuple,
 				enum dup_replace_mode mode,
 				struct tuple **result)
 {
-	if (index_replace(space->index[0], old_tuple,
+	if (index_replace(space->index[0], space, old_tuple,
 			  new_tuple, mode, &old_tuple) != 0)
 		return -1;
 	memtx_space_update_bsize(space, old_tuple, new_tuple);
@@ -262,7 +262,8 @@ memtx_space_replace_all_keys(struct space *space, struct tuple *old_tuple,
 	 * If old_tuple is not NULL, the index has to
 	 * find and delete it, or return an error.
 	 */
-	if (index_replace(pk, old_tuple, new_tuple, mode, &old_tuple) != 0)
+	if (index_replace(pk, space, old_tuple,
+			  new_tuple, mode, &old_tuple) != 0)
 		return -1;
 	assert(old_tuple || new_tuple);
 
@@ -270,7 +271,7 @@ memtx_space_replace_all_keys(struct space *space, struct tuple *old_tuple,
 	for (i++; i < space->index_count; i++) {
 		struct tuple *unused;
 		struct index *index = space->index[i];
-		if (index_replace(index, old_tuple, new_tuple,
+		if (index_replace(index, space, old_tuple, new_tuple,
 				  DUP_INSERT, &unused) != 0)
 			goto rollback;
 	}
@@ -286,7 +287,7 @@ rollback:
 		struct tuple *unused;
 		struct index *index = space->index[i - 1];
 		/* Rollback must not fail. */
-		if (index_replace(index, new_tuple, old_tuple,
+		if (index_replace(index, space, new_tuple, old_tuple,
 				  DUP_INSERT, &unused) != 0) {
 			diag_log();
 			unreachable();
@@ -894,7 +895,7 @@ memtx_space_build_index(struct space *src_space, struct index *new_index,
 		 * @todo: better message if there is a duplicate.
 		 */
 		struct tuple *old_tuple;
-		rc = index_replace(new_index, NULL, tuple,
+		rc = index_replace(new_index, src_space, NULL, tuple,
 				   DUP_INSERT, &old_tuple);
 		if (rc != 0)
 			break;

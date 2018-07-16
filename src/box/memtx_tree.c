@@ -31,7 +31,6 @@
 #include "memtx_tree.h"
 #include "memtx_engine.h"
 #include "space.h"
-#include "schema.h" /* space_cache_find() */
 #include "errinj.h"
 #include "memory.h"
 #include "fiber.h"
@@ -438,9 +437,9 @@ memtx_tree_index_get(struct index *base, const char *key,
 }
 
 static int
-memtx_tree_index_replace(struct index *base, struct tuple *old_tuple,
-			 struct tuple *new_tuple, enum dup_replace_mode mode,
-			 struct tuple **result)
+memtx_tree_index_replace(struct index *base, struct space *space,
+			 struct tuple *old_tuple, struct tuple *new_tuple,
+			 enum dup_replace_mode mode, struct tuple **result)
 {
 	struct memtx_tree_index *index = (struct memtx_tree_index *)base;
 	if (new_tuple) {
@@ -461,10 +460,8 @@ memtx_tree_index_replace(struct index *base, struct tuple *old_tuple,
 			memtx_tree_delete(&index->tree, new_tuple);
 			if (dup_tuple)
 				memtx_tree_insert(&index->tree, dup_tuple, 0);
-			struct space *sp = space_cache_find(base->def->space_id);
-			if (sp != NULL)
-				diag_set(ClientError, errcode, base->def->name,
-					 space_name(sp));
+			diag_set(ClientError, errcode, base->def->name,
+				 space_name(space));
 			return -1;
 		}
 		if (dup_tuple) {
@@ -549,8 +546,10 @@ memtx_tree_index_reserve(struct index *base, uint32_t size_hint)
 }
 
 static int
-memtx_tree_index_build_next(struct index *base, struct tuple *tuple)
+memtx_tree_index_build_next(struct index *base, struct space *space,
+			    struct tuple *tuple)
 {
+	(void)space;
 	struct memtx_tree_index *index = (struct memtx_tree_index *)base;
 	if (index->build_array == NULL) {
 		index->build_array = (struct tuple **)malloc(MEMTX_EXTENT_SIZE);

@@ -35,7 +35,6 @@
 #include "tuple_hash.h"
 #include "memtx_engine.h"
 #include "space.h"
-#include "schema.h" /* space_cache_find() */
 #include "errinj.h"
 
 #include <small/mempool.h>
@@ -244,9 +243,9 @@ memtx_hash_index_get(struct index *base, const char *key,
 }
 
 static int
-memtx_hash_index_replace(struct index *base, struct tuple *old_tuple,
-			 struct tuple *new_tuple, enum dup_replace_mode mode,
-			 struct tuple **result)
+memtx_hash_index_replace(struct index *base, struct space *space,
+			 struct tuple *old_tuple, struct tuple *new_tuple,
+			 enum dup_replace_mode mode, struct tuple **result)
 {
 	struct memtx_hash_index *index = (struct memtx_hash_index *)base;
 	struct light_index_core *hash_table = &index->hash_table;
@@ -281,10 +280,8 @@ memtx_hash_index_replace(struct index *base, struct tuple *old_tuple,
 					      "recover of int hash_table");
 				}
 			}
-			struct space *sp = space_cache_find(base->def->space_id);
-			if (sp != NULL)
-				diag_set(ClientError, errcode, base->def->name,
-					 space_name(sp));
+			diag_set(ClientError, errcode, base->def->name,
+				 space_name(space));
 			return -1;
 		}
 

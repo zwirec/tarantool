@@ -41,6 +41,7 @@ extern "C" {
 
 struct tuple;
 struct engine;
+struct space;
 struct index;
 struct index_def;
 struct key_def;
@@ -411,9 +412,9 @@ struct index_vtab {
 			 const char *key, uint32_t part_count);
 	int (*get)(struct index *index, const char *key,
 		   uint32_t part_count, struct tuple **result);
-	int (*replace)(struct index *index, struct tuple *old_tuple,
-		       struct tuple *new_tuple, enum dup_replace_mode mode,
-		       struct tuple **result);
+	int (*replace)(struct index *index, struct space *space,
+		       struct tuple *old_tuple, struct tuple *new_tuple,
+		       enum dup_replace_mode mode, struct tuple **result);
 	/** Create an index iterator. */
 	struct iterator *(*create_iterator)(struct index *index,
 			enum iterator_type type,
@@ -443,7 +444,8 @@ struct index_vtab {
 	 * begin_build().
 	 */
 	int (*reserve)(struct index *index, uint32_t size_hint);
-	int (*build_next)(struct index *index, struct tuple *tuple);
+	int (*build_next)(struct index *index, struct space *space,
+			  struct tuple *tuple);
 	void (*end_build)(struct index *index);
 };
 
@@ -504,7 +506,7 @@ index_delete(struct index *index);
 
 /** Build this index based on the contents of another index. */
 int
-index_build(struct index *index, struct index *pk);
+index_build(struct index *index, struct space *space, struct index *pk);
 
 static inline void
 index_commit_create(struct index *index, int64_t signature)
@@ -596,11 +598,12 @@ index_get(struct index *index, const char *key,
 }
 
 static inline int
-index_replace(struct index *index, struct tuple *old_tuple,
-	      struct tuple *new_tuple, enum dup_replace_mode mode,
-	      struct tuple **result)
+index_replace(struct index *index, struct space *space,
+	      struct tuple *old_tuple, struct tuple *new_tuple,
+	      enum dup_replace_mode mode, struct tuple **result)
 {
-	return index->vtab->replace(index, old_tuple, new_tuple, mode, result);
+	return index->vtab->replace(index, space, old_tuple, new_tuple, mode,
+				    result);
 }
 
 static inline struct iterator *
@@ -647,9 +650,9 @@ index_reserve(struct index *index, uint32_t size_hint)
 }
 
 static inline int
-index_build_next(struct index *index, struct tuple *tuple)
+index_build_next(struct index *index, struct space *space, struct tuple *tuple)
 {
-	return index->vtab->build_next(index, tuple);
+	return index->vtab->build_next(index, space, tuple);
 }
 
 static inline void
@@ -677,7 +680,8 @@ int generic_index_random(struct index *, uint32_t, struct tuple **);
 ssize_t generic_index_count(struct index *, enum iterator_type,
 			    const char *, uint32_t);
 int generic_index_get(struct index *, const char *, uint32_t, struct tuple **);
-int generic_index_replace(struct index *, struct tuple *, struct tuple *,
+int generic_index_replace(struct index *, struct space *,
+			  struct tuple *, struct tuple *,
 			  enum dup_replace_mode, struct tuple **);
 struct snapshot_iterator *generic_index_create_snapshot_iterator(struct index *);
 void generic_index_stat(struct index *, struct info_handler *);
@@ -685,7 +689,7 @@ void generic_index_compact(struct index *);
 void generic_index_reset_stat(struct index *);
 void generic_index_begin_build(struct index *);
 int generic_index_reserve(struct index *, uint32_t);
-int generic_index_build_next(struct index *, struct tuple *);
+int generic_index_build_next(struct index *, struct space *, struct tuple *);
 void generic_index_end_build(struct index *);
 
 #if defined(__cplusplus)

@@ -252,10 +252,11 @@ make_key(const char *field, uint32_t *key_len)
 }
 
 static int
-memtx_bitset_index_replace(struct index *base, struct tuple *old_tuple,
-			   struct tuple *new_tuple, enum dup_replace_mode mode,
-			   struct tuple **result)
+memtx_bitset_index_replace(struct index *base, struct space *space,
+			   struct tuple *old_tuple, struct tuple *new_tuple,
+			   enum dup_replace_mode mode, struct tuple **result)
 {
+	(void)space;
 	struct memtx_bitset_index *index = (struct memtx_bitset_index *)base;
 
 	assert(!base->def->opts.is_unique);

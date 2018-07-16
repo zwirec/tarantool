@@ -210,10 +210,11 @@ memtx_rtree_index_get(struct index *base, const char *key,
 }
 
 static int
-memtx_rtree_index_replace(struct index *base, struct tuple *old_tuple,
-			  struct tuple *new_tuple, enum dup_replace_mode mode,
-			  struct tuple **result)
+memtx_rtree_index_replace(struct index *base, struct space *space,
+			  struct tuple *old_tuple, struct tuple *new_tuple,
+			  enum dup_replace_mode mode, struct tuple **result)
 {
+	(void)space;
 	(void)mode;
 	struct memtx_rtree_index *index = (struct memtx_rtree_index *)base;
 	struct rtree_rect rect;
