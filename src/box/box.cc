@@ -993,16 +993,52 @@ box_index_id_by_name(uint32_t space_id, const char *name, uint32_t len)
 }
 /** \endcond public */
 
+/**
+ * Check space for writeability.
+ *
+ * @param space space for this check.
+ *
+ * @retval 0 space is writeable.
+ * @retval -1 error.
+ */
+static inline int
+space_check_writable(struct space *space)
+{
+	if (!space_is_temporary(space) &&
+	    space_group_id(space) != GROUP_LOCAL &&
+	    box_check_writable() != 0)
+		return -1;
+	return 0;
+}
+
+/**
+ * Check if key is good enough to be used to find tuple.
+ *
+ * @param space space for this check.
+ * @param index_id id of index for this check.
+ * @param key key to check.
+ *
+ * @retval 0 key is findable.
+ * @retval -1 error.
+ */
+static inline int
+key_check_findable(struct space *space, uint32_t index_id, const char *key)
+{
+	struct index *pk = index_find_unique(space, index_id);
+	if (pk == NULL)
+		return -1;
+	uint32_t part_count = mp_decode_array(&key);
+	if (exact_key_validate(pk->def->key_def, key, part_count) != 0)
+		return -1;
+	return 0;
+}
+
 int
 box_process1(struct request *request, box_tuple_t **result)
 {
 	/* Allow to write to temporary spaces in read-only mode. */
 	struct space *space = space_cache_find(request->space_id);
-	if (space == NULL)
-		return -1;
-	if (!space_is_temporary(space) &&
-	    space_group_id(space) != GROUP_LOCAL &&
-	    box_check_writable() != 0)
+	if (space == NULL || space_check_writable(space) != 0)
 		return -1;
 	return box_process_rw(request, space, result);
 }
@@ -1087,13 +1123,16 @@ box_insert(uint32_t space_id, const char *tuple, const char *tuple_end,
 	   box_tuple_t **result)
 {
 	mp_tuple_assert(tuple, tuple_end);
+	struct space *space = space_cache_find(space_id);
+	if (space == NULL || space_check_writable(space) != 0)
+		return -1;
 	struct request request;
 	memset(&request, 0, sizeof(request));
 	request.type = IPROTO_INSERT;
 	request.space_id = space_id;
 	request.tuple = tuple;
 	request.tuple_end = tuple_end;
-	return box_process1(&request, result);
+	return box_process_rw(&request, space, result);
 }
 
 int
@@ -1101,13 +1140,16 @@ box_replace(uint32_t space_id, const char *tuple, const char *tuple_end,
 	    box_tuple_t **result)
 {
 	mp_tuple_assert(tuple, tuple_end);
+	struct space *space = space_cache_find(space_id);
+	if (space == NULL || space_check_writable(space) != 0)
+		return -1;
 	struct request request;
 	memset(&request, 0, sizeof(request));
 	request.type = IPROTO_REPLACE;
 	request.space_id = space_id;
 	request.tuple = tuple;
 	request.tuple_end = tuple_end;
-	return box_process1(&request, result);
+	return box_process_rw(&request, space, result);
 }
 
 int
@@ -1115,6 +1157,10 @@ box_delete(uint32_t space_id, uint32_t index_id, const char *key,
 	   const char *key_end, box_tuple_t **result)
 {
 	mp_tuple_assert(key, key_end);
+	struct space *space = space_cache_find(space_id);
+	if (space == NULL || space_check_writable(space) != 0 ||
+	    key_check_findable(space, index_id, key) != 0)
+		return -1;
 	struct request request;
 	memset(&request, 0, sizeof(request));
 	request.type = IPROTO_DELETE;
@@ -1122,7 +1168,7 @@ box_delete(uint32_t space_id, uint32_t index_id, const char *key,
 	request.index_id = index_id;
 	request.key = key;
 	request.key_end = key_end;
-	return box_process1(&request, result);
+	return box_process_rw(&request, space, result);
 }
 
 int
@@ -1132,6 +1178,10 @@ box_update(uint32_t space_id, uint32_t index_id, const char *key,
 {
 	mp_tuple_assert(key, key_end);
 	mp_tuple_assert(ops, ops_end);
+	struct space *space = space_cache_find(space_id);
+	if (space == NULL || space_check_writable(space) != 0 ||
+	    key_check_findable(space, index_id, key) != 0)
+		return -1;
 	struct request request;
 	memset(&request, 0, sizeof(request));
 	request.type = IPROTO_UPDATE;
@@ -1143,7 +1193,8 @@ box_update(uint32_t space_id, uint32_t index_id, const char *key,
 	/** Legacy: in case of update, ops are passed in in request tuple */
 	request.tuple = ops;
 	request.tuple_end = ops_end;
-	return box_process1(&request, result);
+
+	return box_process_rw(&request, space, result);
 }
 
 int
@@ -1153,6 +1204,9 @@ box_upsert(uint32_t space_id, uint32_t index_id, const char *tuple,
 {
 	mp_tuple_assert(ops, ops_end);
 	mp_tuple_assert(tuple, tuple_end);
+	struct space *space = space_cache_find(space_id);
+	if (space == NULL || space_check_writable(space) != 0)
+		return -1;
 	struct request request;
 	memset(&request, 0, sizeof(request));
 	request.type = IPROTO_UPSERT;
@@ -1163,7 +1217,7 @@ box_upsert(uint32_t space_id, uint32_t index_id, const char *tuple,
 	request.tuple = tuple;
 	request.tuple_end = tuple_end;
 	request.index_base = index_base;
-	return box_process1(&request, result);
+	return box_process_rw(&request, space, result);
 }
 
 /**

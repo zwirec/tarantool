@@ -1589,42 +1589,6 @@ error:
 }
 
 /**
- * Check that the key can be used for search in a unique index
- * LSM tree.
- * @param  lsm        LSM tree for checking.
- * @param  key        MessagePack'ed data, the array without a
- *                    header.
- * @param  part_count Part count of the key.
- *
- * @retval  0 The key is valid.
- * @retval -1 The key is not valid, the appropriate error is set
- *            in the diagnostics area.
- */
-static inline int
-vy_unique_key_validate(struct vy_lsm *lsm, const char *key,
-		       uint32_t part_count)
-{
-	assert(lsm->opts.is_unique);
-	assert(key != NULL || part_count == 0);
-	/*
-	 * The LSM tree contains tuples with concatenation of
-	 * secondary and primary key fields, while the key
-	 * supplied by the user only contains the secondary key
-	 * fields. Use the correct key def to validate the key.
-	 * The key can be used to look up in the LSM tree since
-	 * the supplied key parts uniquely identify the tuple,
-	 * as long as the index is unique.
-	 */
-	uint32_t original_part_count = lsm->key_def->part_count;
-	if (original_part_count != part_count) {
-		diag_set(ClientError, ER_EXACT_MATCH,
-			 original_part_count, part_count);
-		return -1;
-	}
-	return key_validate_parts(lsm->cmp_def, key, part_count, false);
-}
-
-/**
  * Find a tuple in the primary index LSM tree by the key of the
  * specified LSM tree.
  * @param lsm         LSM tree for which the key is specified.
@@ -1738,8 +1702,6 @@ vy_delete(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 	bool has_secondary = space->index_count > 1;
 	const char *key = request->key;
 	uint32_t part_count = mp_decode_array(&key);
-	if (vy_unique_key_validate(lsm, key, part_count))
-		return -1;
 	/*
 	 * There are two cases when need to get the full tuple
 	 * before deletion.
@@ -1830,8 +1792,6 @@ vy_update(struct vy_env *env, struct vy_tx *tx, struct txn_stmt *stmt,
 		return -1;
 	const char *key = request->key;
 	uint32_t part_count = mp_decode_array(&key);
-	if (vy_unique_key_validate(lsm, key, part_count))
-		return -1;
 
 	if (vy_lsm_full_by_key(lsm, tx, vy_tx_read_view(tx),
 			       key, part_count, &stmt->old_tuple) != 0)
