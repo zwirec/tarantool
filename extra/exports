@@ -368,6 +368,33 @@ luaJIT_profile_start
 luaJIT_profile_stop
 luaJIT_profile_dumpstack
 
+# ICU
+
+u_strlen_62
+u_uastrcpy_62
+u_austrcpy_62
+
+u_errorName_62
+
+udat_open_62
+udat_close_62
+udat_parseCalendar_62
+udat_formatCalendar_62
+
+ucal_open_62
+ucal_close_62
+ucal_get_62
+ucal_set_62
+ucal_add_62
+ucal_clear_62
+ucal_clearField_62
+ucal_getMillis_62
+ucal_setMillis_62
+ucal_getAttribute_62
+ucal_setAttribute_62
+ucal_getTimeZoneID_62
+ucal_setTimeZone_62
+
 # Temporary
 
 # Important! This function will be removed from exports soon (in the scope of
