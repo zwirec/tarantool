@@ -54,6 +54,15 @@ lbox_encode_tuple_on_gc(struct lua_State *L, int idx, size_t *p_len);
 struct space *
 lua_checkephemeralspace(struct lua_State *L, int idx);
 
+/**
+ * Transform given port to Lua table.
+ *
+ * @param L Lua stack to push table to.
+ * @param port_base port to transform.
+ */
+void
+lbox_port_to_table(lua_State *L, struct port *port_base);
+
 void
 box_lua_misc_init(struct lua_State *L);
 

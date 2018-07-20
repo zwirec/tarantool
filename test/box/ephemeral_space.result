@@ -135,7 +135,7 @@ s:frommap({ddd = 1, aaa = 2, ccc = 3, eee = 4})
 ...
 s:frommap()
 ---
-- error: 'builtin/box/schema.lua:1659: Usage: space:frommap(map, opts)'
+- error: 'builtin/box/schema.lua:1743: Usage: space:frommap(map, opts)'
 ...
 s:frommap({})
 ---
@@ -245,3 +245,803 @@ i = s:create_index('a', {type = 'bitset', parts = {1, 'unsigned', 2, 'unsigned'}
 - error: 'Can''t create or modify index ''a'' in space ''ephemeral'': primary key
     must be unique'
 ...
+-- Ephemeral space: methods
+s = box.schema.space.create_ephemeral({field_count = 3})
+---
+...
+i = s:create_index('a')
+---
+...
+s:insert{1}
+---
+- error: Tuple field count 1 does not match space field count 3
+...
+s:insert{2,2,2}
+---
+- [2, 2, 2]
+...
+s:drop()
+---
+...
+s = box.schema.space.create_ephemeral()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'string'} })
+---
+...
+s:insert{'1'}
+---
+- ['1']
+...
+s:get{'1'}
+---
+- ['1']
+...
+s:insert{'1'}
+---
+- error: Duplicate key exists in unique index 'a' in space 'ephemeral'
+...
+s:insert{1}
+---
+- error: 'Tuple field 1 type does not match one required by operation: expected string'
+...
+i:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'unsigned'} })
+---
+...
+s:insert{1}
+---
+- [1]
+...
+s:get{1}
+---
+- [1]
+...
+s:insert{1}
+---
+- error: Duplicate key exists in unique index 'a' in space 'ephemeral'
+...
+s:insert{'1'}
+---
+- error: 'Tuple field 1 type does not match one required by operation: expected unsigned'
+...
+i:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'string'} })
+---
+...
+s:replace{'1'}
+---
+- ['1']
+...
+s:get{'1'}
+---
+- ['1']
+...
+s:replace{'1'}
+---
+- ['1']
+...
+s:replace{1}
+---
+- error: 'Tuple field 1 type does not match one required by operation: expected string'
+...
+i:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'unsigned'} })
+---
+...
+s:replace{1}
+---
+- [1]
+...
+s:get{1}
+---
+- [1]
+...
+s:replace{1}
+---
+- [1]
+...
+s:replace{'1'}
+---
+- error: 'Tuple field 1 type does not match one required by operation: expected unsigned'
+...
+i:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'string'} })
+---
+...
+s:replace{'1'}
+---
+- ['1']
+...
+s:get{'1'}
+---
+- ['1']
+...
+s:replace{'1'}
+---
+- ['1']
+...
+s:replace{1}
+---
+- error: 'Tuple field 1 type does not match one required by operation: expected string'
+...
+i:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'unsigned'} })
+---
+...
+s:upsert({1, 0}, {{'+', 2, 1}})
+---
+...
+s:get{1}
+---
+- [1, 0]
+...
+s:upsert({1, 0}, {{'+', 2, 1}})
+---
+...
+s:get{1}
+---
+- [1, 1]
+...
+s:upsert({1, 0}, {{'+', 1, 1}})
+---
+...
+s:get{1}
+---
+- [1, 1]
+...
+s:get{2}
+---
+...
+s:upsert({'1'}, {{'!', 2, 100}})
+---
+- error: 'Tuple field 1 type does not match one required by operation: expected unsigned'
+...
+s:upsert({1}, {{'a', 2, 100}})
+---
+- error: Unknown UPDATE operation
+...
+i:drop()
+---
+...
+i = s:create_index('a')
+---
+...
+s:insert{1, 2, 3, 4, 5}
+---
+- [1, 2, 3, 4, 5]
+...
+s:update({1}, {{'#', 1, 1}})
+---
+- error: Attempt to modify a tuple field which is part of index 'a' in space 'ephemeral'
+...
+s:update({1}, {{'#', 1, "only one record please"}})
+---
+- error: 'Argument type in operation ''#'' on field 1 does not match field type: expected
+    a number of fields to delete'
+...
+i:drop()
+---
+...
+i = s:create_index('a')
+---
+...
+s:insert{1, 0}
+---
+- [1, 0]
+...
+s:update(1, {{'+', 2, 10}})
+---
+- [1, 10]
+...
+s:update(1, {{'+', 2, 15}})
+---
+- [1, 25]
+...
+s:update(1, {{'-', 2, 5}})
+---
+- [1, 20]
+...
+s:update(1, {{'-', 2, 20}})
+---
+- [1, 0]
+...
+s:update(1, {{'|', 2, 0x9}})
+---
+- [1, 9]
+...
+s:update(1, {{'|', 2, 0x6}})
+---
+- [1, 15]
+...
+s:update(1, {{'&', 2, 0xabcde}})
+---
+- [1, 14]
+...
+s:update(1, {{'&', 2, 0x2}})
+---
+- [1, 2]
+...
+s:update(1, {{'^', 2, 0xa2}})
+---
+- [1, 160]
+...
+s:update(1, {{'^', 2, 0xa2}})
+---
+- [1, 2]
+...
+i:drop()
+---
+...
+i = s:create_index('a')
+---
+...
+s:insert{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+---
+- [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+...
+s:update({0}, {{'#', 42, 1}})
+---
+- error: Field 42 was not found in the tuple
+...
+s:update({0}, {{'#', 4, 'abirvalg'}})
+---
+- error: 'Argument type in operation ''#'' on field 4 does not match field type: expected
+    a number of fields to delete'
+...
+s:update({0}, {{'#', 2, 1}, {'#', 4, 2}, {'#', 6, 1}})
+---
+- [0, 2, 3, 6, 7, 9, 10, 11, 12, 13, 14, 15]
+...
+s:update({0}, {{'#', 4, 3}})
+---
+- [0, 2, 3, 10, 11, 12, 13, 14, 15]
+...
+s:update({0}, {{'#', 5, 123456}})
+---
+- [0, 2, 3, 10]
+...
+s:update({0}, {{'#', 3, 4294967295}})
+---
+- [0, 2]
+...
+s:update({0}, {{'#', 2, 0}})
+---
+- error: 'Field 2 UPDATE error: cannot delete 0 fields'
+...
+i:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'string'} })
+---
+...
+s:insert{'1'}
+---
+- ['1']
+...
+s:insert{'5'}
+---
+- ['5']
+...
+s:insert{'6'}
+---
+- ['6']
+...
+s:insert{'11'}
+---
+- ['11']
+...
+t = {} for state, v in i:pairs({}, {iterator = 'ALL'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - ['1']
+  - ['11']
+  - ['5']
+  - ['6']
+...
+t = {} for state, v in i:pairs({}, {iterator = 'GE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - ['1']
+  - ['11']
+  - ['5']
+  - ['6']
+...
+t = {} for state, v in i:pairs('5', {iterator = 'GE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - ['5']
+  - ['6']
+...
+t = {} for state, v in i:pairs('5', {iterator = 'GT'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - ['6']
+...
+t = {} for state, v in i:pairs({}, {iterator = 'LE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - ['6']
+  - ['5']
+  - ['11']
+  - ['1']
+...
+t = {} for state, v in i:pairs('5', {iterator = 'LE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - ['5']
+  - ['11']
+  - ['1']
+...
+t = {} for state, v in i:pairs({}, {iterator = 'LT'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - ['6']
+  - ['5']
+  - ['11']
+  - ['1']
+...
+t = {} for state, v in i:pairs('5', {iterator = 'LT'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - ['11']
+  - ['1']
+...
+i:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'unsigned'} })
+---
+...
+s:insert{1}
+---
+- [1]
+...
+s:insert{5}
+---
+- [5]
+...
+s:insert{11}
+---
+- [11]
+...
+t = {} for state, v in i:pairs({}, {iterator = 'ALL'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [1]
+  - [5]
+  - [11]
+...
+t = {} for state, v in i:pairs({}, {iterator = 'GE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [1]
+  - [5]
+  - [11]
+...
+t = {} for state, v in i:pairs(5, {iterator = 'GE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [5]
+  - [11]
+...
+t = {} for state, v in i:pairs(5, {iterator = 'GT'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [11]
+...
+t = {} for state, v in i:pairs({}, {iterator = 'LE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [11]
+  - [5]
+  - [1]
+...
+t = {} for state, v in i:pairs(5, {iterator = 'LE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [5]
+  - [1]
+...
+t = {} for state, v in i:pairs({}, {iterator = 'LT'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [11]
+  - [5]
+  - [1]
+...
+t = {} for state, v in i:pairs(5, {iterator = 'LT'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [1]
+...
+i:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'unsigned', 2, 'unsigned'} })
+---
+...
+s:insert{1, 1}
+---
+- [1, 1]
+...
+s:insert{5, 5}
+---
+- [5, 5]
+...
+s:insert{11, 11}
+---
+- [11, 11]
+...
+t = {} for state, v in i:pairs({}, {iterator = 'ALL'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [1, 1]
+  - [5, 5]
+  - [11, 11]
+...
+t = {} for state, v in i:pairs({}, {iterator = 'GE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [1, 1]
+  - [5, 5]
+  - [11, 11]
+...
+t = {} for state, v in i:pairs({5, 5}, {iterator = 'GE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [5, 5]
+  - [11, 11]
+...
+t = {} for state, v in i:pairs({5, 5}, {iterator = 'GT'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [11, 11]
+...
+t = {} for state, v in i:pairs({}, {iterator = 'LE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [11, 11]
+  - [5, 5]
+  - [1, 1]
+...
+t = {} for state, v in i:pairs({5, 5}, {iterator = 'LE'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [5, 5]
+  - [1, 1]
+...
+t = {} for state, v in i:pairs({}, {iterator = 'LT'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [11, 11]
+  - [5, 5]
+  - [1, 1]
+...
+t = {} for state, v in i:pairs({5, 5}, {iterator = 'LT'}) do table.insert(t, v) end
+---
+...
+t
+---
+- - [1, 1]
+...
+i:drop()
+---
+...
+i = s:create_index('a')
+---
+...
+s:auto_increment{1}
+---
+- [1, 1]
+...
+s:auto_increment{2}
+---
+- [2, 2]
+...
+s:auto_increment{3}
+---
+- [3, 3]
+...
+s:pairs(2, 'GE'):totable()
+---
+- - [2, 2]
+  - [3, 3]
+...
+i:count({2}, 'GT')
+---
+- 1
+...
+i:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'unsigned'} })
+---
+...
+s:replace{1}
+---
+- [1]
+...
+s:replace{2}
+---
+- [2]
+...
+s:delete{1}
+---
+- [1]
+...
+s:delete{2}
+---
+- [2]
+...
+s:select()
+---
+- []
+...
+i:drop()
+---
+...
+s:drop()
+---
+...
+test_run = require('test_run').new()
+---
+...
+utils = dofile('utils.lua')
+---
+...
+s = box.schema.space.create_ephemeral()
+---
+...
+idx = s:create_index('a')
+---
+...
+for i = 1, 13 do s:insert{ i, string.rep('x', i) } end
+---
+...
+s:len()
+---
+- 13
+...
+s:bsize()
+---
+- 130
+...
+utils.space_bsize(s)
+---
+- 130
+...
+for i = 1, 13, 2 do s:delete{ i } end
+---
+...
+s:len()
+---
+- 6
+...
+s:bsize()
+---
+- 60
+...
+utils.space_bsize(s)
+---
+- 60
+...
+for i = 2, 13, 2 do s:update( { i }, {{ ":", 2, i, 0, string.rep('y', i) }} ) end
+---
+...
+s:len()
+---
+- 6
+...
+s:bsize()
+---
+- 102
+...
+utils.space_bsize(s)
+---
+- 102
+...
+idx:drop()
+---
+...
+i = s:create_index('a', { type = 'tree', parts = {1, 'string'} })
+---
+...
+s:insert({'1', "AAAA"})
+---
+- ['1', 'AAAA']
+...
+s:insert({'2', "AAAA"})
+---
+- ['2', 'AAAA']
+...
+s:insert({'3', "AAAA"})
+---
+- ['3', 'AAAA']
+...
+s:insert({'4', "AAAA"})
+---
+- ['4', 'AAAA']
+...
+i:select()
+---
+- - ['1', 'AAAA']
+  - ['2', 'AAAA']
+  - ['3', 'AAAA']
+  - ['4', 'AAAA']
+...
+i:max('2')
+---
+- ['2', 'AAAA']
+...
+i:min('2')
+---
+- ['2', 'AAAA']
+...
+i:count('2')
+---
+- 1
+...
+i:max()
+---
+- ['4', 'AAAA']
+...
+i:min()
+---
+- ['1', 'AAAA']
+...
+i:count()
+---
+- 4
+...
+s:insert({'20', "AAAA"})
+---
+- ['20', 'AAAA']
+...
+s:insert({'30', "AAAA"})
+---
+- ['30', 'AAAA']
+...
+s:insert({'40', "AAAA"})
+---
+- ['40', 'AAAA']
+...
+s:select()
+---
+- - ['1', 'AAAA']
+  - ['2', 'AAAA']
+  - ['20', 'AAAA']
+  - ['3', 'AAAA']
+  - ['30', 'AAAA']
+  - ['4', 'AAAA']
+  - ['40', 'AAAA']
+...
+i:max('15')
+---
+...
+i:min('15')
+---
+...
+s:count('15')
+---
+- 0
+...
+i:max()
+---
+- ['40', 'AAAA']
+...
+i:min()
+---
+- ['1', 'AAAA']
+...
+s:count()
+---
+- 7
+...
+s:insert({'-2', "AAAA"})
+---
+- ['-2', 'AAAA']
+...
+s:insert({'-3', "AAAA"})
+---
+- ['-3', 'AAAA']
+...
+s:insert({'-4', "AAAA"})
+---
+- ['-4', 'AAAA']
+...
+i:select()
+---
+- - ['-2', 'AAAA']
+  - ['-3', 'AAAA']
+  - ['-4', 'AAAA']
+  - ['1', 'AAAA']
+  - ['2', 'AAAA']
+  - ['20', 'AAAA']
+  - ['3', 'AAAA']
+  - ['30', 'AAAA']
+  - ['4', 'AAAA']
+  - ['40', 'AAAA']
+...
+i:max('0')
+---
+...
+i:min('0')
+---
+...
+i:count('0')
+---
+- 0
+...
+i:max()
+---
+- ['40', 'AAAA']
+...
+i:min()
+---
+- ['-2', 'AAAA']
+...
+i:count()
+---
+- 10
+...
+s:drop()
+---
+...
+test_run:cmd("restart server default")

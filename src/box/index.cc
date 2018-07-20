@@ -198,6 +198,15 @@ box_index_len(uint32_t space_id, uint32_t index_id)
 }
 
 ssize_t
+box_index_len_ephemeral(struct space *space, uint32_t index_id)
+{
+	struct index *index = index_find(space, index_id);
+	if (index == NULL)
+		return -1;
+	return index_size(index);
+}
+
+ssize_t
 box_index_bsize(uint32_t space_id, uint32_t index_id)
 {
 	struct space *space;
@@ -205,6 +214,15 @@ box_index_bsize(uint32_t space_id, uint32_t index_id)
 	if (check_index(space_id, index_id, &space, &index) != 0)
 		return -1;
 	/* No tx management for statistics. */
+	return index_bsize(index);
+}
+
+ssize_t
+box_index_bsize_ephemeral(struct space *space, uint32_t index_id)
+{
+	struct index *index = index_find(space, index_id);
+	if (index == NULL)
+		return 0;
 	return index_bsize(index);
 }
 
@@ -219,6 +237,19 @@ box_index_random(uint32_t space_id, uint32_t index_id, uint32_t rnd,
 		return -1;
 	/* No tx management, random() is for approximation anyway. */
 	if (index_random(index, rnd, result) != 0)
+		return -1;
+	if (*result != NULL)
+		tuple_bless(*result);
+	return 0;
+}
+
+int
+box_index_random_ephemeral(struct space *space, uint32_t index_id,
+			   uint32_t rnd, box_tuple_t **result)
+{
+	assert(result != NULL);
+	struct index *index = index_find(space, index_id);
+	if (index == NULL || index_random(index, rnd, result) != 0)
 		return -1;
 	if (*result != NULL)
 		tuple_bless(*result);
@@ -259,6 +290,29 @@ box_index_get(uint32_t space_id, uint32_t index_id, const char *key,
 }
 
 int
+box_index_get_ephemeral(struct space *space, uint32_t index_id, const char *key,
+			const char *key_end, box_tuple_t **result)
+{
+	assert(key != NULL && key_end != NULL && result != NULL);
+	mp_tuple_assert(key, key_end);
+	struct index *index = index_find(space, index_id);
+	if (index == NULL)
+		return -1;
+	if (!index->def->opts.is_unique) {
+		diag_set(ClientError, ER_MORE_THAN_ONE_TUPLE);
+		return -1;
+	}
+	uint32_t part_count = mp_decode_array(&key);
+	if (exact_key_validate(index->def->key_def, key, part_count))
+		return -1;
+	if (index_get(index, key, part_count, result) != 0)
+		return -1;
+	if (*result != NULL)
+		tuple_bless(*result);
+	return 0;
+}
+
+int
 box_index_min(uint32_t space_id, uint32_t index_id, const char *key,
 	      const char *key_end, box_tuple_t **result)
 {
@@ -285,6 +339,29 @@ box_index_min(uint32_t space_id, uint32_t index_id, const char *key,
 		return -1;
 	}
 	txn_commit_ro_stmt(txn);
+	if (*result != NULL)
+		tuple_bless(*result);
+	return 0;
+}
+
+int
+box_index_min_ephemeral(struct space *space, uint32_t index_id, const char *key,
+			const char *key_end, box_tuple_t **result)
+{
+	assert(key != NULL && key_end != NULL && result != NULL);
+	mp_tuple_assert(key, key_end);
+	struct index *index = index_find(space, index_id);
+	if (index == NULL)
+		return -1;
+	if (index->def->type != TREE) {
+		diag_set(UnsupportedIndexFeature, index->def, "min()");
+		return -1;
+	}
+	uint32_t part_count = mp_decode_array(&key);
+	if (key_validate(index->def, ITER_GE, key, part_count))
+		return -1;
+	if (index_min(index, key, part_count, result) != 0)
+		return -1;
 	if (*result != NULL)
 		tuple_bless(*result);
 	return 0;
@@ -322,6 +399,29 @@ box_index_max(uint32_t space_id, uint32_t index_id, const char *key,
 	return 0;
 }
 
+int
+box_index_max_ephemeral(struct space *space, uint32_t index_id, const char *key,
+			const char *key_end, box_tuple_t **result)
+{
+	mp_tuple_assert(key, key_end);
+	assert(result != NULL);
+	struct index *index = index_find(space, index_id);
+	if (index == NULL)
+		return -1;
+	if (index->def->type != TREE) {
+		diag_set(UnsupportedIndexFeature, index->def, "max()");
+		return -1;
+	}
+	uint32_t part_count = mp_decode_array(&key);
+	if (key_validate(index->def, ITER_LE, key, part_count))
+		return -1;
+	if (index_max(index, key, part_count, result) != 0)
+		return -1;
+	if (*result != NULL)
+		tuple_bless(*result);
+	return 0;
+}
+
 ssize_t
 box_index_count(uint32_t space_id, uint32_t index_id, int type,
 		const char *key, const char *key_end)
@@ -351,6 +451,30 @@ box_index_count(uint32_t space_id, uint32_t index_id, int type,
 		return -1;
 	}
 	txn_commit_ro_stmt(txn);
+	return count;
+}
+
+ssize_t
+box_index_count_ephemeral(struct space *space, uint32_t index_id, int type,
+			  const char *key, const char *key_end)
+{
+	assert(key != NULL && key_end != NULL);
+	mp_tuple_assert(key, key_end);
+	if (type < 0 || type >= iterator_type_MAX) {
+		diag_set(ClientError, ER_ILLEGAL_PARAMS,
+			 "Invalid iterator type");
+		return -1;
+	}
+	enum iterator_type itype = (enum iterator_type) type;
+	struct index *index = index_find(space, index_id);
+	if (index == NULL)
+		return -1;
+	uint32_t part_count = mp_decode_array(&key);
+	if (key_validate(index->def, itype, key, part_count))
+		return -1;
+	ssize_t count = index_count(index, itype, key, part_count);
+	if (count < 0)
+		return -1;
 	return count;
 }
 
@@ -388,6 +512,30 @@ box_index_iterator(uint32_t space_id, uint32_t index_id, int type,
 		return NULL;
 	}
 	txn_commit_ro_stmt(txn);
+	return it;
+}
+
+box_iterator_t *
+box_index_iterator_ephemeral(struct space *space, uint32_t index_id, int type,
+			     const char *key, const char *key_end)
+{
+	assert(key != NULL && key_end != NULL);
+	mp_tuple_assert(key, key_end);
+	if (type < 0 || type >= iterator_type_MAX) {
+		diag_set(ClientError, ER_ILLEGAL_PARAMS,
+			 "Invalid iterator type");
+		return NULL;
+	}
+	struct index *index = index_find(space, index_id);
+	if (index == NULL)
+		return NULL;
+	enum iterator_type itype = (enum iterator_type) type;
+	assert(mp_typeof(*key) == MP_ARRAY); /* checked by Lua */
+	uint32_t part_count = mp_decode_array(&key);
+	if (key_validate(index->def, itype, key, part_count))
+		return NULL;
+	struct iterator *it = index_create_iterator(index, itype,
+						    key, part_count);
 	return it;
 }
 
@@ -430,6 +578,16 @@ box_index_compact(uint32_t space_id, uint32_t index_id)
 	struct space *space;
 	struct index *index;
 	if (check_index(space_id, index_id, &space, &index) != 0)
+		return -1;
+	index_compact(index);
+	return 0;
+}
+
+int
+box_index_compact_ephemeral(struct space *space, uint32_t index_id)
+{
+	struct index *index = index_find(space, index_id);
+	if (index == NULL)
 		return -1;
 	index_compact(index);
 	return 0;

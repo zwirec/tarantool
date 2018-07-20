@@ -236,6 +236,143 @@ box_index_stat(uint32_t space_id, uint32_t index_id,
 int
 box_index_compact(uint32_t space_id, uint32_t index_id);
 
+/**
+ * Return the number of element in the index.
+ *
+ * \param space - ephemeral space.
+ * \param index_id - index identifier.
+ *
+ * \retval -1 on error.
+ * \retval >= 0 on success.
+ */
+ssize_t
+box_index_len_ephemeral(struct space *space, uint32_t index_id);
+
+/**
+ * Return the number of bytes used in memory by the index.
+ * If space have no index it returns 0.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier.
+ *
+ * \retval -1 on error.
+ * \retval >= 0 on success.
+ */
+ssize_t
+box_index_bsize_ephemeral(struct space *space, uint32_t index_id);
+
+/**
+ * Return a random tuple from the index.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier.
+ * \param rnd random seed.
+ * \param[out] result a tuple or NULL if index is empty.
+ *
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_index_random_ephemeral(struct space *space, uint32_t index_id,
+			   uint32_t rnd, box_tuple_t **result);
+
+/**
+ * Get a tuple from index by the key.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier.
+ * \param key encoded key in MsgPack Array format.
+ * \param key_end the end of encoded \a key.
+ * \param[out] result a tuple or NULL if index is empty.
+ *
+ * \retval -1 on error.
+ * \retval 0 on success.
+ * \pre key != NULL
+ */
+int
+box_index_get_ephemeral(struct space *space, uint32_t index_id, const char *key,
+			const char *key_end, box_tuple_t **result);
+
+/**
+ * Return first (minimal) tuple matched the provided key.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier.
+ * \param key encoded key in MsgPack Array format.
+ * \param key_end the end of encoded \a key.
+ * \param[out] result a tuple or NULL if index is empty.
+ *
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_index_min_ephemeral(struct space *space, uint32_t index_id, const char *key,
+			const char *key_end, box_tuple_t **result);
+
+/**
+ * Return last (maximal) tuple matched the provided key.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier.
+ * \param key encoded key in MsgPack Array format.
+ * \param key_end the end of encoded \a key.
+ * \param[out] result a tuple or NULL if index is empty.
+ *
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_index_max_ephemeral(struct space *space, uint32_t index_id, const char *key,
+			const char *key_end, box_tuple_t **result);
+
+/**
+ * Count the number of tuple matched the provided key.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier.
+ * \param key encoded key in MsgPack Array format.
+ * \param key_end the end of encoded \a key.
+ * \param[out] result a tuple or NULL if index is empty.
+ *
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+ssize_t
+box_index_count_ephemeral(struct space *space, uint32_t index_id, int type,
+			  const char *key, const char *key_end);
+
+/**
+ * Allocate and initialize iterator for ephemeral space
+ *
+ * A returned iterator must be destroyed by box_iterator_free().
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier.
+ * \param type \link iterator_type iterator type \endlink
+ * \param key encoded key in MsgPack Array format ([part1, part2, ...]).
+ * \param key_end the end of encoded \a key
+ *
+ * \retval NULL on error (check box_error_last())
+ * \retval iterator otherwise
+ * \sa box_iterator_next()
+ * \sa box_iterator_free()
+ */
+box_iterator_t *
+box_index_iterator_ephemeral(struct space *space, uint32_t index_id, int type,
+			     const char *key, const char *key_end);
+
+/**
+ * Trigger index compaction.
+ *
+ * \param space ephemeral space.
+ * \param index_id index identifier.
+ *
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_index_compact_ephemeral(struct space *space, uint32_t index_id);
+
 struct iterator {
 	/**
 	 * Iterate to the next tuple.

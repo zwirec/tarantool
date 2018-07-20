@@ -70,11 +70,7 @@ lua_checkephemeralspace(struct lua_State *L, int idx)
 	return *(struct space **) data;
 }
 
-/* }}} */
-
-/** {{{ Lua/C implementation of index:select(): used only by Vinyl **/
-
-static inline void
+void
 lbox_port_to_table(lua_State *L, struct port *port_base)
 {
 	struct port_tuple *port = port_tuple(port_base);
@@ -86,6 +82,10 @@ lbox_port_to_table(lua_State *L, struct port *port_base)
 		entry = entry->next;
 	}
 }
+
+/* }}} */
+
+/** {{{ Lua/C implementation of index:select(): used only by Vinyl **/
 
 static int
 lbox_select(lua_State *L)

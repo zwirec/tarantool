@@ -404,6 +404,27 @@ int
 box_process1(struct request *request, box_tuple_t **result);
 
 /**
+ * Select the number of tuple matched conditions.
+ *
+ * \param space ephemeral space.
+ * \param index_id id of index for select.
+ * \param iterator iterator to use for select.
+ * \param offset offset for select.
+ * \param limit limit for select.
+ * \param key key for select.
+ * \param key_end end of \a key.
+ * \param port port to save result of select to.
+ *
+ * \retval -1 on error.
+ * \retval 0 on success.
+ */
+int
+box_ephemeral_select(struct space *space, uint32_t index_id,
+		     int iterator, uint32_t offset, uint32_t limit,
+		     const char *key, const char *key_end,
+		     struct port *port);
+
+/**
  * Execute an INSERT request for ephemeral spaces.
  *
  * \param space ephemeral space.

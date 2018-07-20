@@ -1099,16 +1099,11 @@ box_process1(struct request *request, box_tuple_t **result)
 	return box_process_rw(request, space, result);
 }
 
-int
-box_select(uint32_t space_id, uint32_t index_id,
-	   int iterator, uint32_t offset, uint32_t limit,
-	   const char *key, const char *key_end,
-	   struct port *port)
+static inline int
+box_select_impl(struct space *space, uint32_t index_id,
+		int iterator, uint32_t offset, uint32_t limit,
+		const char *key, struct port *port)
 {
-	(void)key_end;
-
-	rmean_collect(rmean_box, IPROTO_SELECT, 1);
-
 	if (iterator < 0 || iterator >= iterator_type_MAX) {
 		diag_set(ClientError, ER_ILLEGAL_PARAMS,
 			 "Invalid iterator type");
@@ -1116,11 +1111,6 @@ box_select(uint32_t space_id, uint32_t index_id,
 		return -1;
 	}
 
-	struct space *space = space_cache_find(space_id);
-	if (space == NULL)
-		return -1;
-	if (access_check_space(space, PRIV_R) != 0)
-		return -1;
 	struct index *index = index_find(space, index_id);
 	if (index == NULL)
 		return -1;
@@ -1135,16 +1125,10 @@ box_select(uint32_t space_id, uint32_t index_id,
 		return -1;
 	});
 
-	struct txn *txn;
-	if (txn_begin_ro_stmt(space, &txn) != 0)
-		return -1;
-
 	struct iterator *it = index_create_iterator(index, type,
 						    key, part_count);
-	if (it == NULL) {
-		txn_rollback_stmt();
+	if (it == NULL)
 		return -1;
-	}
 
 	int rc = 0;
 	uint32_t found = 0;
@@ -1167,9 +1151,36 @@ box_select(uint32_t space_id, uint32_t index_id,
 
 	if (rc != 0) {
 		port_destroy(port);
+		return -1;
+	}
+	return 0;
+}
+
+int
+box_select(uint32_t space_id, uint32_t index_id,
+	   int iterator, uint32_t offset, uint32_t limit,
+	   const char *key, const char *key_end,
+	   struct port *port)
+{
+	(void)key_end;
+
+	rmean_collect(rmean_box, IPROTO_SELECT, 1);
+
+	struct space *space = space_cache_find(space_id);
+	if (space == NULL)
+		return -1;
+	if (access_check_space(space, PRIV_R) != 0)
+		return -1;
+	struct txn *txn;
+	if (txn_begin_ro_stmt(space, &txn) != 0)
+		return -1;
+
+	if (box_select_impl(space, index_id, iterator, offset, limit, key,
+			    port) != 0) {
 		txn_rollback_stmt();
 		return -1;
 	}
+
 	txn_commit_ro_stmt(txn);
 	return 0;
 }
@@ -1248,6 +1259,17 @@ box_upsert(uint32_t space_id, uint32_t index_id, const char *tuple,
 	request_fill(&request, IPROTO_UPSERT, space_id, index_id, ops, ops_end,
 		     tuple, tuple_end, index_base);
 	return box_process_rw(&request, space, result);
+}
+
+int
+box_ephemeral_select(struct space *space, uint32_t index_id,
+		     int iterator, uint32_t offset, uint32_t limit,
+		     const char *key, const char *key_end,
+		     struct port *port)
+{
+	(void)key_end;
+	return box_select_impl(space, index_id, iterator, offset, limit, key,
+			       port);
 }
 
 int

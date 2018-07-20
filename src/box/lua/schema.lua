@@ -1098,6 +1098,8 @@ local index_new_ephemeral = box.internal.space.index_new_ephemeral
 box.internal.space.index_new_ephemeral = nil
 local index_delete_ephemeral = box.internal.space.index_delete_ephemeral
 box.internal.space.index_delete_ephemeral = nil
+local index_ephemeral_methods = box.internal.index_ephemeral_methods
+box.internal.index_ephemeral_methods = nil
 local index_ephemeral_mt = {}
 
 local create_ephemeral_index = function(space, name, options)
@@ -1230,6 +1232,13 @@ end
 -- Helper function to check index:method() usage
 local function check_index_arg(index, method)
     if type(index) ~= 'table' or index.id == nil then
+        local fmt = 'Use index:%s(...) instead of index.%s(...)'
+        error(string.format(fmt, method, method))
+    end
+end
+local function check_index_arg_ephemeral(index, method)
+    if type(index) ~= 'table' or type(index.space) ~= 'table' or
+       param_type(index.space.space) ~= 'cdata' then
         local fmt = 'Use index:%s(...) instead of index.%s(...)'
         error(string.format(fmt, method, method))
     end
@@ -1642,6 +1651,81 @@ space_mt.__index = space_mt
 
 -- Metatable for primary index of ephemeral space
 index_ephemeral_mt.drop = drop_ephemeral_index
+index_ephemeral_mt.update = function(index, key, ops)
+    check_index_arg_ephemeral(index, 'update')
+    key = keify(key)
+    return index_ephemeral_methods.update(index.space.space, index.id, key, ops)
+end
+index_ephemeral_mt.delete = function(index, key)
+    check_index_arg_ephemeral(index, 'delete')
+    key = keify(key)
+    return index_ephemeral_methods.delete(index.space.space, index.id, key)
+end
+index_ephemeral_mt.len = function(index)
+    check_index_arg_ephemeral(index, 'len')
+    local ret = index_ephemeral_methods.len(index.space.space, index.id)
+    if ret == -1 then
+        box.error()
+    end
+    return tonumber(ret)
+end
+index_ephemeral_mt.__len = index_ephemeral_mt.len
+index_ephemeral_mt.bsize = function(index)
+    check_index_arg_ephemeral(index, 'bsize')
+    local ret = index_ephemeral_methods.bsize(index.space.space, index.id)
+    if ret == -1 then
+        box.error()
+    end
+    return tonumber(ret)
+end
+index_ephemeral_mt.random = function(index, rnd)
+    check_index_arg_ephemeral(index, 'random')
+    rnd = rnd or math.random()
+    return index_ephemeral_methods.random(index.space.space, index.id, rnd);
+end
+index_ephemeral_mt.get = function(index, key)
+    check_index_arg_ephemeral(index, 'get')
+    key = keify(key)
+    return index_ephemeral_methods.get(index.space.space, index.id, key)
+end
+index_ephemeral_mt.select = function(index, key, opts)
+    check_index_arg_ephemeral(index, 'select')
+    local key = keify(key)
+    local iterator, offset, limit = check_select_opts(opts, #key == 0)
+    return index_ephemeral_methods.select(index.space.space, iterator, offset, limit, key)
+end
+index_ephemeral_mt.min = function(index, key)
+    check_index_arg_ephemeral(index, 'min')
+    key = keify(key)
+    return index_ephemeral_methods.min(index.space.space, index.id, key);
+end
+index_ephemeral_mt.max = function(index, key)
+    check_index_arg_ephemeral(index, 'max')
+    key = keify(key)
+    return index_ephemeral_methods.max(index.space.space, index.id, key);
+end
+index_ephemeral_mt.count = function(index, key, opts)
+    check_index_arg_ephemeral(index, 'count')
+    key = keify(key)
+    local itype = check_iterator_type(opts, #key == 0);
+    return index_ephemeral_methods.count(index.space.space, index.id, itype,
+                                         key);
+end
+index_ephemeral_mt.pairs = function(index, key, opts)
+    check_index_arg_ephemeral(index, 'pairs')
+    key = keify(key)
+    local itype = check_iterator_type(opts, #key == 0);
+    local keymp = msgpack.encode(key)
+    local keybuf = ffi.string(keymp, #keymp)
+    local cdata = index_ephemeral_methods.iterator(index.space.space, index.id,
+                                                   itype, keymp);
+    return fun.wrap(iterator_gen_luac, keybuf,
+        ffi.gc(cdata, builtin.box_iterator_free))
+end
+index_ephemeral_mt.compact = function(index)
+    check_index_arg_ephemeral(index, 'compact')
+    return index_ephemeral_methods.compact(index.space.space, index.id)
+end
 index_ephemeral_mt.__index = index_ephemeral_mt
 
 -- Metatable for ephemeral space
@@ -1665,9 +1749,81 @@ space_ephemeral_mt.bsize = function(space)
     check_ephemeral_space_arg(space, 'bsize')
     return builtin.space_bsize(space.space)
 end
+space_ephemeral_mt.auto_increment = function(space, tuple)
+    check_ephemeral_space_arg(space, 'auto_increment')
+    local max_tuple = check_primary_index(space):max()
+    local max = 0
+    if max_tuple ~= nil then
+        max = max_tuple[1]
+    end
+    table.insert(tuple, 1, max + 1)
+    return space:insert(tuple)
+end
+space_ephemeral_mt.insert = function(space, tuple)
+    check_ephemeral_space_arg(space, 'insert')
+    return index_ephemeral_methods.insert(space.space, tuple);
+end
+space_ephemeral_mt.replace = function(space, tuple)
+    check_ephemeral_space_arg(space, 'replace')
+    return index_ephemeral_methods.replace(space.space, tuple);
+end
+space_ephemeral_mt.upsert = function(space, tuple_key, ops, deprecated)
+    check_ephemeral_space_arg(space, 'upsert')
+    if deprecated ~= nil then
+        local msg = "Error: extra argument in upsert call: "
+        msg = msg .. tostring(deprecated)
+        msg = msg .. ". Usage :upsert(tuple, operations)"
+        box.error(box.error.PROC_LUA, msg)
+    end
+    return index_ephemeral_methods.upsert(space.space, tuple_key, ops);
+end
+space_ephemeral_mt.pairs = function(space, key, opts)
+    check_ephemeral_space_arg(space, 'pairs')
+    local pk = space.index[0]
+    if pk == nil then
+        -- empty space without indexes, return empty iterator
+        return fun.iter({})
+    end
+    return pk:pairs(key, opts)
+end
+space_ephemeral_mt.__pairs = space_ephemeral_mt.pairs -- Lua 5.2 compatibility
+space_ephemeral_mt.__ipairs = space_ephemeral_mt.pairs -- Lua 5.2 compatibility
+space_ephemeral_mt.truncate = function(space)
+    check_ephemeral_space_arg(space, 'truncate')
+    local index = space.index[0]
+    local name = index.name
+    local options = index.options
+    index:drop()
+    space:create_index(name, options)
+end
 space_ephemeral_mt.create_index = create_ephemeral_index
 space_ephemeral_mt.drop = box.schema.space.drop_ephemeral
 space_ephemeral_mt.__index = space_ephemeral_mt
+space_ephemeral_mt.put = space_ephemeral_methods.replace
+space_ephemeral_mt.update = function(space, key, ops)
+    check_ephemeral_space_arg(space, 'update')
+    return check_primary_index(space):update(key, ops)
+end
+space_ephemeral_mt.delete = function(space, key)
+    check_ephemeral_space_arg(space, 'delete')
+    return check_primary_index(space):delete(key)
+end
+space_ephemeral_mt.get = function(space, key)
+    check_ephemeral_space_arg(space, 'get')
+    return check_primary_index(space):get(key)
+end
+space_ephemeral_mt.select = function(space, key, opts)
+    check_ephemeral_space_arg(space, 'select')
+    return check_primary_index(space):select(key, opts)
+end
+space_ephemeral_mt.count = function(space, key, opts)
+    check_ephemeral_space_arg(space, 'count')
+    return check_primary_index(space):count(key, opts)
+end
+space_ephemeral_mt.len = function(space)
+    check_ephemeral_space_arg(space, 'len')
+    return check_primary_index(space):len()
+end
 
 box.schema.index_mt = base_index_mt
 box.schema.memtx_index_mt = memtx_index_mt
