@@ -207,6 +207,7 @@ fi
 %dir %{_libdir}/tarantool
 %dir %{_datadir}/tarantool
 %{_datadir}/tarantool/luarocks
+%{_prefix}/cmake/TarantoolConfig.cmake
 
 %if %{with systemd}
 %{_unitdir}/tarantool@.service

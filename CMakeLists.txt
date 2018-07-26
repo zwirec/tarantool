@@ -218,6 +218,7 @@ set(MODULE_LIBSUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}")
 
 install(DIRECTORY DESTINATION ${MODULE_LUADIR})
 install(DIRECTORY DESTINATION ${MODULE_LIBDIR})
+install(FILES TarantoolConfig.cmake DESTINATION cmake)
 
 include(cmake/multilib.cmake)
 
