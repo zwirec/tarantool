@@ -637,6 +637,7 @@ main(int argc, char **argv)
 	static struct option longopts[] = {
 		{"help", no_argument, 0, 'h'},
 		{"version", no_argument, 0, 'v'},
+		{"ignore-space-formats", no_argument, 0, 'f'},
 		{NULL, 0, 0, 0},
 	};
 	static const char *opts = "+hVvie:l:";
@@ -669,6 +670,11 @@ main(int argc, char **argv)
 			 */
 			optv[optc++] = argv[optind - 2];
 			optv[optc++] = argv[optind - 1];
+			break;
+		case 'f':
+			/* Ignore space formats. */
+			box_set_ignore_space_formats(true);
+			say_info("Space formats validation is turned off");
 			break;
 		default:
 			/* "invalid option" is printed by getopt */

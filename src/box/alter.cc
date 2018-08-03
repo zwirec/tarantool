@@ -54,6 +54,18 @@
 #include "sequence.h"
 
 /**
+ * A flag to ignore space formats and do not validate tuples by
+ * them.
+ */
+static bool ignore_space_formats = false;
+
+void
+box_set_ignore_space_formats(bool value)
+{
+	ignore_space_formats = value;
+}
+
+/**
  * chap-sha1 of empty string, i.e.
  * base64_encode(sha1(sha1(""), 0)
  */
@@ -533,7 +545,7 @@ space_def_new_from_tuple(struct tuple *tuple, uint32_t errcode,
 	const char *space_opts;
 	struct field_def *fields;
 	uint32_t field_count;
-	if (dd_version_id >= version_id(1, 7, 6)) {
+	if (dd_version_id >= version_id(1, 7, 6) && !ignore_space_formats) {
 		/* Check space opts. */
 		space_opts =
 			tuple_field_with_type_xc(tuple, BOX_SPACE_FIELD_OPTS,
