@@ -48,6 +48,7 @@
 #include "replication.h"
 #include "schema.h"
 #include "gc.h"
+#include "ctl.h"
 
 /*
  * Memtx yield-in-transaction trigger: roll back the effects

@@ -52,6 +52,7 @@
 #include "identifier.h"
 #include "version.h"
 #include "sequence.h"
+#include "ctl.h"
 
 /**
  * chap-sha1 of empty string, i.e.
@@ -1622,6 +1623,8 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 		struct trigger *on_rollback =
 			txn_alter_trigger_new(on_create_space_rollback, space);
 		txn_on_rollback(txn, on_rollback);
+		if (space->def->id < BOX_SYSTEM_ID_MAX)
+			on_ctl_event_type(CTL_EVENT_SYSTEM_SPACE_CREATE);
 	} else if (new_tuple == NULL) { /* DELETE */
 		access_check_ddl(old_space->def->name, old_space->def->uid,
 				 SC_SPACE, PRIV_D, true);
@@ -1719,6 +1722,8 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 		(void) new UpdateSchemaVersion(alter);
 		alter_space_do(txn, alter);
 		alter_guard.is_active = false;
+		if (alter->new_space->def->id < BOX_SYSTEM_ID_MAX)
+			on_ctl_event_type(CTL_EVENT_SYSTEM_SPACE_CREATE);
 	}
 }
 

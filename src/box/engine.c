@@ -29,6 +29,7 @@
  * SUCH DAMAGE.
  */
 #include "engine.h"
+#include "ctl.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -73,6 +74,7 @@ engine_bootstrap(void)
 		if (engine->vtab->bootstrap(engine) != 0)
 			return -1;
 	}
+	on_ctl_event_type(CTL_EVENT_LOCAL_RECOVERY);
 	return 0;
 }
 
@@ -111,6 +113,7 @@ engine_end_recovery(void)
 		if (engine->vtab->end_recovery(engine) != 0)
 			return -1;
 	}
+	on_ctl_event_type(CTL_EVENT_LOCAL_RECOVERY);
 	return 0;
 }
 

@@ -253,6 +253,17 @@ lbox_cfg_set_net_msg_max(struct lua_State *L)
 }
 
 static int
+lbox_cfg_set_on_ctl_event(struct lua_State *L)
+{
+	try {
+		box_set_on_ctl_event();
+	} catch (Exception *) {
+		luaT_error(L);
+	}
+	return 0;
+}
+
+static int
 lbox_cfg_set_worker_pool_threads(struct lua_State *L)
 {
 	(void) L;
@@ -330,6 +341,7 @@ box_lua_cfg_init(struct lua_State *L)
 		{"cfg_set_replication_skip_conflict", lbox_cfg_set_replication_skip_conflict},
 		{"cfg_set_replication_connect_timeout", lbox_cfg_set_replication_connect_timeout},
 		{"cfg_set_net_msg_max", lbox_cfg_set_net_msg_max},
+		{"cfg_set_on_ctl_event", lbox_cfg_set_on_ctl_event},
 		{NULL, NULL}
 	};
 

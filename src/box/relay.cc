@@ -52,6 +52,7 @@
 #include "xrow_io.h"
 #include "xstream.h"
 #include "wal.h"
+#include "ctl.h"
 
 /**
  * Cbus message to send status updates from relay to tx thread.
@@ -551,6 +552,12 @@ relay_subscribe_f(va_list ap)
 	if (!diag_is_empty(&relay->diag)) {
 		/* An error has occurred while reading ACKs of xlog. */
 		diag_move(&relay->diag, diag_get());
+		struct on_ctl_event_ctx ctx;
+		ctx.type = CTL_EVENT_REPLICA_CONNECTION_ERROR;
+		ctx.replica_id = relay->replica->id;
+		if (run_on_ctl_event_triggers(&ctx) < 0)
+			say_error("ctl_trigger error in replica error: %s",
+				  diag_last_error(diag_get())->errmsg);
 		/* Reference the diag in the status. */
 		diag_add_error(&relay->diag, diag_last_error(diag_get()));
 	}
