@@ -1,5 +1,5 @@
-#ifndef INCLUDES_TARANTOOL_LUA_CTL_H
-#define INCLUDES_TARANTOOL_LUA_CTL_H
+#ifndef INCLUDES_TARANTOOL_CTL_H
+#define INCLUDES_TARANTOOL_CTL_H
 
 /*
  * Copyright 2010-2018, Tarantool AUTHORS, please see AUTHORS file.
@@ -32,17 +32,48 @@
  * SUCH DAMAGE.
  */
 
+#include <cfg.h>
+#include <box/lua/ctl.h>
+
+/** Global on-ctl_event triggers. */
+extern struct rlist on_ctl_event;
+
+enum ctl_event_type {
+	CTL_EVENT_SYSTEM_SPACE_RECOVERY,
+	CTL_EVENT_LOCAL_RECOVERY,
+	CTL_EVENT_READ_ONLY,
+	CTL_EVENT_READ_WRITE,
+	CTL_EVENT_SHUTDOWN,
+	CTL_EVENT_REPLICASET_ADD,
+	CTL_EVENT_REPLICASET_REMOVE,
+	CTL_EVENT_REPLICA_CONNECTION_ERROR,
+	CTL_LAST_POS_GUARD,
+};
+
+struct on_ctl_event_ctx {
+	enum ctl_event_type type;
+	uint32_t replica_id;
+};
+
 #if defined(__cplusplus)
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-struct lua_State;
+/**
+ * Runs on_ctl_event triggers with specified context.
+ */
+int
+run_on_ctl_event_triggers(const struct on_ctl_event_ctx *result);
 
+/**
+ * Runs on_ctl_event trigger with specified type and
+ * log error if any.
+ */
 void
-box_lua_ctl_init(struct lua_State *L);
+on_ctl_event_type(enum ctl_event_type type);
 
 int
-lbox_push_on_ctl_event(struct lua_State *L, void *event);
+cfg_reset_on_ctl_event();
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

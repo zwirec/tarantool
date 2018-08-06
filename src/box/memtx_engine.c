@@ -48,6 +48,21 @@
 #include "replication.h"
 #include "schema.h"
 #include "gc.h"
+#include "ctl.h"
+
+static bool sys_space_recovered = true;
+
+bool
+is_sys_space_recovered(void)
+{
+	return sys_space_recovered;
+}
+
+void
+set_sys_space_recovered(bool val)
+{
+	sys_space_recovered = val;
+}
 
 /*
  * Memtx yield-in-transaction trigger: roll back the effects
@@ -272,6 +287,10 @@ memtx_engine_recover_snapshot_row(struct memtx_engine *memtx,
 	/* no access checks here - applier always works with admin privs */
 	if (space_apply_initial_join_row(space, &request) != 0)
 		return -1;
+	if (space->def->id > BOX_SYSTEM_ID_MAX && !sys_space_recovered) {
+		sys_space_recovered = true;
+		on_ctl_event_type(CTL_EVENT_SYSTEM_SPACE_RECOVERY);
+	}
 	/*
 	 * Don't let gc pool grow too much. Yet to
 	 * it before reading the next row, to make

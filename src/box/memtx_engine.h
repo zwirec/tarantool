@@ -172,6 +172,15 @@ struct memtx_gc_task {
 };
 
 /**
+ * Get and set methods for sys_space_recovered variable, needed
+ * for completion of recovery of all system spaces trigger.
+ */
+bool
+is_sys_space_recovered(void);
+void
+set_sys_space_recovered(bool val);
+
+/**
  * Schedule a garbage collection task for execution.
  */
 void

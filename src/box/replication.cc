@@ -42,6 +42,7 @@
 #include "relay.h"
 #include "vclock.h" /* VCLOCK_MAX */
 #include "sio.h"
+#include "ctl.h"
 
 uint32_t instance_id = REPLICA_ID_NIL;
 struct tt_uuid INSTANCE_UUID;
@@ -173,6 +174,12 @@ replicaset_add(uint32_t replica_id, const struct tt_uuid *replica_uuid)
 	replica->uuid = *replica_uuid;
 	replica_hash_insert(&replicaset.hash, replica);
 	replica_set_id(replica, replica_id);
+	struct on_ctl_event_ctx on_ctl_ctx;
+	on_ctl_ctx.type = CTL_EVENT_REPLICASET_ADD;
+	on_ctl_ctx.replica_id = replica_id;
+	if (run_on_ctl_event_triggers(&on_ctl_ctx) < 0)
+		say_error("ctl_trigger error in replica add: %s",
+			  diag_last_error(diag_get())->errmsg);
 	return replica;
 }
 
@@ -204,6 +211,10 @@ replica_clear_id(struct replica *replica)
 	 * Some records may arrive later on due to asynchronous nature of
 	 * replication.
 	 */
+	struct on_ctl_event_ctx on_ctl_ctx;
+	on_ctl_ctx.type = CTL_EVENT_REPLICASET_REMOVE;
+	on_ctl_ctx.replica_id = replica->id;
+
 	replicaset.replica_by_id[replica->id] = NULL;
 	replica->id = REPLICA_ID_NIL;
 	/*
@@ -223,6 +234,9 @@ replica_clear_id(struct replica *replica)
 		replica_hash_remove(&replicaset.hash, replica);
 		replica_delete(replica);
 	}
+	if (run_on_ctl_event_triggers(&on_ctl_ctx) < 0)
+		say_error("ctl_trigger error in replica remove: %s",
+			  diag_last_error(diag_get())->errmsg);
 }
 
 static void

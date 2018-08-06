@@ -73,6 +73,7 @@
 #include "call.h"
 #include "func.h"
 #include "sequence.h"
+#include "ctl.h"
 
 static char status[64] = "unknown";
 
@@ -105,6 +106,7 @@ static struct gc_consumer *backup_gc;
 static bool is_box_configured = false;
 static bool is_ro = true;
 static fiber_cond ro_cond;
+static bool sys_space_recovered = true;
 
 /**
  * The following flag is set if the instance failed to
@@ -209,11 +211,22 @@ process_nop(struct request *request)
 	return txn_commit_stmt(txn, request);
 }
 
+static void
+on_ro_cond_change(void)
+{
+	on_ctl_event_type(box_is_ro() ? CTL_EVENT_READ_ONLY:
+			  CTL_EVENT_READ_WRITE);
+	fiber_cond_broadcast(&ro_cond);
+}
+
 void
 box_set_ro(bool ro)
 {
+	if (is_ro == ro)
+		return; /* nothing to do */
+
 	is_ro = ro;
-	fiber_cond_broadcast(&ro_cond);
+	on_ro_cond_change();
 }
 
 bool
@@ -244,7 +257,7 @@ box_clear_orphan(void)
 		return; /* nothing to do */
 
 	is_orphan = false;
-	fiber_cond_broadcast(&ro_cond);
+	on_ro_cond_change();
 
 	/* Update the title to reflect the new status. */
 	title("running");
@@ -345,6 +358,10 @@ apply_initial_join_row(struct xstream *stream, struct xrow_header *row)
 	struct space *space = space_cache_find_xc(request.space_id);
 	/* no access checks here - applier always works with admin privs */
 	space_apply_initial_join_row_xc(space, &request);
+	if (space->def->id > BOX_SYSTEM_ID_MAX && !sys_space_recovered) {
+		sys_space_recovered = true;
+		on_ctl_event_type(CTL_EVENT_SYSTEM_SPACE_RECOVERY);
+	}
 }
 
 /* {{{ configuration bindings */
@@ -838,6 +855,13 @@ box_set_net_msg_max(void)
 	fiber_pool_set_max_size(&tx_fiber_pool,
 				new_iproto_msg_max *
 				IPROTO_FIBER_POOL_SIZE_FACTOR);
+}
+
+void
+box_set_on_ctl_event_xc(void)
+{
+	if (cfg_reset_on_ctl_event() < 0)
+		diag_raise();
 }
 
 /* }}} configuration bindings */
@@ -1592,6 +1616,7 @@ box_set_replicaset_uuid(const struct tt_uuid *replicaset_uuid)
 void
 box_free(void)
 {
+	on_ctl_event_type(CTL_EVENT_SHUTDOWN);
 	/*
 	 * See gh-584 "box_free() is called even if box is not
 	 * initialized
@@ -1719,8 +1744,17 @@ bootstrap_from_master(struct replica *master)
 	 * Process initial data (snapshot or dirty disk data).
 	 */
 	engine_begin_initial_recovery_xc(NULL);
+	sys_space_recovered = false;
 	applier_resume_to_state(applier, APPLIER_FINAL_JOIN, TIMEOUT_INFINITY);
 
+	/**
+	 * It Could be only system spaces, so check sys_space_recovered
+	 * and set trigger if it still false.
+	 */
+	if (!sys_space_recovered) {
+		on_ctl_event_type(CTL_EVENT_SYSTEM_SPACE_RECOVERY);
+		sys_space_recovered = true;
+	}
 	/*
 	 * Process final data (WALs).
 	 */
@@ -1874,7 +1908,16 @@ local_recovery(const struct tt_uuid *instance_uuid,
 	 * recovery of system spaces issue DDL events in
 	 * other engines.
 	 */
+	set_sys_space_recovered(false);
 	memtx_engine_recover_snapshot_xc(memtx, checkpoint_vclock);
+	/**
+	 * It Could be only system spaces, so check is_sys_space_recovered()
+	 * and set trigger if it still false.
+	 */
+	if (!is_sys_space_recovered()) {
+		on_ctl_event_type(CTL_EVENT_SYSTEM_SPACE_RECOVERY);
+		set_sys_space_recovered(true);
+	}
 
 	engine_begin_final_recovery_xc();
 	recover_remaining_wals(recovery, &wal_stream.base, NULL, false);
@@ -1932,7 +1975,6 @@ void
 box_init(void)
 {
 	fiber_cond_create(&ro_cond);
-
 	user_cache_init();
 	/*
 	 * The order is important: to initialize sessions,
@@ -1989,6 +2031,7 @@ box_cfg_xc(void)
 	box_set_replication_connect_timeout();
 	box_set_replication_connect_quorum();
 	box_set_replication_skip_conflict();
+	box_set_on_ctl_event_xc();
 	replication_sync_lag = box_check_replication_sync_lag();
 	xstream_create(&join_stream, apply_initial_join_row);
 	xstream_create(&subscribe_stream, apply_row);
