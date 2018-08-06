@@ -4,11 +4,7 @@ services:
 
 language: cpp
 
-os:
-  - linux
-  - osx
-
-osx_image: xcode9
+os: linux
 
 cache:
     directories:
@@ -37,44 +33,16 @@ env:
 matrix:
     allow_failures:
       - TARGET=coverage
-#      - env: OS=el DIST=6
-#      - env: OS=el DIST=7
-#      - env: OS=fedora DIST=26
-#      - env: OS=fedora DIST=27
-#      - env: OS=ubuntu DIST=artful
-#      - env: OS=ubuntu DIST=trusty
-#      - env: OS=ubuntu DIST=xenial
-#      - env: OS=ubuntu DIST=bionic
-#      - env: OS=debian DIST=wheezy
-#      - env: OS=debian DIST=jessie
-#      - env: OS=debian DIST=stretch
-    exclude:
-      - env: OS=el DIST=6
+    include:
+      - osx_image: xcode9
         os: osx
-      - env: OS=el DIST=7
+        env:
+          - TARGET=test
+      - osx_image: xcode9
         os: osx
-      - env: OS=fedora DIST=26
-        os: osx
-      - env: OS=fedora DIST=27
-        os: osx
-      - env: OS=ubuntu DIST=artful
-        os: osx
-      - env: OS=ubuntu DIST=trusty
-        os: osx
-      - env: OS=ubuntu DIST=xenial
-        os: osx
-      - env: OS=ubuntu DIST=bionic
-        os: osx
-      - env: OS=debian DIST=wheezy
-        os: osx
-      - env: OS=debian DIST=jessie
-        os: osx
-      - env: OS=debian DIST=stretch
-        os: osx
-      - env: TARGET=source
-        os: osx
-      - env: TARGET=coverage
-        os: osx
+        env:
+          - TARGET=test
+          - CMAKE_EXTRA_PARAMS="-DTARANTOOL_LTO=TRUE"
 
 script:
   - make -f .travis.mk ${TARGET}
