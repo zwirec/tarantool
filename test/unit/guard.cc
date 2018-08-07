@@ -13,7 +13,7 @@ static int __attribute__((noinline))
 stack_break_f(char *ptr)
 {
 	char block[2048];
-	char sum = 0;
+	volatile char sum = 0;
 	memset(block, 0xff, 2048);
 	sum += block[block[4]];
 	ptrdiff_t stack_diff = ptr > block ? ptr - block : block - ptr;
