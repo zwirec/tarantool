@@ -522,6 +522,7 @@ load_cfg()
 
 	title_set_custom(cfg_gets("custom_proc_title"));
 	title_update();
+	box_set_ignore_space_formats(cfg_geti("ignore_space_formats") != 0);
 	box_cfg();
 }
 
