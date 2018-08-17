@@ -70,6 +70,7 @@ log_pid
 space_by_id
 space_run_triggers
 space_bsize
+space_index_key_def
 box_schema_version
 
 tnt_openssl_init
