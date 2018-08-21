@@ -26,6 +26,7 @@ local communicate     = internal.communicate
 local encode_auth     = internal.encode_auth
 local encode_select   = internal.encode_select
 local decode_greeting = internal.decode_greeting
+local listen          = internal.listen
 
 local TIMEOUT_INFINITY = 500 * 365 * 86400
 local VSPACE_ID        = 281
@@ -1422,6 +1423,7 @@ local this_module = {
     new = connect, -- Tarantool < 1.7.1 compatibility,
     wrap = wrap,
     establish_connection = establish_connection,
+    listen = listen,
 }
 
 function this_module.timeout(timeout, ...)

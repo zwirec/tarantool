@@ -275,6 +275,16 @@ iproto_header_encode(char *out, uint32_t type, uint64_t sync,
 	memcpy(out, &header, sizeof(header));
 }
 
+void
+iproto_header_to_iovec(const struct xrow_header *header, struct iovec *out,
+		       uint32_t bodylen)
+{
+	out->iov_base = region_alloc(&fiber()->gc, IPROTO_HEADER_LEN);
+	iproto_header_encode((char *)out->iov_base, header->type, header->sync,
+			     header->schema_version, bodylen);
+	out->iov_len = IPROTO_HEADER_LEN;
+}
+
 struct PACKED iproto_body_bin {
 	uint8_t m_body;                    /* MP_MAP */
 	uint8_t k_data;                    /* IPROTO_DATA or IPROTO_ERROR */
@@ -843,6 +853,42 @@ xrow_encode_auth(struct xrow_header *packet, const char *salt, size_t salt_len,
 		d = mp_encode_str(d, "chap-sha1", strlen("chap-sha1"));
 		d = mp_encode_str(d, scramble, SCRAMBLE_SIZE);
 	}
+
+	assert(d <= buf + buf_size);
+	packet->body[0].iov_base = buf;
+	packet->body[0].iov_len = (d - buf);
+	packet->bodycnt = 1;
+	packet->type = IPROTO_AUTH;
+	return 0;
+}
+
+int
+xrow_reencode_auth(struct xrow_header *packet, const char *salt, size_t salt_len,
+		   const char *msalt, size_t msalt_len, const char *login,
+		   size_t login_len, const char *scramble, const char *hash2)
+{
+	size_t buf_size = XROW_BODY_LEN_MAX + login_len + SCRAMBLE_SIZE;
+	char *buf = (char *) region_alloc(&fiber()->gc, buf_size);
+	if (buf == NULL) {
+		diag_set(OutOfMemory, buf_size, "region_alloc", "buf");
+		return -1;
+	}
+
+	char *d = buf;
+	d = mp_encode_map(d, 2);
+	d = mp_encode_uint(d, IPROTO_USER_NAME);
+	d = mp_encode_str(d, login, login_len);
+	assert(salt_len >= SCRAMBLE_SIZE);
+	assert(msalt_len >= SCRAMBLE_SIZE);
+	(void)salt_len;
+	(void)msalt_len;
+
+	char new_scramble[SCRAMBLE_SIZE];
+	scramble_reencode(new_scramble, scramble, salt, msalt, hash2);
+	d = mp_encode_uint(d, IPROTO_TUPLE);
+	d = mp_encode_array(d, 2);
+	d = mp_encode_str(d, "chap-sha1", strlen("chap-sha1"));
+	d = mp_encode_str(d, new_scramble, SCRAMBLE_SIZE);
 
 	assert(d <= buf + buf_size);
 	packet->body[0].iov_base = buf;

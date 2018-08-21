@@ -226,6 +226,27 @@ xrow_encode_auth(struct xrow_header *row, const char *salt, size_t salt_len,
 		 const char *login, size_t login_len, const char *password,
 		 size_t password_len);
 
+/**
+ * Reencode an AUTH request recieved from a client
+ * to send it to another instance.
+ * @param[out] packet.
+ * @param salt Salt a proxy sent to client.
+ * @param salt_len length of @salt.
+ * @param msalt Salt a proxy recieved from an instance.
+ * @param msalt_len length of @msalt.
+ * @param login User login.
+ * @param login_len Length of @login.
+ * @param scramble Scramble recieved from client.
+ * @param hash2 hash2 of the user, i.e. sha1(sha1(password))
+ *
+ * @retval  0 Success.
+ * @retval -1 Memory error.
+ */
+int
+xrow_reencode_auth(struct xrow_header *packet, const char *salt, size_t salt_len,
+		   const char *msalt, size_t msalt_len, const char *login,
+		   size_t login_len, const char *scramble, const char *hash2);
+
 /** Reply to IPROTO_VOTE request. */
 struct ballot {
 	/** Set if the instance is running in read-only mode. */
@@ -516,6 +537,18 @@ int
 xrow_to_iovec(const struct xrow_header *row, struct iovec *out);
 
 /**
+ * Create an iproto_header based on values from @row and encode it
+ * to specified iovec.
+ *
+ * @param row Row to take values from.
+ * @param[out] out Encoded iproto_header basing on @row values.
+ * @param bodylen Lengh of row body to be encoded in header.
+ */
+void
+iproto_header_to_iovec(const struct xrow_header *row, struct iovec *out,
+		       uint32_t bodylen);
+
+/**
  * Decode ERROR and set it to diagnostics area.
  * @param row Encoded error.
  */
@@ -628,6 +661,17 @@ xrow_encode_auth_xc(struct xrow_header *row, const char *salt, size_t salt_len,
 {
 	if (xrow_encode_auth(row, salt, salt_len, login, login_len, password,
 			     password_len) != 0)
+		diag_raise();
+}
+
+/** @copydoc xrow_reencode_auth. */
+static inline void
+xrow_reencode_auth_xc(struct xrow_header *packet, const char *salt, size_t salt_len,
+		   const char *msalt, size_t msalt_len, const char *login,
+		   size_t login_len, const char *scramble, const char *hash2)
+{
+	if (xrow_reencode_auth(packet, salt, salt_len, msalt, msalt_len, login,
+			       login_len, scramble, hash2) != 0)
 		diag_raise();
 }
 

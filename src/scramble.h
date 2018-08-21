@@ -89,6 +89,15 @@ scramble_check(const void *scramble, const void *salt, const void *hash2);
 void
 password_prepare(const char *password, int len, char *out, int out_len);
 
+/**
+ * Given a scrambble recieved from a client, salt sent to client,
+ * salt recieved from another instance and user hash2, recalculate
+ * a scramble to be sent to a remote instance for authentication.
+ */
+void
+scramble_reencode(void *out, const void *in, const void *salt, const void *msalt,
+		  const void *hash2);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif

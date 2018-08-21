@@ -46,6 +46,7 @@
 #include "sio.h"
 #include "evio.h"
 #include "coio.h"
+#include "coio_task.h"
 #include "scoped_guard.h"
 #include "memory.h"
 #include "random.h"
@@ -56,11 +57,14 @@
 #include "tuple_convert.h"
 #include "session.h"
 #include "xrow.h"
+#include "xrow_io.h"
 #include "schema.h" /* schema_version */
 #include "replication.h" /* instance_uuid */
 #include "iproto_constants.h"
 #include "rmean.h"
 #include "errinj.h"
+#include "assoc.h"
+#include "uri.h"
 
 enum {
 	IPROTO_SALT_SIZE = 32,
@@ -127,6 +131,22 @@ unsigned iproto_readahead = 16320;
 /* The maximal number of iproto messages in fly. */
 static int iproto_msg_max = IPROTO_MSG_MAX_MIN;
 
+
+static bool is_iproto_configured = false;
+static bool is_proxy_configured = false;
+
+bool
+iproto_is_configured(void)
+{
+    return is_iproto_configured;
+}
+
+bool
+proxy_is_configured(void)
+{
+	return is_proxy_configured;
+}
+
 /**
  * How big is a buffer which needs to be shrunk before
  * it is put back into buffer cache.
@@ -152,6 +172,224 @@ iproto_reset_input(struct ibuf *ibuf)
 		ibuf_destroy(ibuf);
 		ibuf_create(ibuf, slabc, iproto_readahead);
 	}
+}
+
+struct proxy_instance {
+	bool is_ro;
+	/**
+	 * A flag indicating this instance refers to a local
+	 * instance the proxy is being run on. Needed to remember
+	 * not to establish connections to such an instance,
+	 * because all the forwarding will be done directly to tx
+	 * thread over cbus.
+	 */
+	bool is_local;
+	struct uri uri;
+
+	/** Instance's link in a list of all known instances. */
+	struct rlist link;
+	/** A map of all established connections to the instance. */
+	struct mh_strnptr_t *fat_connections;
+};
+
+struct sync_hash_entry {
+	uint64_t sync;
+	struct iproto_connection *con;
+};
+
+/** A single connection to a remote instance. */
+struct proxy_connection {
+	/** The instance we hold a connection to. */
+	struct proxy_instance *instance;
+	char * username;
+	/**
+	 * Monotonically increasing sync value for all requests
+	 * forwarded to instance through this connection.
+	 */
+	uint64_t sync_ctr;
+	/** Connection to the instance. */
+	struct {
+		struct ev_io io;
+		struct ibuf ibuf;
+	} connection;
+	/**
+	 * A map containing pairs of translated syncs plus
+	 * corresponding connections and original syncs.
+	 */
+	struct mh_i64ptr_t *sync_hash;
+	/**
+	 * A fiber recieving responses from the instance and
+	 * forwarding them back to clients.
+	 */
+	struct fiber *replier;
+	/** A fiber forwarding requests to the instance. */
+	struct fiber *forwarder;
+	/**
+	 * A cond to be signaled upon adding new entries to the request queue.
+	 */
+	struct fiber_cond forwarder_cond;
+	/*
+	 * A queue of all the requests to be forwarded through
+	 * the connection.
+	 */
+	struct rlist request_queue;
+	/** Salt recieved in instance's greeting. */
+	uint8_t salt[IPROTO_SALT_SIZE];
+};
+
+/** A single entry in proxy_connection request queue. */
+struct pqueue_entry {
+	/** Entry link in queue. */
+	struct rlist link;
+	/** The iproto connection a request was recieved from. */
+	struct iproto_connection *con;
+	/**
+	 * An iproto_msg corresponding to the request, as parsed
+	 * in iproto_msg_decode().
+	 */
+	struct iproto_msg *msg;
+};
+
+/**
+ * The local instance. Set only if proxy is run on one of the
+ * cluster nodes.
+ */
+struct proxy_instance *local_instance = NULL;
+
+/** A list of all instances known to proxy. */
+static RLIST_HEAD(proxy_instances);
+
+static struct proxy_instance *
+proxy_instance_new(bool is_ro, bool is_local, const char *uri)
+{
+	struct proxy_instance *instance = (struct proxy_instance *)
+		calloc(1, sizeof(*instance));
+	if (instance == NULL) {
+		diag_set(OutOfMemory, sizeof(*instance), "malloc",
+			 "struct proxy_instance");
+		return NULL;
+	}
+
+	instance->fat_connections = mh_strnptr_new();
+	if (instance->fat_connections == NULL) {
+		free(instance);
+		diag_set(OutOfMemory, sizeof(*instance->fat_connections), "malloc",
+			 "struct mh_strnptr_t");
+		return NULL;
+	}
+
+	instance->is_ro = is_ro;
+	instance->is_local = is_local;
+	if (is_local) {
+		/* There can be only one local instance. */
+		assert(local_instance == NULL);
+		assert(box_is_configured());
+		local_instance = instance;
+	} else if (uri_parse(&instance->uri, uri) || !instance->uri.service) {
+			free(instance);
+			diag_set(ClientError, ER_CFG, "uri",
+				 "expected host:service or /unix.socket");
+			return NULL;
+	}
+
+	rlist_add_tail(&proxy_instances, &instance->link);
+
+	return instance;
+}
+
+static void
+proxy_connection_delete(struct proxy_connection *pcon);
+
+static void
+proxy_instance_delete(struct proxy_instance *instance)
+{
+	if (instance->is_local) {
+		assert(local_instance != NULL);
+		local_instance = NULL;
+	}
+	mh_int_t i;
+	mh_foreach(instance->fat_connections, i) {
+		struct proxy_connection *pcon = (struct proxy_connection *) mh_strnptr_node(instance->fat_connections, i)->val;
+		mh_strnptr_del(instance->fat_connections, i, 0);
+		proxy_connection_delete(pcon);
+	}
+	free(instance);
+}
+
+static int
+proxy_replier_f(va_list ap);
+
+static int
+proxy_forwarder_f(va_list ap);
+
+/**
+ * Initiate a new connection to a remote instance.
+ */
+static struct proxy_connection *
+proxy_connection_new(struct proxy_instance *instance, const char *username,
+		     const char *scramble, const char *salt)
+{
+	static const char *guest = "guest";
+	if (username == NULL)
+		username = guest;
+	/* We do not establish connections to a local instance. */
+	assert(!instance->is_local && instance != local_instance);
+	struct proxy_connection *pcon = (struct proxy_connection *)
+		calloc(1, sizeof(*pcon));
+	if (pcon == NULL) {
+		diag_set(OutOfMemory, sizeof(*pcon), "malloc",
+			 "struct proxy_connection");
+		return NULL;
+	}
+	pcon->instance = instance;
+	pcon->username = (char *)malloc(strlen(username) + 1);
+	strcpy(pcon->username, username);
+	pcon->sync_ctr = 0;
+	ibuf_create(&pcon->connection.ibuf, cord_slab_cache(), iproto_readahead);
+
+	pcon->sync_hash = mh_i64ptr_new();
+	rlist_create(&pcon->request_queue);
+	fiber_cond_create(&pcon->forwarder_cond);
+
+	char name[FIBER_NAME_MAX];
+	int pos = snprintf(name, sizeof(name), "forwarder/");
+	pos += snprintf(name + pos, sizeof(name) - pos, "%s", username);
+	pos += snprintf(name + pos, sizeof(name) - pos, "@");
+	uri_format(name + pos, sizeof(name) - pos, &instance->uri, false);
+	pcon->forwarder = fiber_new(name, proxy_forwarder_f);
+	fiber_set_joinable(pcon->forwarder, true);
+	fiber_start(pcon->forwarder, pcon, scramble, salt);
+
+	uint32_t hash = mh_strn_hash(username, strlen(username));
+	struct mh_strnptr_node_t node = {username, strlen(username), hash, pcon};
+	struct mh_strnptr_node_t *ret;
+	mh_strnptr_put(instance->fat_connections, &node, &ret, NULL);
+	/*
+	 * Make sure we didn't have a connection under the same
+	 * user previously.
+	 */
+	assert(ret == NULL);
+	return pcon;
+}
+
+static void
+proxy_connection_delete(struct proxy_connection *pcon)
+{
+	free(pcon->username);
+	ibuf_destroy(&pcon->connection.ibuf);
+	fiber_cancel(pcon->forwarder);
+	fiber_cancel(pcon->replier);
+	fiber_cond_destroy(&pcon->forwarder_cond);
+	mh_int_t i;
+	mh_foreach(pcon->sync_hash, i) {
+		struct sync_hash_entry *cs = (struct sync_hash_entry *)
+					     mh_i64ptr_node(pcon->sync_hash,
+							    i)->val;
+		mh_i64ptr_del(pcon->sync_hash, i, 0);
+		free(cs);
+	}
+
+	free(pcon);
 }
 
 /* {{{ iproto_msg - declaration */
@@ -303,6 +541,30 @@ static const struct cmsg_hop push_route[] = {
 	{ tx_end_push, NULL }
 };
 
+struct proxy_auth_msg {
+	struct cmsg base;
+	struct iproto_msg *iproto_msg;
+	bool success;
+};
+
+/**
+ * Process an auth locally remembering whether it was successful or not.
+ */
+static void
+tx_process_proxy_auth(struct cmsg *m);
+
+/**
+ * Send a reply with auth result to the client.
+ * Also upon a successful auth remember scramble
+ * recieved from a client.
+ */
+static void
+proxy_finish_auth(struct cmsg *m);
+
+static const struct cmsg_hop proxy_auth_route[] = {
+	{ tx_process_proxy_auth, &net_pipe },
+	{ proxy_finish_auth, NULL },
+};
 
 /* }}} */
 
@@ -449,6 +711,11 @@ struct iproto_connection
 		 */
 		bool is_push_pending;
 	} tx;
+	struct {
+		char *user_name;
+		bool authenticated;
+		char scramble[SCRAMBLE_SIZE];
+	} proxy;
 	/** Authentication salt. */
 	char salt[IPROTO_SALT_SIZE];
 };
@@ -672,6 +939,12 @@ iproto_connection_input_buffer(struct iproto_connection *con)
 	return new_ibuf;
 }
 
+static struct proxy_instance *
+proxy_find_instance(struct iproto_msg *msg);
+
+static struct proxy_connection *
+proxy_find_connection(struct proxy_instance *instance, const char *username);
+
 /**
  * Enqueue all requests which were read up. If a request limit is
  * reached - stop the connection input even if not the whole batch
@@ -734,16 +1007,63 @@ err_msgpack:
 		msg->len = reqend - reqstart; /* total request length */
 
 		iproto_msg_decode(msg, &pos, reqend, &stop_input);
-		/*
-		 * This can't throw, but should not be
-		 * done in case of exception.
-		 */
-		cpipe_push_input(&tx_pipe, &msg->base);
+
 		n_requests++;
 		/* Request is parsed */
 		assert(reqend > reqstart);
 		assert(con->parse_size >= (size_t) (reqend - reqstart));
 		con->parse_size -= reqend - reqstart;
+
+		if (!is_proxy_configured) {
+			/*
+			 * This can't throw, but should not be
+			 * done in case of exception.
+			 */
+process_locally:
+			cpipe_push_input(&tx_pipe, &msg->base);
+			continue;
+		}
+
+		struct proxy_instance *instance = proxy_find_instance(msg);
+		if (instance == NULL) {
+			diag_log();
+			continue;
+		}
+		if (instance == local_instance) {
+			if (msg->header.type != IPROTO_AUTH)
+				goto process_locally;
+			struct proxy_auth_msg *m = (struct proxy_auth_msg *)malloc(sizeof(*m));
+			m->iproto_msg = msg;
+			cmsg_init(&m->base, proxy_auth_route);
+			cpipe_push_input(&tx_pipe, &m->base);
+			continue;
+		}
+		const char *username = NULL;
+		if (con->proxy.authenticated) {
+			username = con->proxy.user_name;
+		}
+		struct proxy_connection *pcon = proxy_find_connection(instance,
+								      username);
+
+		if (pcon == NULL) {
+			pcon = proxy_connection_new(instance, username,
+						    con->proxy.scramble,
+						    con->salt);
+			if (pcon == NULL)
+				diag_raise();
+		}
+
+		struct pqueue_entry *ent = (struct pqueue_entry *)
+					   calloc(1, sizeof(*ent));
+		if (ent == NULL) {
+			diag_set(OutOfMemory, sizeof(*ent), "malloc",
+				 "struct pqueue_entry");
+			diag_raise();
+		}
+		ent->msg = msg;
+		ent->con = con;
+		rlist_add_tail(&pcon->request_queue, &ent->link);
+		fiber_cond_signal(&pcon->forwarder_cond);
 	}
 	if (stop_input) {
 		/**
@@ -996,6 +1316,8 @@ iproto_connection_new(int fd)
 	con->is_disconnected = false;
 	con->tx.is_push_pending = false;
 	con->tx.is_push_sent = false;
+	con->proxy.user_name = NULL;
+	con->proxy.authenticated = false;
 	return con;
 }
 
@@ -1932,6 +2254,7 @@ iproto_init()
 		/* .sync = */ iproto_session_sync,
 	};
 	session_vtab_registry[SESSION_TYPE_BINARY] = iproto_session_vtab;
+	is_iproto_configured = true;
 }
 
 /** Available iproto configuration changes. */
@@ -2040,4 +2363,379 @@ iproto_set_msg_max(int new_iproto_msg_max)
 	cfg_msg.iproto_msg_max = new_iproto_msg_max;
 	iproto_do_cfg(&cfg_msg);
 	cpipe_set_max_input(&net_pipe, new_iproto_msg_max / 2);
+}
+
+/**
+ * Search the proxie's instance list to find the one
+ * instance capable of processing the request in msg->header.
+ */
+static struct proxy_instance *
+proxy_find_instance(struct iproto_msg *msg)
+{
+	bool request_is_ro;
+	uint8_t type = msg->header.type;
+
+	switch (type) {
+	case IPROTO_SELECT:
+	case IPROTO_AUTH:
+		request_is_ro = true;
+		break;
+	case IPROTO_INSERT:
+	case IPROTO_REPLACE:
+	case IPROTO_UPDATE:
+	case IPROTO_DELETE:
+	case IPROTO_UPSERT:
+	case IPROTO_EVAL:
+	case IPROTO_CALL:
+	case IPROTO_CALL_16:
+		request_is_ro = false;
+		break;
+	default:
+		/*
+		 * ping, join, subscribe,
+		 * vote, vote_deprecated go here
+		 */
+		if (local_instance != NULL)
+			return local_instance;
+		else
+			request_is_ro = false;
+	}
+
+	if (local_instance != NULL && (!local_instance->is_ro || request_is_ro))
+		return local_instance;
+
+	struct proxy_instance *instance;
+	rlist_foreach_entry(instance, &proxy_instances, link) {
+		/* Rules can be more complex in future. */
+		if (!instance->is_ro || request_is_ro) {
+			return instance;
+		}
+	}
+	diag_set(ClientError, ER_NO_SUCH_INSTANCE);
+	return NULL;
+}
+
+/**
+ * Find an established connection authenticated as specified user.
+ */
+static struct proxy_connection *
+proxy_find_connection(struct proxy_instance *instance, const char *username)
+{
+	static const char *guest = "guest";
+	if (username == NULL)
+		username = guest;
+	uint32_t hash = mh_strn_hash(username, strlen(username));
+	struct mh_strnptr_key_t key = {username, strlen(username), hash};
+	mh_int_t i = mh_strnptr_find(instance->fat_connections, &key, NULL);
+	if (i != mh_end(instance->fat_connections)) {
+		struct mh_strnptr_node_t *node = mh_strnptr_node(instance->fat_connections, i);
+		return (struct proxy_connection *)node->val;
+	} else
+		return NULL;
+}
+
+static void
+tx_process_proxy_auth(struct cmsg *m)
+{
+	struct proxy_auth_msg *msg = (struct proxy_auth_msg *)m;
+	struct iproto_connection *con = msg->iproto_msg->connection;
+	try {
+		box_process_auth(&msg->iproto_msg->auth, con->salt);
+	} catch (Exception *e) {
+		msg->success = false;
+		tx_reply_error(msg->iproto_msg);
+		return;
+	}
+	msg->success = true;
+
+	struct obuf *out = con->tx.p_obuf;
+	iproto_reply_ok_xc(out, msg->iproto_msg->header.sync, ::schema_version);
+	iproto_wpos_create(&msg->iproto_msg->wpos, out);
+}
+
+static void
+proxy_finish_auth(struct cmsg *m)
+{
+	struct proxy_auth_msg *msg = (struct proxy_auth_msg *)m;
+	struct iproto_connection *con = msg->iproto_msg->connection;
+
+	con->proxy.authenticated = msg->success;
+
+	if(msg->success) {
+		const char *user_name = msg->iproto_msg->auth.user_name;
+		const char *scramble = msg->iproto_msg->auth.scramble;
+		uint32_t username_len = mp_decode_strl(&user_name);
+		con->proxy.user_name = (char *)malloc(1 + username_len);
+		strncpy(con->proxy.user_name, user_name, username_len);
+		uint32_t part_count = mp_decode_array(&scramble);
+		/* These conditions were checked in box_process_auth() */
+		assert(part_count == 0 && strcmp(con->proxy.user_name, "guest") == 0 ||
+		       part_count == 2);
+		if (part_count < 2) {
+			memset(con->proxy.scramble, 0, SCRAMBLE_SIZE);
+		} else {
+			mp_next(&scramble);
+			uint32_t scramble_len;
+			if (mp_typeof(*scramble) == MP_STR) {
+				scramble = mp_decode_str(&scramble, &scramble_len);
+			} else {
+				/* type is MP_BIN, as checked in authenticate() */
+				scramble = mp_decode_bin(&scramble, &scramble_len);
+			}
+			assert(scramble_len == SCRAMBLE_SIZE);
+			strncpy(con->proxy.scramble, scramble,
+				scramble_len);
+		}
+	}
+
+	net_send_msg(&msg->iproto_msg->base);
+}
+
+/**
+ * Forward the request specified in msg->header
+ * to a specified instance connection.
+ */
+static void
+proxy_forward_request(struct iproto_connection *con, struct iproto_msg *msg,
+			struct proxy_connection *pcon)
+{
+	struct sync_hash_entry *cs = (struct sync_hash_entry *)malloc(sizeof(*cs));
+	cs->sync = msg->header.sync;
+	cs->con = con;
+	msg->header.sync = ++pcon->sync_ctr;
+	struct mh_i64ptr_node_t node = {pcon->sync_ctr, cs};
+	if (mh_i64ptr_put(pcon->sync_hash, &node, NULL, NULL) ==
+	    mh_end(pcon->sync_hash)) {
+		diag_set(OutOfMemory, sizeof(node), "malloc", "sync_hash");
+		diag_raise();
+	}
+	coio_write_xrow(&pcon->connection.io, &msg->header);
+
+	/*
+	 * After forwarding the request, mark it as read and
+	 * delete the msg.
+	 */
+	msg->p_ibuf->rpos += msg->len;
+	iproto_msg_delete(msg);
+}
+
+/**
+ * A message used to fetch user's hash2 from tx thread.
+ */
+struct proxy_hash2_msg {
+	struct cbus_call_msg base;
+	char *username;
+	size_t username_len;
+	char hash2[SCRAMBLE_SIZE];
+};
+
+static int
+proxy_get_hash2(struct cbus_call_msg *msg)
+{
+	struct proxy_hash2_msg *m = (struct proxy_hash2_msg *)msg;
+	struct user *user = user_find_by_name(m->username, m->username_len);
+	if (user == NULL)
+		return -1;
+	strncpy(m->hash2, user->def->hash2, SCRAMBLE_SIZE);
+	return 0;
+}
+
+/**
+ * Given a proxy_connection, establish an actual connection to a
+ * remote instance: connect and authenticate.
+ */
+static int
+proxy_establish_connection(struct proxy_connection *pcon, const char *scramble,
+			   const char *salt)
+{
+	coio_create(&pcon->connection.io, -1);
+	coio_connect(&pcon->connection.io, &pcon->instance->uri, NULL, NULL);
+
+	char greetingbuf[IPROTO_GREETING_SIZE];
+	struct greeting greeting;
+	coio_readn(&pcon->connection.io, greetingbuf, IPROTO_GREETING_SIZE);
+	if (greeting_decode(greetingbuf, &greeting) != 0) {
+		tnt_raise(LoggedError, ER_PROTOCOL, "Invalid greeting");
+	}
+	memcpy(pcon->salt, greeting.salt, IPROTO_SALT_SIZE);
+	if (strcmp(pcon->username, "guest")) {
+		size_t username_len = strlen(pcon->username);
+		struct xrow_header row;
+		memset(&row, 0, sizeof(row));
+		if (scramble != NULL) {
+			struct proxy_hash2_msg *msg = (struct proxy_hash2_msg *)
+			    calloc(1, sizeof(*msg));
+			msg->username = pcon->username;
+			msg->username_len = username_len;
+			if (cbus_call(&tx_pipe, &net_pipe, &msg->base,
+				      proxy_get_hash2, NULL, TIMEOUT_INFINITY) != 0)
+				diag_raise();
+
+			xrow_reencode_auth_xc(&row, salt, IPROTO_SALT_SIZE,
+					      greeting.salt,
+					      greeting.salt_len,  pcon->username,
+					      username_len,
+					      scramble, msg->hash2);
+			free(msg);
+		} else {
+			xrow_encode_auth_xc(&row, greeting.salt, greeting.salt_len,
+					    pcon->username, username_len, scramble, 0);
+		}
+
+		coio_write_xrow(&pcon->connection.io, &row);
+		coio_read_xrow(&pcon->connection.io, &pcon->connection.ibuf, &row);
+		if (row.type != IPROTO_OK) {
+			xrow_decode_error_xc(&row);
+		}
+	}
+	return 0;
+}
+
+static int
+proxy_forwarder_f(va_list ap)
+{
+	struct proxy_connection *pcon = va_arg(ap, struct proxy_connection *);
+	const char *scramble = va_arg(ap, char *);
+	const char *salt = va_arg(ap, char *);
+
+	proxy_establish_connection(pcon, scramble, salt);
+
+	char name[FIBER_NAME_MAX];
+	int pos = snprintf(name, sizeof(name), "replier/");
+	pos += snprintf(name + pos, sizeof(name) - pos, "@");
+	uri_format(name + pos, sizeof(name) - pos, &pcon->instance->uri, false);
+	pcon->replier = fiber_new(name, proxy_replier_f);
+	fiber_set_joinable(pcon->replier, true);
+	fiber_start(pcon->replier, pcon);
+
+	while (!fiber_is_cancelled()) {
+		struct rlist *head;
+		while ((head = rlist_first(&pcon->request_queue)) ==
+		       &pcon->request_queue) {
+			fiber_cond_wait(&pcon->forwarder_cond);
+		}
+
+		struct pqueue_entry *ent = rlist_shift_entry(&pcon->request_queue,
+							     struct pqueue_entry,
+							     link);
+		struct iproto_connection *con = ent->con;
+		struct iproto_msg * msg = ent->msg;
+		free(ent);
+
+		proxy_forward_request(con, msg, pcon);
+
+		fiber_gc();
+	}
+	return 0;
+}
+
+/**
+ * Delete all the instances from instance list.
+ */
+static void
+proxy_instance_list_purge()
+{
+	while (!rlist_empty(&proxy_instances)) {
+		struct proxy_instance *instance =
+		    rlist_shift_entry(&proxy_instances, struct proxy_instance, link);
+		proxy_instance_delete(instance);
+	}
+}
+
+/**
+ * A message used to pass proxy configuration parameters to iproto thread.
+ */
+struct proxy_cfg_msg: public cbus_call_msg
+{
+	struct proxy_cfg *config;
+};
+
+static int
+proxy_configure_f(struct cbus_call_msg *m)
+{
+	struct proxy_cfg_msg *msg = (struct proxy_cfg_msg *)m;
+	/*
+	 * If it is the second call to proxy_configure,
+	 * first remove all the old instances and close
+	 * connections, and do not init coio again.
+	 */
+	if (is_proxy_configured) {
+		proxy_instance_list_purge();
+	} else {
+		coio_init();
+		coio_enable();
+	}
+	for(size_t i = 0; msg->config[i].uri != NULL; ++i) {
+		/* Will do for now??? */
+		bool is_ro = !msg->config[i].is_master;
+		bool is_local = msg->config[i].is_local;
+		struct proxy_instance *instance =
+			proxy_instance_new(is_ro, is_local, msg->config[i].uri);
+		if (instance == NULL) {
+			return -1;
+		}
+		/*
+		 * Init a guest connection to an instance:
+		 * It will be the first connection in instance's
+		 * fat connecitons list.
+		 */
+		if (!is_local) {
+			struct proxy_connection *con =
+				proxy_connection_new(instance, NULL, NULL, NULL);
+			if (con == NULL) {
+				return -1;
+			}
+		}
+	}
+	return 0;
+}
+
+void
+proxy_configure(struct proxy_cfg *config)
+{
+	struct proxy_cfg_msg msg;
+	msg.config = config;
+	int rc = cbus_call(&net_pipe, &tx_pipe, &msg, proxy_configure_f, NULL,
+			   TIMEOUT_INFINITY);
+	free(config);
+	if (rc != 0)
+		diag_raise();
+	is_proxy_configured = true;
+}
+
+static int
+proxy_replier_f(va_list ap)
+{
+	struct proxy_connection *pcon = va_arg(ap, struct proxy_connection *);
+
+	struct ev_io io;
+	coio_create(&io, pcon->connection.io.fd);
+
+	while (!fiber_is_cancelled()) {
+		struct xrow_header row;
+		coio_read_xrow(&io, &pcon->connection.ibuf, &row);
+		uint64_t key = row.sync;
+		mh_int_t i = mh_i64ptr_find(pcon->sync_hash, key, NULL);
+		if (i == mh_end(pcon->sync_hash)) {
+			/*
+			 * Some error. We recieved a reply with sync
+			 * not corresponding to any connection
+			 */
+			say_warn("sync recieved from remote instance is not in sync_hash");
+			continue;
+		}
+		struct mh_i64ptr_node_t *node = mh_i64ptr_node(pcon->sync_hash, i);
+		if (row.type != IPROTO_CHUNK) {
+			mh_i64ptr_remove(pcon->sync_hash, node, NULL);
+		}
+		struct sync_hash_entry * cs = (struct sync_hash_entry *)node->val;
+		struct iproto_connection *con = cs->con;
+		uint64_t sync = cs->sync;
+		row.sync = sync;
+		free(cs);
+		coio_write_iproto_response(&con->output, &row);
+
+		fiber_gc();
+	}
+	return 0;
 }

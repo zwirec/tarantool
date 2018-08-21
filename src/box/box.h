@@ -52,6 +52,12 @@ struct ev_io;
 struct auth_request;
 
 /*
+ * Init iproto thread if it wasn't initted yet.
+ */
+void
+box_init_iproto(void);
+
+/*
  * Initialize box library
  * @throws C++ exception
  */
@@ -155,6 +161,12 @@ const char *box_status(void);
 void
 box_reset_stat(void);
 
+void
+box_listen_xc(const char *uri);
+
+int
+box_listen(const char *uri);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 
@@ -177,7 +189,6 @@ box_process_vote(struct ballot *ballot);
 void
 box_check_config();
 
-void box_listen(void);
 void box_set_replication(void);
 void box_set_log_level(void);
 void box_set_log_format(void);

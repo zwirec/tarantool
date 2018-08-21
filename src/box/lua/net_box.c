@@ -35,10 +35,12 @@
 #include <msgpuck.h> /* mp_store_u32() */
 #include "scramble.h"
 
+#include "box/box.h" /* box_listen() */
 #include "box/iproto_constants.h"
 #include "box/lua/tuple.h" /* luamp_convert_tuple() / luamp_convert_key() */
 #include "box/xrow.h"
 #include "box/tuple.h"
+#include "box/iproto.h" /* proxy_configure() / struct proxy_cfg */
 
 #include "lua/msgpack.h"
 #include "third_party/base64.h"
@@ -593,6 +595,62 @@ netbox_decode_body(struct lua_State *L)
 	return 2;
 }
 
+static int
+netbox_listen(struct lua_State *L)
+{
+	int opts_count = lua_gettop(L);
+	if (opts_count == 0 || (opts_count == 1 && !box_is_configured()))
+		return luaL_error(L, "Usage: netbox.listen(uri, {cluster="\
+				     "{{uri=uri1, is_master1=true/false}, ...}})");
+
+	const char *uri = lua_tostring(L, 1);
+	box_init_iproto();
+
+	if (opts_count > 2) {
+		lua_settop(L, 2);
+	} else if (opts_count == 1) {
+		if(box_listen(uri) == -1)
+			luaT_error(L);
+		return 0;
+	}
+	luaL_checktype(L, 2, LUA_TTABLE);
+	lua_getfield(L, 2, "cluster");
+	luaL_checktype(L, -1, LUA_TTABLE);
+	int opts_len = lua_objlen(L, -1);
+	for(int i = 1; i <= opts_len; ++i) {
+		lua_rawgeti(L, 3, i);
+		luaL_checktype(L, -1, LUA_TTABLE);
+		lua_getfield(L, -1, "uri");
+		lua_getfield(L, -2, "is_master");
+	}
+	struct proxy_cfg *config = malloc((opts_len + 1) * sizeof(*config));
+	if (config == NULL) {
+		diag_set(OutOfMemory, (opts_len + 1) * sizeof(*config),
+			 "malloc", "struct proxy_cfg");
+		luaT_error(L);
+	}
+	size_t pos = 0;
+	for(int i = - opts_len * 3; i < 0; i += 3) {
+		config[pos].uri = lua_tostring(L, i + 1);
+		config[pos].is_master = lua_toboolean(L, i + 2);
+		config[pos].is_local = strcmp(uri, config[pos].uri) == 0;
+		if (config[pos].is_local && !box_is_configured()) {
+			free(config);
+			return luaL_error(L, "You cannot proxy to local instance "\
+					     "before box is configured");
+		}
+		++pos;
+	}
+	config[pos].uri = NULL;
+
+	if(box_listen(uri) == -1)
+		luaT_error(L);
+
+	proxy_configure(config);
+
+	return 0;
+}
+
 int
 luaopen_net_box(struct lua_State *L)
 {
@@ -611,6 +669,7 @@ luaopen_net_box(struct lua_State *L)
 		{ "decode_greeting",netbox_decode_greeting },
 		{ "communicate",    netbox_communicate },
 		{ "decode_body",    netbox_decode_body },
+		{ "listen",	    netbox_listen },
 		{ NULL, NULL}
 	};
 	/* luaL_register_module polutes _G */

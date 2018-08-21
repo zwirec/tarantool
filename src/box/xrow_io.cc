@@ -101,3 +101,20 @@ coio_write_xrow(struct ev_io *coio, const struct xrow_header *row)
 	coio_writev(coio, iov, iovcnt, 0);
 }
 
+void
+coio_write_iproto_response(struct ev_io *coio, const struct xrow_header *row)
+{
+	struct iovec iov[XROW_IOVMAX];
+	int iovcnt = 0;
+	uint32_t bodylen = row->body[0].iov_len;
+	for (int i = 1; i < row->bodycnt; ++i) {
+		bodylen += row->body[i].iov_len;
+	}
+	iproto_header_to_iovec(row, iov + iovcnt++, bodylen);
+	assert(row->bodycnt + 1 <= XROW_IOVMAX);
+	for (int i = 0; i < row->bodycnt; ++i) {
+		iov[i+1].iov_base = row->body[i].iov_base;
+		iov[i+1].iov_len = row->body[i].iov_len;
+	}
+	coio_writev(coio, iov, row->bodycnt + 1, 0);
+}

@@ -741,11 +741,23 @@ box_set_replication_skip_conflict(void)
 }
 
 void
-box_listen(void)
+box_listen_xc(const char *uri)
 {
-	const char *uri = cfg_gets("listen");
+	if (uri == NULL)
+		uri = cfg_gets("listen");
 	box_check_uri(uri, "listen");
 	iproto_listen(uri);
+}
+
+int
+box_listen(const char *uri)
+{
+	try {
+		box_listen_xc(uri);
+	} catch (Exception * e) {
+		return -1;
+	}
+	return 0;
 }
 
 void
@@ -1810,7 +1822,7 @@ bootstrap(const struct tt_uuid *instance_uuid,
 	 * Begin listening on the socket to enable
 	 * master-master replication leader election.
 	 */
-	box_listen();
+	box_listen_xc(NULL);
 	/*
 	 * Wait for the cluster to start up.
 	 *
@@ -1881,7 +1893,7 @@ local_recovery(const struct tt_uuid *instance_uuid,
 	recovery_scan(recovery, &replicaset.vclock);
 
 	if (wal_dir_lock >= 0) {
-		box_listen();
+		box_listen_xc(NULL);
 		box_sync_replication(false);
 
 		struct replica *master;
@@ -1944,7 +1956,7 @@ local_recovery(const struct tt_uuid *instance_uuid,
 		 * applied in hot standby mode.
 		 */
 		vclock_copy(&replicaset.vclock, &recovery->vclock);
-		box_listen();
+		box_listen_xc(NULL);
 		box_sync_replication(false);
 	}
 	recovery_finalize(recovery);
@@ -1969,6 +1981,28 @@ tx_prio_cb(struct ev_loop *loop, ev_watcher *watcher, int events)
 	(void) events;
 	struct cbus_endpoint *endpoint = (struct cbus_endpoint *)watcher->data;
 	cbus_process(endpoint);
+}
+
+void
+box_init_iproto()
+{
+	if (!iproto_is_configured()) {
+		/*
+		 * Since iproto may be initted in a call to netbox.listen()
+		 * before box is configured, we need to first establish
+		 * a tx endpoint to write cbus messages.
+		 */
+		/* Join the cord interconnect as "tx" endpoint. */
+		fiber_pool_create(&tx_fiber_pool, "tx",
+				  IPROTO_MSG_MAX_MIN * IPROTO_FIBER_POOL_SIZE_FACTOR,
+				  FIBER_POOL_IDLE_TIMEOUT);
+		/* Add an extra endpoint for WAL wake up/rollback messages. */
+		cbus_endpoint_create(&tx_prio_endpoint, "tx_prio", tx_prio_cb, &tx_prio_endpoint);
+		rmean_box = rmean_new(iproto_type_strs, IPROTO_TYPE_STAT_MAX);
+		rmean_error = rmean_new(rmean_error_strings, RMEAN_ERROR_LAST);
+
+		iproto_init();
+	}
 }
 
 void
@@ -1999,16 +2033,20 @@ box_is_configured(void)
 static inline void
 box_cfg_xc(void)
 {
-	/* Join the cord interconnect as "tx" endpoint. */
-	fiber_pool_create(&tx_fiber_pool, "tx",
-			  IPROTO_MSG_MAX_MIN * IPROTO_FIBER_POOL_SIZE_FACTOR,
-			  FIBER_POOL_IDLE_TIMEOUT);
-	/* Add an extra endpoint for WAL wake up/rollback messages. */
-	cbus_endpoint_create(&tx_prio_endpoint, "tx_prio", tx_prio_cb, &tx_prio_endpoint);
+	/*
+	 * We may have already done this in box_init_iproto()
+	 */
+	if (!iproto_is_configured()) {
+		/* Join the cord interconnect as "tx" endpoint. */
+		fiber_pool_create(&tx_fiber_pool, "tx",
+				  IPROTO_MSG_MAX_MIN * IPROTO_FIBER_POOL_SIZE_FACTOR,
+				  FIBER_POOL_IDLE_TIMEOUT);
+		/* Add an extra endpoint for WAL wake up/rollback messages. */
+		cbus_endpoint_create(&tx_prio_endpoint, "tx_prio", tx_prio_cb, &tx_prio_endpoint);
 
-	rmean_box = rmean_new(iproto_type_strs, IPROTO_TYPE_STAT_MAX);
-	rmean_error = rmean_new(rmean_error_strings, RMEAN_ERROR_LAST);
-
+		rmean_box = rmean_new(iproto_type_strs, IPROTO_TYPE_STAT_MAX);
+		rmean_error = rmean_new(rmean_error_strings, RMEAN_ERROR_LAST);
+	}
 	gc_init();
 	engine_init();
 	if (module_init() != 0)
@@ -2016,7 +2054,7 @@ box_cfg_xc(void)
 	schema_init();
 	replication_init();
 	port_init();
-	iproto_init();
+	box_init_iproto();
 	wal_thread_start();
 
 	title("loading");

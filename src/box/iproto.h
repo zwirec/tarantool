@@ -56,6 +56,12 @@ enum {
 
 extern unsigned iproto_readahead;
 
+bool
+iproto_is_configured(void);
+
+bool
+proxy_is_configured(void);
+
 /**
  * Return size of memory used for storing network buffers.
  */
@@ -67,6 +73,23 @@ iproto_mem_used(void);
  */
 void
 iproto_reset_stat(void);
+
+struct proxy_cfg {
+	const char *uri;
+	bool is_master;
+	/*
+	 * A flag set to true for the instance
+	 * proxy is being run on.
+	 */
+	bool is_local;
+};
+
+/*
+ * Configure proxy. Initiate guest connections to instances from
+ * config and start proxying requests.
+ */
+void
+proxy_configure(struct proxy_cfg *config);
 
 #if defined(__cplusplus)
 } /* extern "C" */
