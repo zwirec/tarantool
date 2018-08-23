@@ -54,6 +54,7 @@
 #include "version.h"
 #include "sequence.h"
 #include "sql.h"
+#include "box.h"
 
 /**
  * chap-sha1 of empty string, i.e.
@@ -1529,10 +1530,8 @@ update_view_references(struct Select *select, int update_value,
 		const char *space_name = sql_select_from_table_name(select, i);
 		if (space_name == NULL)
 			continue;
-		uint32_t space_id;
-		if (schema_find_id(BOX_SPACE_ID, 2, space_name,
-				   strlen(space_name), &space_id) != 0)
-			return -1;
+		uint32_t space_id = box_space_id_by_name(space_name,
+							 strlen(space_name));
 		if (space_id == BOX_ID_NIL) {
 			if (! suppress_error) {
 				assert(not_found_space != NULL);
