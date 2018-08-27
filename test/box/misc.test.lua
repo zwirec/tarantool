@@ -336,3 +336,37 @@ rows == expected_rows
 lsn == expected_lsn
 box.cfg{too_long_threshold = too_long_threshold}
 s:drop()
+
+-- Test if space is visible just after creation
+fiber = require('fiber')
+-- allocate a space id to prevent max space id update
+trig = box.schema.space.create('trig')
+trig_id = trig.id
+trig:drop()
+trig = nil
+ch = fiber.channel(1)
+test_run:cmd("setopt delimiter ';'")
+-- check space exists just after creation
+_ = fiber.create(function ()
+        fiber.create(function ()
+            box.schema.space.create('trig', {id = trig_id})
+            ch:put(true)
+        end)
+        trig = box.space.trig
+    end);
+trig ~= nil;
+ch:get();
+trig == box.space.trig;
+
+-- check space does not exists just after deletion
+_ = fiber.create(function ()
+        fiber.create(function ()
+            box.space.trig:drop()
+            ch:put(true)
+        end)
+        trig = box.space.trig
+    end);
+trig == nil;
+ch:get();
+box.space.trig;
+test_run:cmd("setopt delimiter ''");

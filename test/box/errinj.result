@@ -1571,3 +1571,64 @@ fio = require('fio')
 box.space.test:drop()
 ---
 ...
+-- allocate a space id to prevent max space id update
+trig = box.schema.space.create('trig')
+---
+...
+trig_id = trig.id
+---
+...
+trig:drop()
+---
+...
+trig = nil
+---
+...
+fiber = require('fiber')
+---
+...
+ch = fiber.channel(1)
+---
+...
+errinj = box.error.injection
+---
+...
+test_run:cmd("setopt delimiter ';'")
+---
+- true
+...
+-- check space exists just after creation
+errinj.set("ERRINJ_WAL_WRITE", true);
+---
+- ok
+...
+_ = fiber.create(function ()
+        fiber.create(function ()
+            pcall(box.schema.space.create, 'trig', {id = trig_id})
+            ch:put(true)
+        end)
+        trig = box.space.trig
+    end);
+---
+...
+trig ~= nil;
+---
+- true
+...
+ch:get();
+---
+- true
+...
+--and not exists after rollback
+box.space.trig;
+---
+- null
+...
+test_run:cmd("setopt delimiter ''");
+---
+- true
+...
+errinj.set("ERRINJ_WAL_WRITE", false)
+---
+- ok
+...

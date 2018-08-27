@@ -557,3 +557,30 @@ fio = require('fio')
 #fio.glob(fio.pathjoin(box.cfg.vinyl_dir, box.space.test.id, 0, '*.index.inprogress')) == 0
 
 box.space.test:drop()
+
+
+-- allocate a space id to prevent max space id update
+trig = box.schema.space.create('trig')
+trig_id = trig.id
+trig:drop()
+trig = nil
+fiber = require('fiber')
+ch = fiber.channel(1)
+errinj = box.error.injection
+test_run:cmd("setopt delimiter ';'")
+-- check space exists just after creation
+errinj.set("ERRINJ_WAL_WRITE", true);
+_ = fiber.create(function ()
+        fiber.create(function ()
+            pcall(box.schema.space.create, 'trig', {id = trig_id})
+            ch:put(true)
+        end)
+        trig = box.space.trig
+    end);
+trig ~= nil;
+ch:get();
+--and not exists after rollback
+box.space.trig;
+test_run:cmd("setopt delimiter ''");
+
+errinj.set("ERRINJ_WAL_WRITE", false)

@@ -787,7 +787,6 @@ alter_space_commit(struct trigger *trigger, void *event)
 		op->commit(alter, txn->signature);
 	}
 
-	trigger_run_xc(&on_alter_space, alter->new_space);
 
 	alter->new_space = NULL; /* for alter_space_delete(). */
 	/*
@@ -825,6 +824,7 @@ alter_space_rollback(struct trigger *trigger, void * /* event */)
 	struct space *new_space = space_cache_replace(alter->old_space);
 	assert(new_space == alter->new_space);
 	(void) new_space;
+	trigger_run_xc(&on_alter_space, alter->old_space);
 	alter_space_delete(alter);
 }
 
@@ -1417,7 +1417,6 @@ on_drop_space_commit(struct trigger *trigger, void *event)
 {
 	(void) event;
 	struct space *space = (struct space *)trigger->data;
-	trigger_run_xc(&on_alter_space, space);
 	space_delete(space);
 }
 
@@ -1432,16 +1431,6 @@ on_drop_space_rollback(struct trigger *trigger, void *event)
 	(void) event;
 	struct space *space = (struct space *)trigger->data;
 	space_cache_replace(space);
-}
-
-/**
- * Run the triggers registered on commit of a change in _space.
- */
-static void
-on_create_space_commit(struct trigger *trigger, void *event)
-{
-	(void) event;
-	struct space *space = (struct space *)trigger->data;
 	trigger_run_xc(&on_alter_space, space);
 }
 
@@ -1460,6 +1449,7 @@ on_create_space_rollback(struct trigger *trigger, void *event)
 	struct space *cached = space_cache_delete(space_id(space));
 	(void) cached;
 	assert(cached == space);
+	trigger_run_xc(&on_alter_space, space);
 	space_delete(space);
 }
 
@@ -1626,12 +1616,10 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 		 * so it's safe to simply drop the space on
 		 * rollback.
 		 */
-		struct trigger *on_commit =
-			txn_alter_trigger_new(on_create_space_commit, space);
-		txn_on_commit(txn, on_commit);
 		struct trigger *on_rollback =
 			txn_alter_trigger_new(on_create_space_rollback, space);
 		txn_on_rollback(txn, on_rollback);
+		trigger_run_xc(&on_alter_space, space);
 	} else if (new_tuple == NULL) { /* DELETE */
 		access_check_ddl(old_space->def->name, old_space->def->id,
 				 old_space->def->uid, SC_SPACE, PRIV_D, true);
@@ -1674,6 +1662,7 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 		struct trigger *on_rollback =
 			txn_alter_trigger_new(on_drop_space_rollback, space);
 		txn_on_rollback(txn, on_rollback);
+		trigger_run_xc(&on_alter_space, old_space);
 	} else { /* UPDATE, REPLACE */
 		assert(old_space != NULL && new_tuple != NULL);
 		struct space_def *def =
@@ -1730,6 +1719,7 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 		(void) new UpdateSchemaVersion(alter);
 		alter_space_do(txn, alter);
 		alter_guard.is_active = false;
+		trigger_run_xc(&on_alter_space, alter->new_space);
 	}
 }
 
@@ -1931,6 +1921,7 @@ on_replace_dd_index(struct trigger * /* trigger */, void *event)
 	(void) new UpdateSchemaVersion(alter);
 	alter_space_do(txn, alter);
 	scoped_guard.is_active = false;
+	trigger_run_xc(&on_alter_space, alter->new_space);
 }
 
 /**
@@ -3180,7 +3171,7 @@ on_replace_dd_sequence_data(struct trigger * /* trigger */, void *event)
  * Run the triggers registered on commit of a change in _space.
  */
 static void
-on_commit_dd_space_sequence(struct trigger *trigger, void * /* event */)
+on_rollback_dd_space_sequence(struct trigger *trigger, void * /* event */)
 {
 	struct space *space = (struct space *) trigger->data;
 	trigger_run_xc(&on_alter_space, space);
@@ -3230,9 +3221,9 @@ on_replace_dd_space_sequence(struct trigger * /* trigger */, void *event)
 	access_check_ddl(space->def->name, space->def->id, space->def->uid,
 			 SC_SPACE, PRIV_A, false);
 
-	struct trigger *on_commit =
-		txn_alter_trigger_new(on_commit_dd_space_sequence, space);
-	txn_on_commit(txn, on_commit);
+	struct trigger *on_rollback =
+		txn_alter_trigger_new(on_rollback_dd_space_sequence, space);
+	txn_on_rollback(txn, on_rollback);
 
 	if (stmt->new_tuple != NULL) {			/* INSERT, UPDATE */
 		struct index *pk = index_find_xc(space, 0);
@@ -3248,6 +3239,7 @@ on_replace_dd_space_sequence(struct trigger * /* trigger */, void *event)
 		assert(space->sequence == seq);
 		space->sequence = NULL;
 	}
+	trigger_run_xc(&on_alter_space, space);
 }
 
 /* }}} sequence */
