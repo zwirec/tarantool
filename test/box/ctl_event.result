@@ -1,0 +1,364 @@
+env = require('test_run')
+---
+...
+test_run = env.new()
+---
+...
+-- create master instance
+test_run:cmd("create server trig_master with script='box/lua/trig_master.lua'")
+---
+- true
+...
+test_run:cmd("start server trig_master")
+---
+- true
+...
+test_run:cmd("switch trig_master")
+---
+- true
+...
+env = require('test_run')
+---
+...
+test_run = env.new()
+---
+...
+-- simple ctl_event_case
+ctl_const = box.ctl_event.const()
+---
+...
+test_run:cmd("setopt delimiter ';'")
+---
+- true
+...
+function on_replace(old, new)
+    return box.tuple.new({new[1], new[2], 'M'})
+end;
+---
+...
+function on_ctl_trig(event)
+    if event.type == ctl_const.SPACE and
+       event.action == ctl_const.SPACE_CREATE then
+        local space = box.space[event.space_id]
+        space:before_replace(on_replace)
+    end
+end;
+---
+...
+test_run:cmd("setopt delimiter ''");
+---
+- true
+...
+active_trig = box.ctl_event.on_ctl_event(on_ctl_trig)
+---
+...
+t1 = box.schema.space.create('trig1')
+---
+...
+_ = t1:create_index('pk')
+---
+...
+t1:replace({1, 2})
+---
+- [1, 2, 'M']
+...
+t1:select()
+---
+- - [1, 2, 'M']
+...
+-- clear the trigger
+box.ctl_event.on_ctl_event(nil, active_trig)
+---
+...
+t2 = box.schema.space.create('trig2')
+---
+...
+_ = t2:create_index('pk')
+---
+...
+t2:replace({1, 2})
+---
+- [1, 2]
+...
+t2:select()
+---
+- - [1, 2]
+...
+test_run:cmd("push filter 'replica: [-0-9a-f]+' to 'server: <master-uuid>'")
+---
+- true
+...
+test_run:cmd("push filter 'space_id: [0-9]+' to 'space_id: <space_id>'")
+---
+- true
+...
+-- create replica and test bootstrap events
+box.schema.user.grant('guest', 'replication', nil, nil, {if_not_exists = true})
+---
+...
+test_run:cmd("create server trig_replica with rpl_master=trig_master, script='box/lua/trig_replica.lua'")
+---
+- true
+...
+test_run:cmd("start server trig_replica")
+---
+- true
+...
+t1:replace({2, 3})
+---
+- [2, 3, 'M']
+...
+t1:select()
+---
+- - [1, 2, 'M']
+  - [2, 3, 'M']
+...
+test_run:cmd("switch trig_replica")
+---
+- true
+...
+env = require('test_run')
+---
+...
+test_run = env.new()
+---
+...
+-- list all events
+events
+---
+- - type: 4
+    server: <master-uuid>
+    status: 1
+  - type: 1
+    status: 8
+  - type: 4
+    server: <master-uuid>
+    status: 2
+  - type: 4
+    server: <master-uuid>
+    status: 4
+  - type: 4
+    server: <master-uuid>
+    status: 5
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 1
+    status: 9
+  - type: 4
+    server: <master-uuid>
+    status: 6
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 1
+    status: 10
+  - type: 4
+    server: <master-uuid>
+    status: 7
+  - type: 4
+    server: <master-uuid>
+    status: 4
+  - type: 4
+    server: <master-uuid>
+    status: 8
+  - type: 4
+    server: <master-uuid>
+    status: 9
+...
+-- check before replace trigger
+box.space.trig1:select()
+---
+- - [1, 2, 'M', 'R']
+  - [2, 3, 'M', 'R']
+...
+test_run:cmd("switch trig_master")
+---
+- true
+...
+test_run:cmd("stop server trig_replica")
+---
+- true
+...
+t1:replace({3, 4})
+---
+- [3, 4, 'M']
+...
+test_run:cmd("start server trig_replica")
+---
+- true
+...
+test_run:cmd("switch trig_replica")
+---
+- true
+...
+env = require('test_run')
+---
+...
+test_run = env.new()
+---
+...
+-- list all events
+events
+---
+- - type: 1
+    status: 1
+  - type: 4
+    server: <master-uuid>
+    status: 1
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 2
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 2
+    action: 1
+    space_id: <space_id>
+  - type: 1
+    status: 2
+  - type: 1
+    status: 5
+  - type: 4
+    server: <master-uuid>
+    status: 2
+  - type: 4
+    server: <master-uuid>
+    status: 4
+  - type: 4
+    server: <master-uuid>
+    status: 8
+  - type: 4
+    server: <master-uuid>
+    status: 9
+...
+-- check tuples changed only one time
+box.space.trig1:select()
+---
+- - [1, 2, 'M', 'R']
+  - [2, 3, 'M', 'R']
+  - [3, 4, 'M', 'R']
+...
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd("stop server trig_replica")
+---
+- true
+...
+test_run:cmd("stop server trig_master")
+---
+- true
+...

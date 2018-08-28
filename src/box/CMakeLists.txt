@@ -113,6 +113,7 @@ add_library(box STATIC
     journal.c
     wal.c
     call.c
+    ctl_event.c
     ${lua_sources}
     lua/init.c
     lua/call.c
@@ -131,6 +132,7 @@ add_library(box STATIC
     lua/session.c
     lua/net_box.c
     lua/xlog.c
+    lua/ctl_event.c
     ${bin_sources})
 
 target_link_libraries(box box_error tuple stat xrow xlog vclock crc32 scramble

@@ -52,6 +52,7 @@
 #include "identifier.h"
 #include "version.h"
 #include "sequence.h"
+#include "ctl_event.h"
 
 /**
  * chap-sha1 of empty string, i.e.
@@ -1620,6 +1621,11 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 			txn_alter_trigger_new(on_create_space_rollback, space);
 		txn_on_rollback(txn, on_rollback);
 		trigger_run_xc(&on_alter_space, space);
+		struct on_ctl_event event;
+		event.type = CTL_SPACE;
+		event.space.action = CTL_SPACE_CREATE;
+		event.space.space_id = old_id;
+		trigger_run(&on_ctl_trigger, &event);
 	} else if (new_tuple == NULL) { /* DELETE */
 		access_check_ddl(old_space->def->name, old_space->def->id,
 				 old_space->def->uid, SC_SPACE, PRIV_D, true);
@@ -1663,6 +1669,11 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 			txn_alter_trigger_new(on_drop_space_rollback, space);
 		txn_on_rollback(txn, on_rollback);
 		trigger_run_xc(&on_alter_space, old_space);
+		struct on_ctl_event event;
+		event.type = CTL_SPACE;
+		event.space.action = CTL_SPACE_DELETE;
+		event.space.space_id = old_id;
+		trigger_run(&on_ctl_trigger, &event);
 	} else { /* UPDATE, REPLACE */
 		assert(old_space != NULL && new_tuple != NULL);
 		struct space_def *def =
@@ -1720,6 +1731,11 @@ on_replace_dd_space(struct trigger * /* trigger */, void *event)
 		alter_space_do(txn, alter);
 		alter_guard.is_active = false;
 		trigger_run_xc(&on_alter_space, alter->new_space);
+		struct on_ctl_event event;
+		event.type = CTL_SPACE;
+		event.space.action = CTL_SPACE_ALTER;
+		event.space.space_id = old_id;
+		trigger_run(&on_ctl_trigger, &event);
 	}
 }
 

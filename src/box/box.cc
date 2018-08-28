@@ -73,6 +73,7 @@
 #include "call.h"
 #include "func.h"
 #include "sequence.h"
+#include "ctl_event.h"
 
 static char status[64] = "unknown";
 
@@ -1602,6 +1603,9 @@ box_free(void)
 	 * initialized
 	 */
 	if (is_box_configured) {
+		struct on_ctl_event ctl_event;
+		ctl_event.type = CTL_SHUTDOWN;
+		trigger_run(&on_ctl_trigger, &ctl_event);
 #if 0
 		session_free();
 		user_cache_free();
@@ -1670,6 +1674,11 @@ bootstrap_master(const struct tt_uuid *replicaset_uuid)
 	if (boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "[%u]", 1) != 0)
 		diag_raise();
 
+	struct on_ctl_event ctl_event;
+	ctl_event.type = CTL_RECOVERY;
+	ctl_event.recovery.status = CTL_RECOVERY_BOOTSTRAP_START;
+	trigger_run(&on_ctl_trigger, &ctl_event);
+
 	/* Register the first replica in the replica set */
 	box_register_replica(replica_id, &INSTANCE_UUID);
 	assert(replica_by_uuid(&INSTANCE_UUID)->id == 1);
@@ -1690,6 +1699,9 @@ bootstrap_master(const struct tt_uuid *replicaset_uuid)
 	if (engine_begin_checkpoint() ||
 	    engine_commit_checkpoint(&replicaset.vclock))
 		panic("failed to create a checkpoint");
+	ctl_event.type = CTL_RECOVERY;
+	ctl_event.recovery.status = CTL_RECOVERY_BOOTSTRAP_DONE;
+	trigger_run(&on_ctl_trigger, &ctl_event);
 }
 
 /**
@@ -1703,6 +1715,11 @@ bootstrap_master(const struct tt_uuid *replicaset_uuid)
 static void
 bootstrap_from_master(struct replica *master)
 {
+	struct on_ctl_event ctl_event;
+	ctl_event.type = CTL_RECOVERY;
+	ctl_event.recovery.status = CTL_RECOVERY_INITIAL_JOIN_START;
+	trigger_run(&on_ctl_trigger, &ctl_event);
+
 	struct applier *applier = master->applier;
 	assert(applier != NULL);
 	applier_resume_to_state(applier, APPLIER_READY, TIMEOUT_INFINITY);
@@ -1725,6 +1742,9 @@ bootstrap_from_master(struct replica *master)
 	 */
 	engine_begin_initial_recovery_xc(NULL);
 	applier_resume_to_state(applier, APPLIER_FINAL_JOIN, TIMEOUT_INFINITY);
+	ctl_event.type = CTL_RECOVERY;
+	ctl_event.recovery.status = CTL_RECOVERY_INITIAL_JOIN_DONE;
+	trigger_run(&on_ctl_trigger, &ctl_event);
 
 	/*
 	 * Process final data (WALs).
@@ -1735,6 +1755,9 @@ bootstrap_from_master(struct replica *master)
 	journal_set(&journal.base);
 
 	applier_resume_to_state(applier, APPLIER_JOINED, TIMEOUT_INFINITY);
+	ctl_event.type = CTL_RECOVERY;
+	ctl_event.recovery.status = CTL_RECOVERY_FINAL_JOIN_DONE;
+	trigger_run(&on_ctl_trigger, &ctl_event);
 
 	/* Clear the pointer to journal before it goes out of scope */
 	journal_set(NULL);
@@ -1883,13 +1906,22 @@ local_recovery(const struct tt_uuid *instance_uuid,
 	 */
 	memtx_engine_recover_snapshot_xc(memtx, checkpoint_vclock);
 
+	struct on_ctl_event ctl_event;
+	ctl_event.type = CTL_RECOVERY;
+	ctl_event.recovery.status = CTL_RECOVERY_SNAPSHOT_DONE;
+	trigger_run(&on_ctl_trigger, &ctl_event);
+
 	engine_begin_final_recovery_xc();
 	recover_remaining_wals(recovery, &wal_stream.base, NULL, false);
 	/*
 	 * Leave hot standby mode, if any, only after
 	 * acquiring the lock.
 	 */
+
 	if (wal_dir_lock < 0) {
+		ctl_event.type = CTL_RECOVERY;
+		ctl_event.recovery.status = CTL_RECOVERY_HOT_STANDBY_START;
+		trigger_run(&on_ctl_trigger, &ctl_event);
 		title("hot_standby");
 		say_info("Entering hot standby mode");
 		recovery_follow_local(recovery, &wal_stream.base, "hot_standby",
@@ -1908,11 +1940,17 @@ local_recovery(const struct tt_uuid *instance_uuid,
 		 * applied in hot standby mode.
 		 */
 		vclock_copy(&replicaset.vclock, &recovery->vclock);
+		ctl_event.type = CTL_RECOVERY;
+		ctl_event.recovery.status = CTL_RECOVERY_HOT_STANDBY_DONE;
+		trigger_run(&on_ctl_trigger, &ctl_event);
 		box_listen();
 		box_sync_replication(false);
 	}
 	recovery_finalize(recovery);
 	engine_end_recovery_xc();
+	ctl_event.type = CTL_RECOVERY;
+	ctl_event.recovery.status = CTL_RECOVERY_XLOGS_DONE;
+	trigger_run(&on_ctl_trigger, &ctl_event);
 
 	/* Check replica set UUID. */
 	if (!tt_uuid_is_nil(replicaset_uuid) &&
@@ -2021,6 +2059,10 @@ box_cfg_xc(void)
 	bool is_bootstrap_leader = false;
 	if (last_checkpoint_lsn >= 0) {
 		/* Recover the instance from the local directory */
+		struct on_ctl_event ctl_event;
+		ctl_event.type = CTL_RECOVERY;
+		ctl_event.recovery.status = CTL_RECOVERY_SNAPSHOT_START;
+		trigger_run(&on_ctl_trigger, &ctl_event);
 		local_recovery(&instance_uuid, &replicaset_uuid,
 			       &last_checkpoint_vclock);
 	} else {

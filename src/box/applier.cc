@@ -48,6 +48,7 @@
 #include "error.h"
 #include "session.h"
 #include "cfg.h"
+#include "ctl_event.h"
 
 STRS(applier_state, applier_STATE);
 
@@ -58,6 +59,11 @@ applier_set_state(struct applier *applier, enum applier_state state)
 	say_debug("=> %s", applier_state_strs[state] +
 		  strlen("APPLIER_"));
 	trigger_run_xc(&applier->on_state, applier);
+	struct on_ctl_event ctl_event;
+	ctl_event.type = CTL_APPLIER;
+	ctl_event.applier.replica_uuid = applier->uuid;
+	ctl_event.applier.status = state;
+	trigger_run(&on_ctl_trigger, &ctl_event);
 }
 
 /**

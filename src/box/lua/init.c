@@ -52,6 +52,7 @@
 #include "box/lua/stat.h"
 #include "box/lua/info.h"
 #include "box/lua/ctl.h"
+#include "box/lua/ctl_event.h"
 #include "box/lua/session.h"
 #include "box/lua/net_box.h"
 #include "box/lua/cfg.h"
@@ -306,6 +307,7 @@ box_lua_init(struct lua_State *L)
 	box_lua_info_init(L);
 	box_lua_stat_init(L);
 	box_lua_ctl_init(L);
+	box_lua_ctl_event_init(L);
 	box_lua_session_init(L);
 	box_lua_xlog_init(L);
 	luaopen_net_box(L);
