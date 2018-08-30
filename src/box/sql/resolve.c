@@ -437,20 +437,18 @@ lookupName(Parse * pParse,	/* The parsing context */
 		pTopNC->nErr++;
 	}
 
-	/* If a column from a table in pSrcList is referenced, then record
-	 * this fact in the pSrcList.a[].colUsed bitmask.  Column 0 causes
-	 * bit 0 to be set.  Column 1 sets bit 1.  And so forth.  If the
-	 * column number is greater than the number of bits in the bitmask
-	 * then set the high-order bit of the bitmask.
+	/*
+	 * If a column from a table in pSrcList is referenced,
+	 * then record this fact in pSrcList.a.column_used_mask
+	 * bitmask.  Column 0 causes bit 0 to be set. Column 1
+	 * sets bit 1.  And so forth.  If the column number is
+	 * greater than the number of bits in the bitmask then
+	 * set the high-order bit of the bitmask.
 	 */
 	if (pExpr->iColumn >= 0 && pMatch != 0) {
-		int n = pExpr->iColumn;
-		testcase(n == BMS - 1);
-		if (n >= BMS) {
-			n = BMS - 1;
-		}
 		assert(pMatch->iCursor == pExpr->iTable);
-		pMatch->colUsed |= ((Bitmask) 1) << n;
+		column_mask_set_fieldno(&pMatch->column_used_mask,
+					pExpr->iColumn);
 	}
 
 	/* Clean up and return
@@ -492,10 +490,7 @@ sqlite3CreateColumnExpr(sqlite3 * db, SrcList * pSrc, int iSrc, int iCol)
 		p->space_def = pItem->pTab->def;
 		p->iTable = pItem->iCursor;
 		p->iColumn = (ynVar) iCol;
-		testcase(iCol == BMS);
-		testcase(iCol == BMS - 1);
-		pItem->colUsed |=
-			((Bitmask) 1) << (iCol >= BMS ? BMS - 1 : iCol);
+		column_mask_set_fieldno(&pItem->column_used_mask, iCol);
 		ExprSetProperty(p, EP_Resolved);
 	}
 	return p;

@@ -195,9 +195,9 @@ sqlite3Update(Parse * pParse,		/* The parser context */
 	}
 	/*
 	 * The SET expressions are not actually used inside the
-	 * WHERE loop. So reset the colUsed mask.
+	 * WHERE loop. So reset the column_used_mask mask.
 	 */
-	pTabList->a[0].colUsed = 0;
+	pTabList->a[0].column_used_mask = 0;
 
 	hasFK = fkey_is_required(pTab->def->id, aXRef);
 
@@ -325,13 +325,13 @@ sqlite3Update(Parse * pParse,		/* The parser context */
 	if (is_pk_modified || hasFK != 0 || trigger != NULL) {
 		struct space *space = space_by_id(pTab->def->id);
 		assert(space != NULL);
-		u32 oldmask = hasFK ? space->fkey_mask : 0;
+		uint64_t oldmask = hasFK != 0 ? space->fkey_mask : 0;
 		oldmask |= sql_trigger_colmask(pParse, trigger, pChanges, 0,
 					       TRIGGER_BEFORE | TRIGGER_AFTER,
 					       pTab, on_error);
 		for (i = 0; i < (int)def->field_count; i++) {
 			if (oldmask == 0xffffffff
-			    || (i < 32 && (oldmask & MASKBIT32(i)) != 0)
+			    || (i < 32 && (oldmask & COLUMN_MASK_BIT(i)) != 0)
 			    || table_column_is_in_pk(pTab, i)) {
 				testcase(oldmask != 0xffffffff && i == 31);
 				sqlite3ExprCodeGetColumnOfTable(v, def,
@@ -365,7 +365,7 @@ sqlite3Update(Parse * pParse,		/* The parser context */
 			sqlite3ExprCode(pParse, pChanges->a[j].pExpr,
 					regNew + i);
 		} else if (0 == (tmask & TRIGGER_BEFORE) || i > 31
-			   || (newmask & MASKBIT32(i))) {
+			   || (newmask & COLUMN_MASK_BIT(i))) {
 			/* This branch loads the value of a column that will not be changed
 			 * into a register. This is done if there are no BEFORE triggers, or
 			 * if there are one or more BEFORE triggers that use this value via

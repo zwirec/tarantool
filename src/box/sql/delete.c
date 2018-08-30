@@ -501,10 +501,8 @@ sql_generate_row_delete(struct Parse *parse, struct Table *table,
 		 */
 		sqlite3VdbeAddOp2(v, OP_Copy, reg_pk, first_old_reg);
 		for (int i = 0; i < (int)table->def->field_count; i++) {
-			testcase(mask != 0xffffffff && iCol == 31);
-			testcase(mask != 0xffffffff && iCol == 32);
 			if (mask == 0xffffffff
-			    || (i <= 31 && (mask & MASKBIT32(i)) != 0)) {
+			    || (i <= 31 && (mask & COLUMN_MASK_BIT(i)) != 0)) {
 				sqlite3ExprCodeGetColumnOfTable(v, table->def,
 								cursor, i,
 								first_old_reg +

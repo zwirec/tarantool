@@ -67,6 +67,7 @@
 
 #include <stdbool.h>
 
+#include "box/column_mask.h"
 #include "box/field_def.h"
 #include "box/sql.h"
 #include "box/txn.h"
@@ -2296,49 +2297,28 @@ struct IdList {
 	int nId;		/* Number of identifiers on the list */
 };
 
-/*
- * The bitmask datatype defined below is used for various optimizations.
+/**
+ * The following structure describes the FROM clause of a SELECT
+ * statement. Each table or subquery in the FROM clause is a
+ * separate element of the SrcList.a[] array.
  *
- * Changing this from a 64-bit to a 32-bit type limits the number of
- * tables in a join to 32 instead of 64.  But it also reduces the size
- * of the library by 738 bytes on ix86.
- */
-#ifdef SQLITE_BITMASK_TYPE
-typedef SQLITE_BITMASK_TYPE Bitmask;
-#else
-typedef u64 Bitmask;
-#endif
-
-/*
- * The number of bits in a Bitmask.  "BMS" means "BitMask Size".
- */
-#define BMS  ((int)(sizeof(Bitmask)*8))
-
-/*
- * A bit in a Bitmask
- */
-#define MASKBIT(n)   (((Bitmask)1)<<(n))
-#define MASKBIT32(n) (((unsigned int)1)<<(n))
-#define ALLBITS      ((Bitmask)-1)
-
-/*
- * The following structure describes the FROM clause of a SELECT statement.
- * Each table or subquery in the FROM clause is a separate element of
- * the SrcList.a[] array.
+ * With the addition of multiple database support, the following
+ * structure can also be used to describe a particular table such
+ * as the table that is modified by an INSERT, DELETE, or UPDATE
+ * statement.  In standard SQL,
+ * such a table must be a simple name: ID.  But in SQLite, the
+ * table can now be identified by a database name, a dot, then
+ * the table name: ID.ID.
  *
- * With the addition of multiple database support, the following structure
- * can also be used to describe a particular table such as the table that
- * is modified by an INSERT, DELETE, or UPDATE statement.  In standard SQL,
- * such a table must be a simple name: ID.  But in SQLite, the table can
- * now be identified by a database name, a dot, then the table name: ID.ID.
+ * The jointype starts out showing the join type between the
+ * current table and the next table on the list.  The parser
+ * builds the list this way. But sqlite3SrcListShiftJoinType()
+ * later shifts the jointypes so that each jointype expresses the
+ * join between the table and the previous table.
  *
- * The jointype starts out showing the join type between the current table
- * and the next table on the list.  The parser builds the list this way.
- * But sqlite3SrcListShiftJoinType() later shifts the jointypes so that each
- * jointype expresses the join between the table and the previous table.
- *
- * In the colUsed field, the high-order bit (bit 63) is set if the table
- * contains more than 63 columns and the 64-th or later column is used.
+ * In the column_used_mask field, the high-order bit (bit 63) is
+ * set if thetable contains more than 63 columns and the 64-th or
+ * later column is used.
  */
 struct SrcList {
 	int nSrc;		/* Number of tables or subqueries in the FROM clause */
@@ -2365,7 +2345,8 @@ struct SrcList {
 		int iCursor;	/* The VDBE cursor number used to access this table */
 		Expr *pOn;	/* The ON clause of a join */
 		IdList *pUsing;	/* The USING clause of a join */
-		Bitmask colUsed;	/* Bit N (1<<N) set if column N of pTab is used */
+		/** Bit N (1<<N) set if column N of pTab is used. */
+		uint64_t column_used_mask;
 		union {
 			char *zIndexedBy;	/* Identifier from "INDEXED BY <zIndex>" clause */
 			ExprList *pFuncArg;	/* Arguments to table-valued-function */

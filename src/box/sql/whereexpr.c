@@ -126,7 +126,7 @@ whereClauseInsert(WhereClause * pWC, Expr * p, u16 wtFlags)
 
 /*
  * Return TRUE if the given operator is one of the operators that is
- * allowed for an indexable WHERE clause term.  The allowed operators are
+ * allowed for an indexable_mask WHERE clause term.  The allowed operators are
  * "=", "<", ">", "<=", ">=", "IN", "IS", and "IS NULL"
  */
 static int
@@ -481,20 +481,20 @@ whereCombineDisjuncts(SrcList * pSrc,	/* the FROM clause */
  *
  * CASE 3:
  *
- * If all subterms are indexable by a single table T, then set
+ * If all subterms are indexable_mask by a single table T, then set
  *
  *     WhereTerm.eOperator              =  WO_OR
- *     WhereTerm.u.pOrInfo->indexable  |=  the cursor number for table T
+ *     WhereTerm.u.pOrInfo->indexable_mask  |=  the cursor number for table T
  *
- * A subterm is "indexable" if it is of the form
+ * A subterm is "indexable_mask" if it is of the form
  * "T.C <op> <expr>" where C is any column of table T and
  * <op> is one of "=", "<", "<=", ">", ">=", "IS NULL", or "IN".
- * A subterm is also indexable if it is an AND of two or more
- * subsubterms at least one of which is indexable.  Indexable AND
+ * A subterm is also indexable_mask if it is an AND of two or more
+ * subsubterms at least one of which is indexable_mask.  Indexable AND
  * subterms have their eOperator set to WO_AND and they have
  * u.pAndInfo set to a dynamically allocated WhereAndTerm object.
  *
- * From another point of view, "indexable" means that the subterm could
+ * From another point of view, "indexable_mask" means that the subterm could
  * potentially be used with an index if an appropriate index exists.
  * This analysis does not consider whether or not the index exists; that
  * is decided elsewhere.  This analysis only looks at whether subterms
@@ -505,8 +505,8 @@ whereCombineDisjuncts(SrcList * pSrc,	/* the FROM clause */
  * always prefer case 1, so in that case we pretend that case 3 is not
  * satisfied.
  *
- * It might be the case that multiple tables are indexable.  For example,
- * (E) above is indexable on tables P, Q, and R.
+ * It might be the case that multiple tables are indexable_mask.  For example,
+ * (E) above is indexable_mask on tables P, Q, and R.
  *
  * OTHERWISE:
  *
@@ -528,8 +528,6 @@ exprAnalyzeOrTerm(SrcList * pSrc,	/* the FROM clause */
 	WhereClause *pOrWc;	/* Breakup of pTerm into subterms */
 	WhereTerm *pOrTerm;	/* A Sub-term within the pOrWc */
 	WhereOrInfo *pOrInfo;	/* Additional information associated with pTerm */
-	Bitmask chngToIN;	/* Tables that might satisfy case 1 */
-	Bitmask indexable;	/* Tables that are indexable, satisfying case 2 */
 
 	/*
 	 * Break the OR clause into its separate subterms.  The subterms are
@@ -555,21 +553,23 @@ exprAnalyzeOrTerm(SrcList * pSrc,	/* the FROM clause */
 	/*
 	 * Compute the set of tables that might satisfy cases 1 or 3.
 	 */
-	indexable = ~(Bitmask) 0;
-	chngToIN = ~(Bitmask) 0;
-	for (i = pOrWc->nTerm - 1, pOrTerm = pOrWc->a; i >= 0 && indexable;
+	/* Tables that might satisfy case 1. */
+	uint64_t chng_to_in_mask = COLUMN_MASK_FULL;
+	/* Tables that are indexable_mask, satisfying case 2. */
+	uint64_t indexable_mask = COLUMN_MASK_FULL;
+	for (i = pOrWc->nTerm - 1, pOrTerm = pOrWc->a; i >= 0 && indexable_mask;
 	     i--, pOrTerm++) {
 		if ((pOrTerm->eOperator & WO_SINGLE) == 0) {
 			WhereAndInfo *pAndInfo;
 			assert((pOrTerm->
 				wtFlags & (TERM_ANDINFO | TERM_ORINFO)) == 0);
-			chngToIN = 0;
+			chng_to_in_mask = 0;
 			pAndInfo = sqlite3DbMallocRawNN(db, sizeof(*pAndInfo));
 			if (pAndInfo) {
 				WhereClause *pAndWC;
 				WhereTerm *pAndTerm;
 				int j;
-				Bitmask b = 0;
+				uint64_t b = 0;
 				pOrTerm->u.pAndInfo = pAndInfo;
 				pOrTerm->wtFlags |= TERM_ANDINFO;
 				pOrTerm->eOperator = WO_AND;
@@ -581,42 +581,39 @@ exprAnalyzeOrTerm(SrcList * pSrc,	/* the FROM clause */
 						  TK_AND);
 				sqlite3WhereExprAnalyze(pSrc, pAndWC);
 				pAndWC->pOuter = pWC;
-				if (!db->mallocFailed) {
-					for (j = 0, pAndTerm = pAndWC->a;
-					     j < pAndWC->nTerm;
-					     j++, pAndTerm++) {
-						assert(pAndTerm->pExpr);
-						if (allowedOp
-						    (pAndTerm->pExpr->op)
-						    || pAndTerm->eOperator ==
-						    WO_MATCH) {
-							b |= sqlite3WhereGetMask
-							    (&pWInfo->sMaskSet,
-							     pAndTerm->
-							     leftCursor);
-						}
-					}
+				if (db->mallocFailed)
+					break;
+				for (j = 0, pAndTerm = pAndWC->a;
+				     j < pAndWC->nTerm; j++, pAndTerm++) {
+					assert(pAndTerm->pExpr != NULL);
+					if (!allowedOp(pAndTerm->pExpr->op) &&
+					    pAndTerm->eOperator != WO_MATCH)
+						continue;
+					b |= sql_where_get_mask(&pWInfo->
+								sMaskSet,
+								pAndTerm->
+								leftCursor);
 				}
-				indexable &= b;
+				indexable_mask &= b;
 			}
 		} else if (pOrTerm->wtFlags & TERM_COPIED) {
 			/* Skip this term for now.  We revisit it when we process the
 			 * corresponding TERM_VIRTUAL term
 			 */
 		} else {
-			Bitmask b;
-			b = sqlite3WhereGetMask(&pWInfo->sMaskSet,
-						pOrTerm->leftCursor);
+			uint64_t b;
+			b = sql_where_get_mask(&pWInfo->sMaskSet,
+					       pOrTerm->leftCursor);
 			if (pOrTerm->wtFlags & TERM_VIRTUAL) {
 				WhereTerm *pOther = &pOrWc->a[pOrTerm->iParent];
-				b |= sqlite3WhereGetMask(&pWInfo->sMaskSet,
-							 pOther->leftCursor);
+				b |= sql_where_get_mask(&pWInfo->sMaskSet,
+							pOther->leftCursor);
 			}
-			indexable &= b;
+			indexable_mask &= b;
 			if ((pOrTerm->eOperator & WO_EQ) == 0) {
-				chngToIN = 0;
+				chng_to_in_mask = 0;
 			} else {
-				chngToIN &= b;
+				chng_to_in_mask &= b;
 			}
 		}
 	}
@@ -625,12 +622,12 @@ exprAnalyzeOrTerm(SrcList * pSrc,	/* the FROM clause */
 	 * Record the set of tables that satisfy case 3.  The set might be
 	 * empty.
 	 */
-	pOrInfo->indexable = indexable;
-	pTerm->eOperator = indexable == 0 ? 0 : WO_OR;
+	pOrInfo->indexable_mask = indexable_mask;
+	pTerm->eOperator = indexable_mask == 0 ? 0 : WO_OR;
 
 	/* For a two-way OR, attempt to implementation case 2.
 	 */
-	if (indexable && pOrWc->nTerm == 2) {
+	if (indexable_mask && pOrWc->nTerm == 2) {
 		int iOne = 0;
 		WhereTerm *pOne;
 		while ((pOne = whereNthSubterm(&pOrWc->a[0], iOne++)) != 0) {
@@ -644,11 +641,11 @@ exprAnalyzeOrTerm(SrcList * pSrc,	/* the FROM clause */
 	}
 
 	/*
-	 * chngToIN holds a set of tables that *might* satisfy case 1.  But
+	 * chng_to_in_mask holds a set of tables that *might* satisfy case 1.  But
 	 * we have to do some additional checking to see if case 1 really
 	 * is satisfied.
 	 *
-	 * chngToIN will hold either 0, 1, or 2 bits.  The 0-bit case means
+	 * chng_to_in_mask will hold either 0, 1, or 2 bits.  The 0-bit case means
 	 * that there is no possibility of transforming the OR clause into an
 	 * IN operator because one or more terms in the OR clause contain
 	 * something other than == on a column in the single table.  The 1-bit
@@ -664,7 +661,7 @@ exprAnalyzeOrTerm(SrcList * pSrc,	/* the FROM clause */
 	 * Note that terms of the form "table.column1=table.column2" (the
 	 * same table on both sizes of the ==) cannot be optimized.
 	 */
-	if (chngToIN) {
+	if (chng_to_in_mask != 0) {
 		int okToChngToIN = 0;	/* True if the conversion to IN is valid */
 		int iColumn = -1;	/* Column index on lhs of IN operator */
 		int iCursor = -1;	/* Table cursor common to all terms */
@@ -688,14 +685,17 @@ exprAnalyzeOrTerm(SrcList * pSrc,	/* the FROM clause */
 					assert(j == 1);
 					continue;
 				}
-				if ((chngToIN &
-				     sqlite3WhereGetMask(&pWInfo->sMaskSet,
-							 pOrTerm->
-							 leftCursor)) == 0) {
-					/* This term must be of the form t1.a==t2.b where t2 is in the
-					 * chngToIN set but t1 is not.  This term will be either preceded
-					 * or follwed by an inverted copy (t2.b==t1.a).  Skip this term
-					 * and use its inversion.
+				if ((sql_where_get_mask(&pWInfo->sMaskSet,
+							pOrTerm->leftCursor) &
+				     chng_to_in_mask) ==0) {
+					/*
+					 * This term must be of the form
+					 * t1.a==t2.b where t2 is in the
+					 * chng_to_in_mask set but t1 is not.
+					 * This term will be either preceded
+					 * or follwed by an inverted copy
+					 * (t2.b==t1.a).  Skip this term and
+					 * use its inversion.
 					 */
 					testcase(pOrTerm->
 						 wtFlags & TERM_COPIED);
@@ -715,9 +715,9 @@ exprAnalyzeOrTerm(SrcList * pSrc,	/* the FROM clause */
 				 * on the second iteration
 				 */
 				assert(j == 1);
-				assert(IsPowerOfTwo(chngToIN));
-				assert(chngToIN ==
-				       sqlite3WhereGetMask(&pWInfo->sMaskSet,
+				assert(IsPowerOfTwo(chng_to_in_mask));
+				assert(chng_to_in_mask ==
+					sql_where_get_mask(&pWInfo->sMaskSet,
 							   iCursor));
 				break;
 			}
@@ -854,10 +854,10 @@ termIsEquivalence(Parse * pParse, Expr * pExpr)
  * a bitmask indicating which tables are used in that expression
  * tree.
  */
-static Bitmask
+static uint64_t
 exprSelectUsage(WhereMaskSet * pMaskSet, Select * pS)
 {
-	Bitmask mask = 0;
+	uint64_t mask = 0;
 	while (pS) {
 		SrcList *pSrc = pS->pSrc;
 		mask |= sqlite3WhereExprListUsage(pMaskSet, pS->pEList);
@@ -947,9 +947,9 @@ exprAnalyze(SrcList * pSrc,	/* the FROM clause */
 	WhereTerm *pTerm;	/* The term to be analyzed */
 	WhereMaskSet *pMaskSet;	/* Set of table index masks */
 	Expr *pExpr;		/* The expression to be analyzed */
-	Bitmask prereqLeft;	/* Prerequesites of the pExpr->pLeft */
-	Bitmask prereqAll;	/* Prerequesites of pExpr */
-	Bitmask extraRight = 0;	/* Extra dependencies on LEFT JOIN */
+	uint64_t prereqLeft;	/* Prerequesites of the pExpr->pLeft */
+	uint64_t prereqAll;	/* Prerequesites of pExpr */
+	uint64_t extraRight = 0;	/* Extra dependencies on LEFT JOIN */
 	Expr *pStr1 = 0;	/* RHS of LIKE/GLOB operator */
 	int isComplete = 0;	/* RHS of LIKE/GLOB ends with wildcard */
 	int noCase = 0;		/* uppercase equivalent to lowercase */
@@ -971,28 +971,28 @@ exprAnalyze(SrcList * pSrc,	/* the FROM clause */
 		if (sqlite3ExprCheckIN(pParse, pExpr))
 			return;
 		if (ExprHasProperty(pExpr, EP_xIsSelect)) {
-			pTerm->prereqRight =
+			pTerm->prereq_right_mask =
 			    exprSelectUsage(pMaskSet, pExpr->x.pSelect);
 		} else {
-			pTerm->prereqRight =
+			pTerm->prereq_right_mask =
 			    sqlite3WhereExprListUsage(pMaskSet, pExpr->x.pList);
 		}
 	} else if (op == TK_ISNULL) {
-		pTerm->prereqRight = 0;
+		pTerm->prereq_right_mask = 0;
 	} else {
-		pTerm->prereqRight =
+		pTerm->prereq_right_mask =
 		    sqlite3WhereExprUsage(pMaskSet, pExpr->pRight);
 	}
 	prereqAll = sqlite3WhereExprUsage(pMaskSet, pExpr);
 	if (ExprHasProperty(pExpr, EP_FromJoin)) {
-		Bitmask x =
-		    sqlite3WhereGetMask(pMaskSet, pExpr->iRightJoinTable);
+		uint64_t x =
+			sql_where_get_mask(pMaskSet, pExpr->iRightJoinTable);
 		prereqAll |= x;
 		extraRight = x - 1;	/* ON clause terms may not be used with an index
 					 * on left table of a LEFT JOIN.  Ticket #3015
 					 */
 	}
-	pTerm->prereqAll = prereqAll;
+	pTerm->prereq_all_mask = prereqAll;
 	pTerm->leftCursor = -1;
 	pTerm->iParent = -1;
 	pTerm->eOperator = 0;
@@ -1001,7 +1001,7 @@ exprAnalyze(SrcList * pSrc,	/* the FROM clause */
 		Expr *pLeft = sqlite3ExprSkipCollate(pExpr->pLeft);
 		Expr *pRight = sqlite3ExprSkipCollate(pExpr->pRight);
 		u16 opMask =
-		    (pTerm->prereqRight & prereqLeft) == 0 ? WO_ALL : WO_EQUIV;
+		    (pTerm->prereq_right_mask & prereqLeft) == 0 ? WO_ALL : WO_EQUIV;
 
 		if (pTerm->iField > 0) {
 			assert(op == TK_IN);
@@ -1050,8 +1050,8 @@ exprAnalyze(SrcList * pSrc,	/* the FROM clause */
 			pNew->leftCursor = iCur;
 			pNew->u.leftColumn = iColumn;
 			testcase((prereqLeft | extraRight) != prereqLeft);
-			pNew->prereqRight = prereqLeft | extraRight;
-			pNew->prereqAll = prereqAll;
+			pNew->prereq_right_mask = prereqLeft | extraRight;
+			pNew->prereq_all_mask = prereqAll;
 			pNew->eOperator =
 			    (operatorMask(pDup->op) + eExtraOp) & opMask;
 		}
@@ -1277,14 +1277,14 @@ exprAnalyze(SrcList * pSrc,	/* the FROM clause */
 					   TERM_VNULL);
 		if (idxNew) {
 			pNewTerm = &pWC->a[idxNew];
-			pNewTerm->prereqRight = 0;
+			pNewTerm->prereq_right_mask = 0;
 			pNewTerm->leftCursor = pLeft->iTable;
 			pNewTerm->u.leftColumn = pLeft->iColumn;
 			pNewTerm->eOperator = WO_GT;
 			markTermAsChild(pWC, idxNew, idxTerm);
 			pTerm = &pWC->a[idxTerm];
 			pTerm->wtFlags |= TERM_COPIED;
-			pNewTerm->prereqAll = pTerm->prereqAll;
+			pNewTerm->prereq_all_mask = pTerm->prereq_all_mask;
 		}
 	}
 
@@ -1293,7 +1293,7 @@ exprAnalyze(SrcList * pSrc,	/* the FROM clause */
 	 */
 	testcase(pTerm != &pWC->a[idxTerm]);
 	pTerm = &pWC->a[idxTerm];
-	pTerm->prereqRight |= extraRight;
+	pTerm->prereq_right_mask |= extraRight;
 }
 
 /***************************************************************************
@@ -1379,14 +1379,14 @@ sqlite3WhereClauseClear(WhereClause * pWC)
  * a bitmask indicating which tables are used in that expression
  * tree.
  */
-Bitmask
+uint64_t
 sqlite3WhereExprUsage(WhereMaskSet * pMaskSet, Expr * p)
 {
-	Bitmask mask;
+	uint64_t mask;
 	if (p == 0)
 		return 0;
 	if (p->op == TK_COLUMN) {
-		mask = sqlite3WhereGetMask(pMaskSet, p->iTable);
+		mask = sql_where_get_mask(pMaskSet, p->iTable);
 		return mask;
 	}
 	assert(!ExprHasProperty(p, EP_TokenOnly));
@@ -1401,11 +1401,11 @@ sqlite3WhereExprUsage(WhereMaskSet * pMaskSet, Expr * p)
 	return mask;
 }
 
-Bitmask
+uint64_t
 sqlite3WhereExprListUsage(WhereMaskSet * pMaskSet, ExprList * pList)
 {
 	int i;
-	Bitmask mask = 0;
+	uint64_t mask = 0;
 	if (pList) {
 		for (i = 0; i < pList->nExpr; i++) {
 			mask |=

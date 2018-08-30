@@ -1539,7 +1539,7 @@ sqlite3SrcListDup(sqlite3 * db, SrcList * p, int flags)
 		    sqlite3SelectDup(db, pOldItem->pSelect, flags);
 		pNewItem->pOn = sqlite3ExprDup(db, pOldItem->pOn, flags);
 		pNewItem->pUsing = sqlite3IdListDup(db, pOldItem->pUsing);
-		pNewItem->colUsed = pOldItem->colUsed;
+		pNewItem->column_used_mask = pOldItem->column_used_mask;
 	}
 	return pNew;
 }
@@ -2402,20 +2402,18 @@ sqlite3FindInIndex(Parse * pParse,	/* Parsing context */
 			/* Search for an existing index that will work for this IN operator */
 			for (pIdx = pTab->pIndex; pIdx && eType == 0;
 			     pIdx = pIdx->pNext) {
-				Bitmask colUsed; /* Columns of the index used */
-				Bitmask mCol;	/* Mask for the current column */
 				uint32_t part_count =
 					pIdx->def->key_def->part_count;
 				struct key_part *parts =
 					pIdx->def->key_def->parts;
 				if ((int)part_count < nExpr)
 					continue;
-				/* Maximum nColumn is BMS-2, not BMS-1, so that we can compute
-				 * BITMASK(nExpr) without overflowing
+				/*
+				 * Maximum nColumn is COLUMN_MASK_SIZE-2, not
+				 * COLUMN_MASK_SIZE-1, so that we can compute
+				 * bitmasks without overflowing.
 				 */
-				testcase(part_count == BMS - 2);
-				testcase(part_count == BMS - 1);
-				if (part_count >= BMS - 1)
+				if (part_count >= COLUMN_MASK_SIZE - 1)
 					continue;
 				if (mustBeUnique &&
 				    ((int)part_count > nExpr ||
@@ -2427,8 +2425,8 @@ sqlite3FindInIndex(Parse * pParse,	/* Parsing context */
 					 */
 					continue;
 				}
-
-				colUsed = 0;	/* Columns of index used so far */
+				/* Columns of the index used mask. */
+				uint64_t col_used_mask = 0;
 				for (i = 0; i < nExpr; i++) {
 					Expr *pLhs = sqlite3VectorFieldSubexpr(pX->pLeft, i);
 					Expr *pRhs = pEList->a[i].pExpr;
@@ -2451,20 +2449,25 @@ sqlite3FindInIndex(Parse * pParse,	/* Parsing context */
 					}
 					if (j == nExpr)
 						break;
-					mCol = MASKBIT(j);
-					if (mCol & colUsed)
-						break;	/* Each column used only once */
-					colUsed |= mCol;
+					/* Each column used only once. */
+					if (COLUMN_MASK_BIT(j) & col_used_mask)
+						break;
+					column_mask_set_fieldno(&col_used_mask,
+								j);
 					if (aiMap)
 						aiMap[i] = pRhs->iColumn;
 					else if (pSingleIdxCol && nExpr == 1)
 						*pSingleIdxCol = pRhs->iColumn;
 					}
 
-				assert(i == nExpr
-				       || colUsed != (MASKBIT(nExpr) - 1));
-				if (colUsed == (MASKBIT(nExpr) - 1)) {
-					/* If we reach this point, that means the index pIdx is usable */
+				assert((COLUMN_MASK_BIT(nExpr) - 1) !=
+				       col_used_mask || i == nExpr);
+				if (col_used_mask ==
+				    (COLUMN_MASK_BIT(nExpr) - 1)) {
+					/*
+					 * If we reach this point, that means
+					 * the index pIdx is usable.
+					 */
 					int iAddr = sqlite3VdbeAddOp0(v, OP_Once);
 					VdbeCoverage(v);
 					sqlite3VdbeAddOp4(v, OP_Explain,
@@ -2486,18 +2489,12 @@ sqlite3FindInIndex(Parse * pParse,	/* Parsing context */
 
 					if (prRhsHasNull) {
 #ifdef SQLITE_ENABLE_COLUMN_USED_MASK
-							i64 mask =
-							    (1 << nExpr) - 1;
-							sqlite3VdbeAddOp4Dup8(v,
-									      OP_ColumnsUsed,
-									      iTab,
-									      0,
-									      0,
-									      (u8
-									       *)
-									      &
-									      mask,
-									      P4_INT64);
+						uint64_t mask = (1 << nExpr) - 1;
+						sqlite3VdbeAddOp4Dup8(v,
+								      OP_ColumnsUsed,
+								      iTab, 0, 0,
+								      (u8*)&mask,
+								      P4_INT64);
 #endif
 						*prRhsHasNull = ++pParse->nMem;
 						if (nExpr == 1) {
@@ -3943,7 +3940,6 @@ sqlite3ExprCodeTarget(Parse * pParse, Expr * pExpr, int target)
 			int nFarg;	/* Number of function arguments */
 			FuncDef *pDef;	/* The function definition object */
 			const char *zId;	/* The function name */
-			u32 constMask = 0;	/* Mask of function arguments that are constant */
 			int i;	/* Loop counter */
 			sqlite3 *db = pParse->db;	/* The database connection */
 			struct coll *coll = NULL;
@@ -4005,12 +4001,13 @@ sqlite3ExprCodeTarget(Parse * pParse, Expr * pExpr, int target)
 							     target);
 			}
 
+			/* Mask of function arguments that are constant. */
+			uint64_t farg_const_mask = 0;
 			for (i = 0; i < nFarg; i++) {
-				if (i < 32
-				    && sqlite3ExprIsConstant(pFarg->a[i].
-							     pExpr)) {
-					testcase(i == 31);
-					constMask |= MASKBIT32(i);
+				if (i < 32 &&
+				    sqlite3ExprIsConstant(pFarg->a[i].pExpr)) {
+					column_mask_set_fieldno(&farg_const_mask,
+								i);
 				}
 				if ((pDef->funcFlags & SQLITE_FUNC_NEEDCOLL) !=
 				    0 && coll == NULL) {
@@ -4022,7 +4019,7 @@ sqlite3ExprCodeTarget(Parse * pParse, Expr * pExpr, int target)
 				}
 			}
 			if (pFarg) {
-				if (constMask) {
+				if (farg_const_mask != 0) {
 					r1 = pParse->nMem + 1;
 					pParse->nMem += nFarg;
 				} else {
@@ -4070,12 +4067,11 @@ sqlite3ExprCodeTarget(Parse * pParse, Expr * pExpr, int target)
 				sqlite3VdbeAddOp4(v, OP_CollSeq, 0, 0, 0,
 						  (char *)coll, P4_COLLSEQ);
 			}
-			sqlite3VdbeAddOp4(v, OP_Function0, constMask, r1,
+			sqlite3VdbeAddOp4(v, OP_Function0, farg_const_mask, r1,
 					  target, (char *)pDef, P4_FUNCDEF);
 			sqlite3VdbeChangeP5(v, (u8) nFarg);
-			if (nFarg && constMask == 0) {
+			if (nFarg != 0 && farg_const_mask == 0)
 				sqlite3ReleaseTempRange(pParse, r1, nFarg);
-			}
 			return target;
 		}
 	case TK_EXISTS:
