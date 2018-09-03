@@ -73,6 +73,7 @@
 #include "call.h"
 #include "func.h"
 #include "sequence.h"
+#include "promote.h"
 
 static char status[64] = "unknown";
 
@@ -103,7 +104,14 @@ static struct gc_consumer *backup_gc;
  * and began receiving updates from it.
  */
 static bool is_box_configured = false;
-static bool is_ro = true;
+
+enum box_read_only {
+	BOX_READ_ONLY_FALSE,
+	BOX_READ_ONLY_TRUE,
+	BOX_READ_ONLY_AUTO,
+};
+
+static enum box_read_only read_only = BOX_READ_ONLY_TRUE;
 static fiber_cond ro_cond;
 
 /**
@@ -112,6 +120,12 @@ static fiber_cond ro_cond;
  * a quorum and so was forced to switch to read-only mode.
  */
 static bool is_orphan = true;
+
+/**
+ * Set to true when an instance is a replicaset master elected
+ * via promotion.
+ */
+static bool is_promoted = false;
 
 /* Use the shared instance of xstream for all appliers */
 static struct xstream join_stream;
@@ -135,8 +149,7 @@ static struct cbus_endpoint tx_prio_endpoint;
 static int
 box_check_writable(void)
 {
-	/* box is only writable if box.cfg.read_only == false and */
-	if (is_ro || is_orphan) {
+	if (box_is_ro()) {
 		diag_set(ClientError, ER_READONLY);
 		diag_log();
 		return -1;
@@ -209,17 +222,60 @@ process_nop(struct request *request)
 	return txn_commit_stmt(txn, request);
 }
 
-void
-box_set_ro(bool ro)
+int
+box_set_read_only(void)
 {
-	is_ro = ro;
+	enum box_read_only new_read_only;
+	struct luaL_field field;
+	cfg_get_field("read_only", &field);
+	if (field.type == MP_NIL)
+		new_read_only = BOX_READ_ONLY_AUTO;
+	else if (cfg_geti("read_only") != 0)
+		new_read_only = BOX_READ_ONLY_TRUE;
+	else
+		new_read_only = BOX_READ_ONLY_FALSE;
+	if (read_only != new_read_only && !promote_is_empty()) {
+		diag_set(ClientError, ER_CFG, "read_only", "can not change "\
+			 "the option when box.ctl.promote() was used");
+		return -1;
+	}
+	read_only = new_read_only;
 	fiber_cond_broadcast(&ro_cond);
+	return 0;
+}
+
+void
+box_set_promote_status(bool new_is_promoted)
+{
+	assert(box_is_promotable());
+	is_promoted = new_is_promoted;
+	fiber_cond_broadcast(&ro_cond);
+}
+
+bool
+box_is_read_only(void)
+{
+	return read_only == BOX_READ_ONLY_TRUE;
+}
+
+bool
+box_is_promotable(void)
+{
+	return read_only == BOX_READ_ONLY_AUTO;
+}
+
+bool
+box_is_promoted(void)
+{
+	assert(box_is_promotable());
+	return is_promoted;
 }
 
 bool
 box_is_ro(void)
 {
-	return is_ro || is_orphan;
+	return box_is_read_only() ||
+	       (box_is_promotable() && !box_is_promoted()) || is_orphan;
 }
 
 int
@@ -1573,7 +1629,7 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 void
 box_process_vote(struct ballot *ballot)
 {
-	ballot->is_ro = cfg_geti("read_only") != 0;
+	ballot->is_ro = box_is_read_only();
 	vclock_copy(&ballot->vclock, &replicaset.vclock);
 	gc_vclock(&ballot->gc_vclock);
 }
@@ -1615,6 +1671,7 @@ box_free(void)
 		gc_free();
 		engine_shutdown();
 		wal_thread_stop();
+		box_ctl_promote_free();
 	}
 
 	fiber_cond_destroy(&ro_cond);
@@ -1668,6 +1725,14 @@ bootstrap_master(const struct tt_uuid *replicaset_uuid)
 
 	/* Unregister a local replica if it was registered by bootstrap.bin */
 	if (boxk(IPROTO_DELETE, BOX_CLUSTER_ID, "[%u]", 1) != 0)
+		diag_raise();
+	/*
+	 * A user could set read only to be managed by a
+	 * high-level promotion API instead of manual read_only
+	 * manipulations. In such a case a replicaset cluster is
+	 * elected as an initialy promoted instance.
+	 */
+	if (box_is_promotable() && box_ctl_initial_promote() != 0)
 		diag_raise();
 
 	/* Register the first replica in the replica set */
@@ -1982,6 +2047,7 @@ box_cfg_xc(void)
 	port_init();
 	iproto_init();
 	wal_thread_start();
+	box_ctl_promote_init();
 
 	title("loading");
 
@@ -1989,6 +2055,7 @@ box_cfg_xc(void)
 	box_check_instance_uuid(&instance_uuid);
 	box_check_replicaset_uuid(&replicaset_uuid);
 
+	box_set_read_only();
 	box_set_net_msg_max();
 	box_set_checkpoint_count();
 	box_set_too_long_threshold();

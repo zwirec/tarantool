@@ -37,6 +37,11 @@
 extern "C" {
 #endif /* defined(__cplusplus) */
 
+struct luaL_field;
+
+void
+cfg_get_field(const char *param, struct luaL_field *field);
+
 int
 cfg_geti(const char *param);
 

@@ -128,7 +128,7 @@ local template_cfg = {
     coredump            = 'boolean',
     checkpoint_interval = 'number',
     checkpoint_count    = 'number',
-    read_only           = 'boolean',
+    read_only           = 'boolean, cdata',
     hot_standby         = 'boolean',
     worker_pool_threads = 'number',
     replication_timeout = 'number',
@@ -317,8 +317,7 @@ local function prepare_cfg(cfg, default_cfg, template_cfg, modify_cfg, prefix)
         local readable_name = readable_prefix .. k;
         if template_cfg[k] == nil then
             box.error(box.error.CFG, readable_name , "unexpected option")
-        elseif v == "" or v == nil then
-            -- "" and NULL = ffi.cast('void *', 0) set option to default value
+        elseif v == "" or type(v) == 'nil' then
             v = default_cfg[k]
         elseif template_cfg[k] == 'any' then
             -- any type is ok
@@ -351,7 +350,7 @@ end
 
 local function apply_default_cfg(cfg, default_cfg)
     for k,v in pairs(default_cfg) do
-        if cfg[k] == nil then
+        if type(cfg[k]) == 'nil' then
             cfg[k] = v
         elseif type(v) == 'table' then
             apply_default_cfg(cfg[k], v)

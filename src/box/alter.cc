@@ -52,6 +52,7 @@
 #include "identifier.h"
 #include "version.h"
 #include "sequence.h"
+#include "promote.h"
 
 /**
  * chap-sha1 of empty string, i.e.
@@ -2993,11 +2994,95 @@ on_replace_dd_cluster(struct trigger *trigger, void *event)
 	txn_on_commit(txn, on_commit);
 }
 
+/**
+ * Process promotion messages on commit only. Prepared but not
+ * committed messages can not be processed since they could
+ * rollback, but promotion requires each processed message is
+ * persisted and is able to recovery on restart.
+ */
+static void
+on_commit_process_promote_msg(struct trigger *trigger, void *event)
+{
+	(void) event;
+	promote_msg_push((struct promote_msg *) trigger->data);
+}
+
+/** On rollback from _promotion just delete the message. */
+static void
+on_rollback_delete_msg(struct trigger *trigger, void *event)
+{
+	(void) event;
+	promote_msg_delete((struct promote_msg *) trigger->data);
+}
+
+/**
+ * Check that the promotion space is empty and reset for this
+ * case the state. Manual reset here is used by replicas when on
+ * one of them box.ctl.promote_reset() is called. Then on the
+ * source replica the promotion state is dropped but on other
+ * replicas this action should be done under the hood. This is the
+ * only possible place to do it.
+ */
+static void
+on_commit_check_promotion_reset(struct trigger *trigger, void *event)
+{
+	(void) trigger;
+	(void) event;
+	if (index_count(space_index(space_by_id(BOX_PROMOTION_ID), 0), ITER_ALL,
+			NULL, 0) == 0)
+		box_ctl_promote_reset();
+}
+
+/**
+ * Schedule promotion message processing on commit. A new message
+ * propagates promotion automata state. A deleted message leads
+ * to check if the promotion state could be reset.
+ */
 static void
 on_replace_dd_promotion(struct trigger *trigger, void *event)
 {
 	(void) trigger;
-	(void) event;
+	struct txn *txn = (struct txn *) event;
+	struct txn_stmt *stmt = txn_current_stmt(txn);
+	struct trigger *on_commit, *on_rollback;
+	if (stmt->new_tuple == NULL && stmt->old_tuple != NULL) {
+		on_commit =
+			txn_alter_trigger_new(on_commit_check_promotion_reset,
+					      NULL);
+		txn_init_triggers(txn);
+		/*
+		 * Promotion messages are deleted in batches by
+		 * whole rounds. It is enough to check reset once
+		 * for a transaction and use an unique trigger.
+		 */
+		trigger_add_unique(&txn->on_commit, on_commit);
+		return;
+	}
+	assert(stmt->new_tuple != NULL);
+	if (stmt->old_tuple != NULL) {
+		tnt_raise(ClientError, ER_UNSUPPORTED, "Promotion",
+			  "history edit");
+	}
+	/*
+	 * Forbid multistatement only for non-DELETE since the
+	 * later is used for promotion reset in batches - the
+	 * whole round per one transaction is dropped.
+	 */
+	txn_check_singlestatement_xc(txn, "Space _promotion");
+	on_commit = txn_alter_trigger_new(on_commit_process_promote_msg, NULL);
+	on_rollback = txn_alter_trigger_new(on_rollback_delete_msg, NULL);
+	/*
+	 * Decode the message before the commit to do message's
+	 * sanity check.
+	 */
+	struct promote_msg *msg =
+		promote_msg_new_from_tuple(tuple_data(stmt->new_tuple));
+	if (msg == NULL)
+		diag_raise();
+	on_commit->data = msg;
+	on_rollback->data = msg;
+	txn_on_commit(txn, on_commit);
+	txn_on_rollback(txn, on_rollback);
 }
 
 /* }}} cluster configuration */
