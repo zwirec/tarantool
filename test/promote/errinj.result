@@ -1,0 +1,147 @@
+test_run = require('test_run').new()
+---
+...
+test_run:create_cluster(CLUSTER, 'promote')
+---
+...
+test_run:wait_fullmesh(CLUSTER)
+---
+...
+--
+-- Test the case when two different promotions are started at the
+-- same time. Here the initiators are box2 and box3 while box1 is
+-- an old master and box4 is a watcher.
+--
+_ = test_run:switch('box1')
+---
+...
+errinj.set("ERRINJ_WAL_DELAY", true)
+---
+- ok
+...
+_ = test_run:switch('box2')
+---
+...
+errinj.set("ERRINJ_WAL_DELAY", true)
+---
+- ok
+...
+_ = test_run:switch('box3')
+---
+...
+errinj.set("ERRINJ_WAL_DELAY", true)
+---
+- ok
+...
+_ = test_run:switch('box2')
+---
+...
+err = nil
+---
+...
+ok = nil
+---
+...
+_ = fiber.create(function() ok, err = promote_check_error() end)
+---
+...
+_ = test_run:switch('box3')
+---
+...
+err = nil
+---
+...
+ok = nil
+---
+...
+f = fiber.create(function() ok, err = promote_check_error() end)
+---
+...
+while f:status() ~= 'suspended' do fiber.sleep(0.01) end
+---
+...
+errinj.set("ERRINJ_WAL_DELAY", false)
+---
+- ok
+...
+_ = test_run:switch('box2')
+---
+...
+errinj.set("ERRINJ_WAL_DELAY", false)
+---
+- ok
+...
+while not err do fiber.sleep(0.01) end
+---
+...
+ok, err
+---
+- null
+- 'Error during promotion with round UUID ''round_2'': unexpected message'
+...
+_ = test_run:switch('box1')
+---
+...
+errinj.set("ERRINJ_WAL_DELAY", false)
+---
+- ok
+...
+while promote_info().phase ~= 'error' do fiber.sleep(0.01) end
+---
+...
+info = promote_info(error_safe_info)
+---
+...
+info.comment = info.comment:match('unexpected message')
+---
+...
+info
+---
+- phase: error
+  round_type: promote
+  is_master: true
+  round_id: 2
+  comment: unexpected message
+  is_promoted: true
+  round_uuid: round_2
+...
+_ = test_run:switch('box3')
+---
+...
+while not err do fiber.sleep(0.01) end
+---
+...
+ok, err
+---
+- null
+- 'Error during promotion with round UUID ''round_2'': unexpected message'
+...
+--
+-- Test that after all a new promotion works.
+--
+box.ctl.promote()
+---
+- true
+...
+promote_info()
+---
+- initiator_uuid: box3
+  quorum: 4
+  is_master: true
+  timeout: 3153600000
+  master_uuid: box1
+  participant_count: 4
+  phase: success
+  round_type: promote
+  role: initiator
+  round_id: 3
+  comment: the new master is promoted
+  is_promoted: true
+  round_uuid: round_3
+...
+_ = test_run:switch('default')
+---
+...
+test_run:drop_cluster(CLUSTER)
+---
+...

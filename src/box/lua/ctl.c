@@ -29,6 +29,7 @@
  * SUCH DAMAGE.
  */
 #include "box/lua/ctl.h"
+#include "box/lua/info.h"
 
 #include <tarantool_ev.h>
 
@@ -38,7 +39,10 @@
 
 #include "lua/utils.h"
 
+#include "box/info.h"
 #include "box/box.h"
+#include "box/promote.h"
+#include "box/error.h"
 
 static int
 lbox_ctl_wait_ro(struct lua_State *L)
@@ -64,9 +68,126 @@ lbox_ctl_wait_rw(struct lua_State *L)
 	return 0;
 }
 
+/**
+ * Get and validate promote/demote options.
+ * @param lua_State Lua stack.
+ * @param name Called function name - "promote" or "demote".
+ * @param[out] quorum Number of replicas to sync with to perform
+ *       promote/demote.
+ * @param timeout Timeout on the whole procedure.
+ */
+static inline void
+promote_options(struct lua_State *L, const char *name, int *quorum,
+		double *timeout)
+{
+	*quorum = -1;
+	*timeout = TIMEOUT_INFINITY;
+	int top = lua_gettop(L);
+	if (top > 1) {
+usage_error:
+		luaL_error(L, tt_sprintf("Usage: box.ctl.%s([{timeout = "\
+			   "<double>, quorum = <unsigned>}])", name));
+	} else if (top == 1) {
+		lua_getfield(L, 1, "quorum");
+		int ok;
+		if (! lua_isnil(L, -1)) {
+			*quorum = lua_tointegerx(L, -1, &ok);
+			if (ok == 0)
+				goto usage_error;
+		}
+		lua_getfield(L, 1, "timeout");
+		if (! lua_isnil(L, -1)) {
+			*timeout = lua_tonumberx(L, -1, &ok);
+			if (ok == 0)
+				goto usage_error;
+		}
+	}
+}
+
+/**
+ * Lua binding for box_ctl_promote. Takes non-mandatory options:
+ * timeout and quorum.
+ * @param L Lua stack.
+ * @retval Number of values pushed onto the stack. 2 means nil and
+ *         error object. 1 means ok and the value is true.
+ */
+static int
+lbox_ctl_promote(struct lua_State *L)
+{
+	int quorum;
+	double timeout;
+	promote_options(L, "promote", &quorum, &timeout);
+	if (box_ctl_promote(timeout, quorum) != 0) {
+		lua_pushnil(L);
+		luaT_pusherror(L, box_error_last());
+		return 2;
+	} else {
+		lua_pushboolean(L, true);
+		return 1;
+	}
+}
+
+/**
+ * Lua binding for box_ctl_demote. Has no arguments.
+ * @param L Lua stack.
+ * @retval Number of values pushed onto the stack. 2 means nil and
+ *         error object. 1 means ok and the value is true.
+ */
+static int
+lbox_ctl_demote(struct lua_State *L)
+{
+	int quorum;
+	double timeout;
+	promote_options(L, "demote", &quorum, &timeout);
+	if (box_ctl_demote(timeout, quorum) != 0) {
+		lua_pushnil(L);
+		luaT_pusherror(L, box_error_last());
+		return 2;
+	}
+	lua_pushboolean(L, true);
+	return 1;
+}
+
+/**
+ * Lua binding for box_ctl_promote_reset. Has no arguments.
+ * @param L Lua stack.
+ * @retval Number of values pushed onto the stack. 2 means nil and
+ *         error object. 1 means ok and the value is true.
+ */
+static int
+lbox_ctl_promote_reset(struct lua_State *L)
+{
+	if (box_ctl_promote_reset() != 0) {
+		lua_pushnil(L);
+		luaT_pusherror(L, box_error_last());
+		return 2;
+	}
+	lua_pushboolean(L, true);
+	return 1;
+}
+
+/**
+ * Lua binding for box_ctl_promote_info. Has no arguments.
+ * @param L Lua stack.
+ * @retval Number of values pushed onto the stack. Always is 1 -
+ *         a Lua table with info parameters.
+ */
+static int
+lbox_ctl_promote_info(struct lua_State *L)
+{
+	struct info_handler info;
+	luaT_info_handler_create(&info, L);
+	box_ctl_promote_info(&info);
+	return 1;
+}
+
 static const struct luaL_Reg lbox_ctl_lib[] = {
 	{"wait_ro", lbox_ctl_wait_ro},
 	{"wait_rw", lbox_ctl_wait_rw},
+	{"promote", lbox_ctl_promote},
+	{"demote", lbox_ctl_demote},
+	{"promote_reset", lbox_ctl_promote_reset},
+	{"promote_info", lbox_ctl_promote_info},
 	{NULL, NULL}
 };
 

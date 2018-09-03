@@ -1,0 +1,870 @@
+test_run = require('test_run').new()
+---
+...
+test_run:create_cluster(CLUSTER, 'promote')
+---
+...
+test_run:wait_fullmesh(CLUSTER)
+---
+...
+--
+-- Check the promote actually allows to switch the master.
+--
+_ = test_run:switch('box1')
+---
+...
+-- Box1 read_only is auto.
+box.cfg.read_only
+---
+- null
+...
+-- And it is a master.
+promote_info()
+---
+- participant_count: 0
+  phase: success
+  round_uuid: round_1
+  round_type: undefined
+  role: undefined
+  round_id: 1
+  comment: the instance is promoted
+  is_promoted: true
+  is_master: true
+...
+_ = test_run:switch('box2')
+---
+...
+box.cfg.read_only
+---
+- null
+...
+-- Box2 is a slave.
+promote_info()
+---
+- participant_count: 0
+  phase: success
+  round_uuid: round_1
+  round_type: undefined
+  role: undefined
+  round_id: 1
+  comment: a remote instance 'box1' is promoted
+  is_promoted: false
+  is_master: false
+...
+-- And can not do DDL/DML.
+box.schema.create_space('test') -- Fail.
+---
+- error: Can't modify data because this instance is in read-only mode.
+...
+box.ctl.promote()
+---
+- true
+...
+-- Now the slave has become a master.
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 4
+  is_master: true
+  timeout: 3153600000
+  master_uuid: box1
+  participant_count: 4
+  phase: success
+  round_type: promote
+  role: initiator
+  round_id: 2
+  comment: the new master is promoted
+  is_promoted: true
+  round_uuid: round_2
+...
+-- And can do DDL/DML.
+s = box.schema.create_space('test')
+---
+...
+s:drop()
+---
+...
+_ = test_run:switch('box1')
+---
+...
+-- In turn, the old master is a slave now.
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 4
+  is_master: false
+  timeout: 3153600000
+  master_uuid: box1
+  participant_count: 4
+  phase: success
+  round_type: promote
+  role: master
+  round_id: 2
+  comment: a remote instance 'box2' is promoted
+  is_promoted: false
+  round_uuid: round_2
+...
+-- For him any DDL/DML is forbidden.
+box.schema.create_space('test2')
+---
+- error: Can't modify data because this instance is in read-only mode.
+...
+-- Check a watcher state.
+_ = test_run:switch('box3')
+---
+...
+box.cfg.read_only
+---
+- null
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 4
+  is_master: false
+  timeout: 3153600000
+  master_uuid: box1
+  participant_count: 4
+  phase: success
+  round_type: promote
+  role: watcher
+  round_id: 2
+  comment: the watcher left the promotion round
+  is_promoted: false
+  round_uuid: round_2
+...
+--
+-- Try simple errors.
+--
+_ = test_run:switch('box2')
+---
+...
+-- Invalid UUIDs.
+prom:insert{1, 'invalid', 1, box.info.uuid, 1, 't'}
+---
+- error: 'Wrong record in _promotion (field 1): invalid UUID'
+...
+prom:insert{1, box.info.uuid, 1, 'invalid', 1, 't'}
+---
+- error: 'Wrong record in _promotion (field 3): invalid UUID'
+...
+-- Invalid ts.
+prom:insert{1, box.info.uuid, 1, box.info.uuid, -1, 't'}
+---
+- error: 'Wrong record in _promotion (field 5): wrong ts'
+...
+-- Invalid type.
+prom:insert{1, box.info.uuid, 1, box.info.uuid, 1, 'invalid'}
+---
+- error: 'Wrong record in _promotion (field 6): wrong type'
+...
+-- Invalid type-specific options.
+prom:insert{1, box.info.uuid, 1, box.info.uuid, 1, 'begin', {quorum = 1}}
+---
+- error: 'Wrong record in _promotion (field 7): quorum should be > 50%% of replicaset
+    size'
+...
+prom:insert{1, box.info.uuid, 1, box.info.uuid, 1, 'begin', {quorum = 'invalid', timeout = 1}}
+---
+- error: 'Wrong record in _promotion (field 7): ''quorum'' must be unsigned'
+...
+map = setmetatable({}, {__serialize = 'map'})
+---
+...
+prom:insert{1, box.info.uuid, 1, box.info.uuid, 1, 'status', {is_master = 'invalid'}}
+---
+- error: 'Wrong record in _promotion (field 7): ''is_master'' must be boolean'
+...
+prom:insert{1, box.info.uuid, 1, box.info.uuid, 1, 'error', map}
+---
+- error: 'Wrong record in _promotion (field 7): error code and message should be specified'
+...
+prom:insert{1, box.info.uuid, 1, box.info.uuid, 1, 'error', {code = 'code', message = 'msg'}}
+---
+- error: 'Wrong record in _promotion (field 7): ''code'' must be unsigned'
+...
+prom:insert{1, box.info.uuid, 1, box.info.uuid, 1, 'sync', map}
+---
+- error: 'Wrong record in _promotion (field 7): value expected to be nil'
+...
+prom:insert{1, box.info.uuid, 1, box.info.uuid, 1, 'success', map}
+---
+- error: 'Wrong record in _promotion (field 7): value expected to be nil'
+...
+prom:insert{1, box.info.uuid, 1, box.info.uuid, 1, 'begin', {quorum = 4, round_type = 'invalid'}}
+---
+- error: 'Wrong record in _promotion (field 7): round_type is unknown'
+...
+--
+-- Test simple invalid scenarios.
+--
+-- Already master.
+box.ctl.promote()
+---
+- null
+- 'Error during promotion with round UUID ''non-initialized'': the instance is already
+  promoted'
+...
+_ = test_run:switch('box3')
+---
+...
+-- Small quorum.
+box.ctl.promote({quorum = 2})
+---
+- null
+- 'Error during promotion with round UUID ''non-initialized'': too small quorum, expected
+  > 2, but got 2'
+...
+--
+-- Test timeout.
+--
+promote_check_error({timeout = 0.00001})
+---
+- null
+- timed out
+...
+promote_info(error_safe_info)
+---
+- phase: error
+  round_type: promote
+  is_master: false
+  round_id: 3
+  comment: 'the round failed due to the error: timed out'
+  is_promoted: false
+  round_uuid: round_3
+...
+_ = test_run:switch('box2')
+---
+...
+promote_info(error_safe_info)
+---
+- phase: error
+  round_type: promote
+  is_master: true
+  round_id: 3
+  comment: 'the round failed due to the error: timed out'
+  is_promoted: true
+  round_uuid: round_3
+...
+_ = test_run:switch('box1')
+---
+...
+promote_info(error_safe_info)
+---
+- phase: error
+  round_type: promote
+  is_master: false
+  round_id: 3
+  comment: 'the round failed due to the error: timed out'
+  is_promoted: false
+  round_uuid: round_3
+...
+--
+-- Test recovery after failed promotion.
+--
+_ = test_run:switch('default')
+---
+...
+_ = test_run:cmd('restart server box1')
+---
+...
+_ = test_run:cmd('restart server box2')
+---
+...
+_ = test_run:cmd('restart server box3')
+---
+...
+_ = test_run:switch('box2')
+---
+...
+promote_info(error_safe_info)
+---
+- phase: error
+  round_type: promote
+  is_master: true
+  round_id: 3
+  comment: 'the round failed due to the error: timed out'
+  is_promoted: true
+  round_uuid: round_3
+...
+box.info.ro
+---
+- false
+...
+_ = test_run:switch('box1')
+---
+...
+promote_info(error_safe_info)
+---
+- phase: error
+  round_type: promote
+  is_master: false
+  round_id: 3
+  comment: 'the round failed due to the error: timed out'
+  is_promoted: false
+  round_uuid: round_3
+...
+box.info.ro
+---
+- true
+...
+_ = test_run:switch('box3')
+---
+...
+promote_info(error_safe_info)
+---
+- phase: error
+  round_type: promote
+  is_master: false
+  round_id: 3
+  comment: 'the round failed due to the error: timed out'
+  is_promoted: false
+  round_uuid: round_3
+...
+box.info.ro
+---
+- true
+...
+--
+-- Test basic demotion.
+--
+_ = test_run:switch('box1')
+---
+...
+box.ctl.demote() -- Error - already demoted.
+---
+- null
+- 'Error during promotion with round UUID ''non-initialized'': the instance is already
+  demoted'
+...
+_ = test_run:switch('box2')
+---
+...
+box.ctl.demote()
+---
+- true
+...
+-- Still is master but demoted.
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 4
+  timeout: 3153600000
+  is_master: true
+  participant_count: 4
+  phase: success
+  round_type: demote
+  role: master
+  round_id: 4
+  comment: the master is demoted
+  is_promoted: false
+  round_uuid: round_4
+...
+box.info.ro
+---
+- true
+...
+_ = test_run:switch('box1')
+---
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 4
+  timeout: 3153600000
+  is_master: false
+  participant_count: 4
+  phase: success
+  round_type: demote
+  role: watcher
+  round_id: 4
+  comment: the watcher left the demotion round
+  is_promoted: false
+  round_uuid: round_4
+...
+box.info.ro
+---
+- true
+...
+_ = test_run:switch('box3')
+---
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 4
+  timeout: 3153600000
+  is_master: false
+  participant_count: 4
+  phase: success
+  round_type: demote
+  role: watcher
+  round_id: 4
+  comment: the watcher left the demotion round
+  is_promoted: false
+  round_uuid: round_4
+...
+box.info.ro
+---
+- true
+...
+-- Demotion is persisted.
+_ = test_run:cmd('restart server box2')
+---
+...
+_ = test_run:switch('box2')
+---
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 4
+  timeout: 3153600000
+  is_master: true
+  participant_count: 4
+  phase: success
+  round_type: demote
+  role: master
+  round_id: 4
+  comment: the master is demoted
+  is_promoted: false
+  round_uuid: round_4
+...
+box.info.ro
+---
+- true
+...
+--
+-- Test promotion in a completely read-only cluster.
+--
+_ = test_run:switch('box1')
+---
+...
+box.info.ro
+---
+- true
+...
+box.ctl.promote()
+---
+- true
+...
+promote_info()
+---
+- initiator_uuid: box1
+  quorum: 4
+  is_master: true
+  timeout: 3153600000
+  master_uuid: box2
+  participant_count: 4
+  phase: success
+  round_type: promote
+  role: initiator
+  round_id: 5
+  comment: the new master is promoted
+  is_promoted: true
+  round_uuid: round_5
+...
+box.info.ro
+---
+- false
+...
+_ = test_run:switch('box2')
+---
+...
+promote_info()
+---
+- initiator_uuid: box1
+  quorum: 4
+  is_master: false
+  timeout: 3153600000
+  master_uuid: box2
+  participant_count: 4
+  phase: success
+  round_type: promote
+  role: watcher
+  round_id: 5
+  comment: the watcher left the promotion round
+  is_promoted: false
+  round_uuid: round_5
+...
+box.info.ro
+---
+- true
+...
+_ = test_run:switch('box3')
+---
+...
+promote_info()
+---
+- initiator_uuid: box1
+  quorum: 4
+  is_master: false
+  timeout: 3153600000
+  master_uuid: box2
+  participant_count: 4
+  phase: success
+  round_type: promote
+  role: watcher
+  round_id: 5
+  comment: the watcher left the promotion round
+  is_promoted: false
+  round_uuid: round_5
+...
+box.info.ro
+---
+- true
+...
+--
+-- Promote off and on.
+--
+_ = test_run:switch('box1')
+---
+...
+box.ctl.demote()
+---
+- true
+...
+box.ctl.promote()
+---
+- true
+...
+promote_info()
+---
+- initiator_uuid: box1
+  quorum: 4
+  timeout: 3153600000
+  is_master: true
+  participant_count: 4
+  phase: success
+  round_type: promote
+  role: initiator
+  round_id: 7
+  comment: the new master is promoted
+  is_promoted: true
+  round_uuid: round_7
+...
+box.info.ro
+---
+- false
+...
+--
+-- Fail to collect a quorum.
+--
+_ = test_run:switch('box2')
+---
+...
+_ = test_run:cmd('stop server box1')
+---
+...
+box.ctl.promote({timeout = 0.2})
+---
+- null
+- timed out
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 4
+  timeout: 0.2
+  is_master: false
+  participant_count: 3
+  phase: error
+  round_type: promote
+  role: initiator
+  round_id: 8
+  comment: 'the round failed due to the error: timed out'
+  is_promoted: false
+  round_uuid: round_8
+...
+box.info.ro
+---
+- true
+...
+_ = test_run:switch('box3')
+---
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 4
+  timeout: 0.2
+  is_master: false
+  participant_count: 3
+  phase: error
+  round_type: promote
+  role: watcher
+  round_id: 8
+  comment: 'the round failed due to the error: timed out'
+  is_promoted: false
+  round_uuid: round_8
+...
+box.info.ro
+---
+- true
+...
+_ = test_run:cmd('start server box1')
+---
+...
+_ = test_run:switch('box1')
+---
+...
+promote_info(error_safe_info)
+---
+- phase: error
+  round_type: promote
+  is_master: true
+  round_id: 8
+  comment: 'the round failed due to the error: timed out'
+  is_promoted: true
+  round_uuid: round_8
+...
+box.info.ro
+---
+- false
+...
+--
+-- Work with a quorum != 100% and some of nodes down.
+--
+_ = test_run:cmd('stop server box3')
+---
+...
+_ = test_run:switch('box2')
+---
+...
+box.ctl.promote({quorum = 3})
+---
+- true
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 3
+  is_master: true
+  timeout: 3153600000
+  master_uuid: box1
+  participant_count: 3
+  phase: success
+  round_type: promote
+  role: initiator
+  round_id: 9
+  comment: the new master is promoted
+  is_promoted: true
+  round_uuid: round_9
+...
+box.info.ro
+---
+- false
+...
+_ = test_run:switch('box1')
+---
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 3
+  is_master: false
+  timeout: 3153600000
+  master_uuid: box1
+  participant_count: 3
+  phase: success
+  round_type: promote
+  role: master
+  round_id: 9
+  comment: a remote instance 'box2' is promoted
+  is_promoted: false
+  round_uuid: round_9
+...
+box.info.ro
+---
+- true
+...
+_ = test_run:cmd('start server box3')
+---
+...
+_ = test_run:switch('box3')
+---
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 3
+  is_master: false
+  timeout: 3153600000
+  master_uuid: box1
+  participant_count: 4
+  phase: success
+  round_type: promote
+  role: watcher
+  round_id: 9
+  comment: the watcher left the promotion round
+  is_promoted: false
+  round_uuid: round_9
+...
+box.info.ro
+---
+- true
+...
+--
+-- Allow demote with small quorum.
+--
+_ = test_run:switch('box2')
+---
+...
+_ = test_run:cmd('stop server box1')
+---
+...
+_ = test_run:cmd('stop server box3')
+---
+...
+_ = test_run:cmd('stop server box4')
+---
+...
+box.ctl.demote({quorum = 0})
+---
+- true
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 0
+  timeout: 3153600000
+  is_master: true
+  participant_count: 1
+  phase: success
+  round_type: demote
+  role: master
+  round_id: 10
+  comment: the master is demoted
+  is_promoted: false
+  round_uuid: round_10
+...
+box.info.ro
+---
+- true
+...
+_ = test_run:cmd('start server box1')
+---
+...
+_ = test_run:cmd('start server box3')
+---
+...
+_ = test_run:cmd('start server box4')
+---
+...
+_ = test_run:switch('box1')
+---
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 0
+  timeout: 3153600000
+  is_master: false
+  participant_count: 2
+  phase: success
+  round_type: demote
+  role: watcher
+  round_id: 10
+  comment: the watcher left the demotion round
+  is_promoted: false
+  round_uuid: round_10
+...
+_ = test_run:switch('box3')
+---
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 0
+  timeout: 3153600000
+  is_master: false
+  participant_count: 2
+  phase: success
+  round_type: demote
+  role: watcher
+  round_id: 10
+  comment: the watcher left the demotion round
+  is_promoted: false
+  round_uuid: round_10
+...
+_ = test_run:switch('box4')
+---
+...
+promote_info()
+---
+- initiator_uuid: box2
+  quorum: 0
+  timeout: 3153600000
+  is_master: false
+  participant_count: 2
+  phase: success
+  round_type: demote
+  role: watcher
+  round_id: 10
+  comment: the watcher left the demotion round
+  is_promoted: false
+  round_uuid: round_10
+...
+--
+-- Test that promotion subsystem cleans _promotion space up. But
+-- not after demotion. Each round for 4 participants produces <=
+-- 10 messages (begin, 3*status, sync, 3*success, demote,
+-- promote), so the total is <= 20.
+--
+count = prom:count()
+---
+...
+count <= 20 and count > 10
+---
+- true
+...
+--
+-- After promotion reset the state is cleaned up.
+--
+_ = test_run:switch('box2')
+---
+...
+box.ctl.promote()
+---
+- true
+...
+box.info.ro
+---
+- false
+...
+-- Error - promotion history is not empty.
+box.cfg{read_only = true}
+---
+- error: 'Incorrect value for option ''read_only'': can not change the option when
+    box.ctl.promote() was used'
+...
+box.ctl.promote_reset()
+---
+- true
+...
+box.info.ro
+---
+- true
+...
+box.cfg{read_only = true}
+---
+...
+box.info.ro
+---
+- true
+...
+box.cfg{read_only = box.NULL}
+---
+...
+-- The instance should be read-only despite it was a master
+-- before promotion reset.
+box.info.ro
+---
+- true
+...
+_ = test_run:switch('default')
+---
+...
+test_run:drop_cluster(CLUSTER)
+---
+...

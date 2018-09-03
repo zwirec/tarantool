@@ -113,6 +113,7 @@ add_library(box STATIC
     journal.c
     wal.c
     call.c
+    promote.c
     ${lua_sources}
     lua/init.c
     lua/call.c

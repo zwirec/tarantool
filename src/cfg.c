@@ -31,6 +31,7 @@
 #include "say.h"
 #include "cfg.h"
 #include "lua/utils.h"
+#include "lua/msgpack.h"
 
 enum { MAX_OPT_NAME_LEN = 256, MAX_OPT_VAL_LEN = 256, MAX_STR_OPTS = 8 };
 
@@ -41,6 +42,14 @@ cfg_get(const char *param)
 	snprintf(buf, sizeof(buf), "return box.cfg.%s", param);
 	if (luaL_dostring(tarantool_L, buf) != 0)
 		panic("cfg_get('%s')", param);
+}
+
+void
+cfg_get_field(const char *param, struct luaL_field *field)
+{
+	cfg_get(param);
+	luaL_tofield(tarantool_L, luaL_msgpack_default, -1, field);
+	lua_pop(tarantool_L, 1);
 }
 
 int

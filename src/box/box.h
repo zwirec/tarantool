@@ -83,9 +83,45 @@ box_is_configured(void);
 void
 box_atfork(void);
 
-void
-box_set_ro(bool ro);
+/** Set read_only value from box.cfg.read_only option. */
+int
+box_set_read_only(void);
 
+/**
+ * Update promotion status of the instance once it is promoted or
+ * demoted. A promotable but not promoted instance can not accept
+ * write requests.
+ * @param new_is_promoted True, if the instance is promoted. Else
+ *        false.
+ */
+void
+box_set_promote_status(bool new_is_promoted);
+
+/**
+ * Return box.cfg.read_only reduced to boolean value. It is true
+ * only and only when box.cfg.read_only == true. When read_only
+ * is false or automatic, false is returned.
+ */
+bool
+box_is_read_only(void);
+
+/**
+ * Check if the instance can participate in a promotions. Actually
+ * it is just a check for read_only == auto.
+ */
+bool
+box_is_promotable(void);
+
+/**
+ * Check if the promotable instance is promoted at this moment.
+ */
+bool
+box_is_promoted(void);
+
+/**
+ * Check if this instance is in read only mode. It is accumulated
+ * from orphan, box.cfg.read_only and promotion status.
+ */
 bool
 box_is_ro(void);
 
