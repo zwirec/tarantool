@@ -862,6 +862,31 @@ box.info.ro
 ---
 - true
 ...
+--
+-- Allow to make a usual cluster be promotable.
+--
+_ = test_run:switch('box1')
+---
+...
+box.internal.initial_promote()
+---
+...
+promote_info()
+---
+- participant_count: 0
+  phase: success
+  round_uuid: round_12
+  round_type: undefined
+  role: undefined
+  round_id: 12
+  comment: the instance is promoted
+  is_promoted: true
+  is_master: true
+...
+box.info.ro
+---
+- false
+...
 _ = test_run:switch('default')
 ---
 ...

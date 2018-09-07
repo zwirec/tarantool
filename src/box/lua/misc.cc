@@ -36,6 +36,8 @@
 #include "lua/msgpack.h"
 
 #include "box/box.h"
+#include "box/promote.h"
+#include "box/error.h"
 #include "box/port.h"
 #include "box/lua/tuple.h"
 
@@ -112,11 +114,35 @@ lbox_select(lua_State *L)
 
 /* }}} */
 
+/**
+ * Perform initial promotion round for a case when the history is
+ * empty. Can be used to turn on promotions on an old cluster
+ * which still uses box.cfg.read_only.
+ */
+static int
+lbox_ctl_initial_promote(struct lua_State *L)
+{
+	if (lua_gettop(L) != 0)
+		return luaL_error(L, "Usage: box.internal.initial_promote");
+	if (! box_is_promotable()) {
+		diag_set(ClientError, ER_PROMOTE, "non-initialized",
+			 "promotion is not enabled");
+		return -1;
+	}
+	if (! promote_is_empty()) {
+		diag_set(ClientError, ER_PROMOTE, "non-initialized",
+			 "initial promotion requires empty history");
+		return -1;
+	}
+	return box_ctl_initial_promote();
+}
+
 void
 box_lua_misc_init(struct lua_State *L)
 {
 	static const struct luaL_Reg boxlib_internal[] = {
 		{"select", lbox_select},
+		{"initial_promote", lbox_ctl_initial_promote},
 		{NULL, NULL}
 	};
 

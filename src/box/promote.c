@@ -966,7 +966,16 @@ box_ctl_initial_promote(void)
 	struct promote_msg msg;
 	promote_msg_create(&msg, PROMOTE_MSG_PROMOTE);
 	promote_msg_make_initial(&msg);
-	return promote_do_send(&msg);
+	if (promote_do_send(&msg) != 0)
+		return -1;
+	while (! promote_state.is_master) {
+		fiber_cond_wait(&promote_state.on_change);
+		if (promote_state.phase == PROMOTE_PHASE_ERROR) {
+			diag_move(diag_get(), &promote_state.diag);
+			return -1;
+		}
+	}
+	return 0;
 }
 
 /**

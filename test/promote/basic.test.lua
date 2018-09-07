@@ -223,5 +223,13 @@ box.cfg{read_only = box.NULL}
 -- before promotion reset.
 box.info.ro
 
+--
+-- Allow to make a usual cluster be promotable.
+--
+_ = test_run:switch('box1')
+box.internal.initial_promote()
+promote_info()
+box.info.ro
+
 _ = test_run:switch('default')
 test_run:drop_cluster(CLUSTER)
