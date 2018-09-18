@@ -50,6 +50,10 @@ struct xrow_header;
 struct obuf;
 struct ev_io;
 struct auth_request;
+struct trigger;
+
+/** Invoked on box shutdown. */
+extern struct rlist on_shutdown;
 
 /*
  * Initialize box library

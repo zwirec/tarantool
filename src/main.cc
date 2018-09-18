@@ -543,11 +543,14 @@ tarantool_free(void)
 	 */
 	if (!cord_is_main())
 		return;
+	/*
+	 * Free the box first as it uses core infrastructure such
+	 * as cbus, trigger and diag during shutdown.
+	 */
+	box_free();
 
 	/* Shutdown worker pool. Waits until threads terminate. */
 	coio_shutdown();
-
-	box_free();
 
 	title_free(main_argc, main_argv);
 

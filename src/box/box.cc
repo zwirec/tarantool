@@ -79,6 +79,8 @@ static char status[64] = "unknown";
 /** box.stat rmean */
 struct rmean *rmean_box;
 
+struct rlist on_shutdown = RLIST_HEAD_INITIALIZER(on_shutdown);
+
 static void title(const char *new_status)
 {
 	snprintf(status, sizeof(status), "%s", new_status);
@@ -1634,6 +1636,7 @@ box_free(void)
 	 * initialized
 	 */
 	if (is_box_configured) {
+		trigger_run(&on_shutdown, NULL);
 #if 0
 		session_free();
 		user_cache_free();
