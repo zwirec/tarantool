@@ -89,6 +89,10 @@ static const int ev_sig_count = sizeof(ev_sigs)/sizeof(*ev_sigs);
 
 static double start_time;
 
+/** A preallocated fiber to run on_shutdown triggers. */
+static struct fiber *on_exit_fiber = NULL;
+static bool is_shutting_down = false;
+
 double
 tarantool_uptime(void)
 {
@@ -119,9 +123,32 @@ sig_checkpoint(ev_loop * /* loop */, struct ev_signal * /* w */,
 	fiber_wakeup(f);
 }
 
+static int
+on_exit_f(va_list ap)
+{
+	(void) ap;
+	trigger_run(&box_on_shutdown, NULL);
+	return 0;
+}
+
+void
+tarantool_exit(void)
+{
+	if (is_shutting_down)
+		/*
+		 * We are already running on_shutdown triggers,
+		 * and will exit as soon as they'll finish.
+		 * Do not execute them twice.
+		 */
+		return;
+	is_shutting_down = true;
+	fiber_wakeup(on_exit_fiber);
+}
+
 static void
 signal_cb(ev_loop *loop, struct ev_signal *w, int revents)
 {
+	(void) loop;
 	(void) w;
 	(void) revents;
 
@@ -135,8 +162,7 @@ signal_cb(ev_loop *loop, struct ev_signal *w, int revents)
 	if (pid_file)
 		say_crit("got signal %d - %s", w->signum, strsignal(w->signum));
 	start_loop = false;
-	/* Terminate the main event loop */
-	ev_break(loop, EVBREAK_ALL);
+	tarantool_exit();
 }
 
 static void
@@ -636,6 +662,12 @@ print_help(const char *program)
 	puts("to see online documentation, submit bugs or contribute a patch.");
 }
 
+void
+break_loop(struct trigger *, void *)
+{
+	ev_break(loop(), EVBREAK_ALL);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -759,6 +791,21 @@ main(int argc, char **argv)
 	try {
 		box_init();
 		box_lua_init(tarantool_L);
+		/* Reserve a fiber to run on_shutdown triggers. */
+		on_exit_fiber = fiber_new("on_exit", on_exit_f);
+		if (on_exit_fiber == NULL)
+			diag_raise();
+		/*
+		 * Register a on_shutdown trigger which will break the
+		 * main event loop. The trigger will be the last to run
+		 * since it's the first one we register.
+		 */
+		struct trigger *trig = (struct trigger *)malloc(sizeof(*trig));
+		if (trig == NULL)
+			tnt_raise(OutOfMemory, sizeof(*trig),
+				  "malloc", "struct trigger");
+		trigger_create(trig, break_loop, NULL, NULL);
+		trigger_add(&box_on_shutdown, trig);
 
 		atexit(tarantool_atexit);
 
