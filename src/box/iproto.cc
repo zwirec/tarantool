@@ -70,6 +70,13 @@ enum {
 };
 
 /**
+ * The default iproto input buffer size.
+ * Each connection is created with two input buffer with
+ * the same capacity.
+ */
+static const unsigned iproto_ibuf_default_size = 16384;
+
+/**
  * Network readahead. A signed integer to avoid
  * automatic type coercion to an unsigned type.
  * We assign it without locks in txn thread and
@@ -77,14 +84,8 @@ enum {
  * readahead has a stale value while until the thread
  * caches have synchronized, after all, it's used
  * in new connections only.
- *
- * Notice that the default is not a strict power of two.
- * slab metadata takes some space, and we want
- * allocation steps to be correlated to slab buddy
- * sizes, so when we ask slab cache for 16320 bytes,
- * we get a slab of size 16384, not 32768.
  */
-unsigned iproto_readahead = 16320;
+unsigned iproto_readahead = iproto_ibuf_default_size;
 
 /**
  * How big is a buffer which needs to be shrunk before
@@ -362,6 +363,8 @@ struct iproto_connection
 	/** True if disconnect message is sent. Debug-only. */
 	bool is_disconnected;
 	struct rlist in_stop_list;
+	/** Wanted input buffer capacity. */
+	unsigned expected_ibuf_capacity;
 	/**
 	 * The following fields are used exclusively by the tx thread.
 	 * Align them to prevent false-sharing.
@@ -548,9 +551,18 @@ iproto_connection_input_buffer(struct iproto_connection *con)
 		/*
 		 * Wait until the second buffer is flushed
 		 * and becomes available for reuse.
+		 * New buffer was not flushed until the old one became full,
+		 * so an input buffer capacity is not big enough, increase it.
 		 */
+		if (con->expected_ibuf_capacity < iproto_readahead >> 1)
+			con->expected_ibuf_capacity <<= 1;
 		return NULL;
 	}
+	/*
+	 * Try to reserve expected buffer capacity. The allocation error
+	 * could be ignored because the iproto is still able to process.
+	 */
+	ibuf_reserve(new_ibuf, con->expected_ibuf_capacity - slab_sizeof());
 
 	ibuf_reserve_xc(new_ibuf, to_read + con->parse_size);
 	/*
@@ -817,8 +829,11 @@ iproto_connection_new(int fd)
 	con->loop = loop();
 	ev_io_init(&con->input, iproto_connection_on_input, fd, EV_READ);
 	ev_io_init(&con->output, iproto_connection_on_output, fd, EV_WRITE);
-	ibuf_create(&con->ibuf[0], cord_slab_cache(), iproto_readahead);
-	ibuf_create(&con->ibuf[1], cord_slab_cache(), iproto_readahead);
+	con->expected_ibuf_capacity = iproto_ibuf_default_size;
+	ibuf_create(&con->ibuf[0], cord_slab_cache(),
+		    con->expected_ibuf_capacity - slab_sizeof());
+	ibuf_create(&con->ibuf[1], cord_slab_cache(),
+		    con->expected_ibuf_capacity - slab_sizeof());
 	obuf_create(&con->obuf[0], &net_slabc, iproto_readahead);
 	obuf_create(&con->obuf[1], &net_slabc, iproto_readahead);
 	con->p_ibuf = &con->ibuf[0];
