@@ -524,6 +524,18 @@ static struct ibuf *
 iproto_connection_input_buffer(struct iproto_connection *con)
 {
 	struct ibuf *old_ibuf = con->p_ibuf;
+	struct ibuf *new_ibuf = iproto_connection_next_input(con);
+	if (con->expected_ibuf_capacity > iproto_ibuf_default_size &&
+	    ibuf_used(new_ibuf) == 0 &&
+	    ibuf_capacity(old_ibuf) - ibuf_unused(old_ibuf) <
+	    ibuf_capacity(old_ibuf) >> 2 &&
+	    con->expected_ibuf_capacity >= ibuf_capacity(new_ibuf)) {
+		/*
+		 * Less than 1/4 of current buffer is used and a backbuffer
+		 * is already empty, so expected capacity might be reduced.
+		 */
+		con->expected_ibuf_capacity >>= 1;
+	}
 
 	size_t to_read = 3; /* Smallest possible valid request. */
 
@@ -546,7 +558,6 @@ iproto_connection_input_buffer(struct iproto_connection *con)
 		return old_ibuf;
 	}
 
-	struct ibuf *new_ibuf = iproto_connection_next_input(con);
 	if (ibuf_used(new_ibuf) != 0) {
 		/*
 		 * Wait until the second buffer is flushed
@@ -558,11 +569,26 @@ iproto_connection_input_buffer(struct iproto_connection *con)
 			con->expected_ibuf_capacity <<= 1;
 		return NULL;
 	}
+	if (con->expected_ibuf_capacity > ibuf_capacity(new_ibuf)) {
+		/*
+		 * Try to reserve expected buffer capacity. The allocation error
+		 * could be ignored because the iproto is still able to process.
+		 */
+		ibuf_reserve(new_ibuf, con->expected_ibuf_capacity - slab_sizeof());
+	}
+	if (con->expected_ibuf_capacity < ibuf_capacity(new_ibuf)) {
+		/* Recreate the buffer with reduced capacity. */
+		struct slab_cache *slabc = new_ibuf->slabc;
+		ibuf_destroy(new_ibuf);
+		ibuf_create(new_ibuf, slabc,
+			    con->expected_ibuf_capacity - slab_sizeof());
+	}
 	/*
-	 * Try to reserve expected buffer capacity. The allocation error
-	 * could be ignored because the iproto is still able to process.
+	 * It is highly likely that the new_ibuf was left with non-cleared
+	 * state after previous rotation and it is a good time to reset
+	 * the state.
 	 */
-	ibuf_reserve(new_ibuf, con->expected_ibuf_capacity - slab_sizeof());
+	ibuf_reset(new_ibuf);
 
 	ibuf_reserve_xc(new_ibuf, to_read + con->parse_size);
 	/*
@@ -574,13 +600,6 @@ iproto_connection_input_buffer(struct iproto_connection *con)
 		/* Move the cached request prefix to the new buffer. */
 		memcpy(new_ibuf->rpos, old_ibuf->wpos, con->parse_size);
 		new_ibuf->wpos += con->parse_size;
-		/*
-		 * We made ibuf idle. If obuf was already idle it
-		 * makes the both ibuf and obuf idle, time to trim
-		 * them.
-		 */
-		if (ibuf_used(old_ibuf) == 0)
-			iproto_reset_input(old_ibuf);
 	}
 	/*
 	 * Rotate buffers. Not strictly necessary, but
