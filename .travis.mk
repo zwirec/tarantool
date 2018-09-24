@@ -3,7 +3,6 @@
 #
 
 DOCKER_IMAGE:=packpack/packpack:debian-stretch
-PRODUCT=tarantool-promotable ./packpack/packpack
 
 all: package
 

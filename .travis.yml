@@ -89,7 +89,7 @@ deploy:
     repository: "1_10"
     token: "${PACKAGECLOUD_TOKEN}"
     dist: "${OS}/${DIST}"
-    package_glob: build/*.{rpm,deb,dsc}
+    package_glob: build/*.rpm
     skip_cleanup: true
     on:
       repo: tarantool/tarantool
@@ -101,7 +101,7 @@ deploy:
     skip_cleanup: true
     on:
       repo: tarantool/tarantool
-      branch: "gerold103/gh-3055-box-ctl-promote" # releases
+      branch: "1.10" # releases
       condition: "x${TARGET} = xsource"
 
 notifications:

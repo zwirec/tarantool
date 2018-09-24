@@ -65,7 +65,7 @@ BuildRequires: python-gevent >= 1.0
 BuildRequires: python-yaml >= 3.0.9
 %endif
 
-Name: tarantool
+Name: tarantool-promotable
 # ${major}.${major}.${minor}.${patch}, e.g. 1.6.8.175
 # Version is updated automaically using git describe --long --always
 Version: 1.7.2.385
