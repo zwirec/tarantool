@@ -93,7 +93,7 @@ deploy:
     skip_cleanup: true
     on:
       repo: tarantool/tarantool
-      branch: "1.10" # releases
+      branch: "gerold103/gh-3055-box-ctl-promote" # releases
       condition: -n "${OS}" && -n "${DIST}" && -n "${PACKAGECLOUD_TOKEN}"
   # Deploy source tarballs to S3
   - provider: script
@@ -101,7 +101,7 @@ deploy:
     skip_cleanup: true
     on:
       repo: tarantool/tarantool
-      branch: "1.10" # releases
+      branch: "gerold103/gh-3055-box-ctl-promote" # releases
       condition: "x${TARGET} = xsource"
 
 notifications:
