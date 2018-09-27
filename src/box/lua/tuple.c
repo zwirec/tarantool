@@ -489,6 +489,15 @@ lbox_tuple_to_string(struct lua_State *L)
 	return 1;
 }
 
+static int
+lbox_tuple_size(struct lua_State *L)
+{
+	struct tuple *tuple = lua_checktuple(L, 1);
+	size_t size = tuple_size(tuple);
+	lua_pushinteger(L, size);
+	return 1;
+}
+
 void
 luaT_pushtuple(struct lua_State *L, box_tuple_t *tuple)
 {
@@ -506,6 +515,7 @@ static const struct luaL_Reg lbox_tuple_meta[] = {
 	{"__gc", lbox_tuple_gc},
 	{"tostring", lbox_tuple_to_string},
 	{"slice", lbox_tuple_slice},
+	{"size", lbox_tuple_size},
 	{"transform", lbox_tuple_transform},
 	{"tuple_to_map", lbox_tuple_to_map},
 	{"tuple_field_by_path", lbox_tuple_field_by_path},

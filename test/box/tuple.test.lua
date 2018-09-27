@@ -49,6 +49,12 @@ t = box.tuple.new('abc')
 t
 t:bsize()
 
+-- tuple:size()
+
+t = box.tuple.new('abc')
+t
+t:size()
+
 --
 -- Test cases for #106 box.tuple.new fails on multiple items
 --

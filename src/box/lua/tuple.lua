@@ -286,6 +286,7 @@ local methods = {
     ["update"]      = tuple_update;
     ["upsert"]      = tuple_upsert;
     ["bsize"]       = tuple_bsize;
+    ["size"]        = internal.tuple.size;
     ["tomap"]       = internal.tuple.tuple_to_map;
 }
 
