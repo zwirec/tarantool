@@ -988,7 +988,7 @@ case OP_Halt: {
 		pFrame = p->pFrame;
 		p->pFrame = pFrame->pParent;
 		p->nFrame--;
-		sqlite3VdbeSetChanges(db, p->nChange);
+		vdbe_changes_update(p, false);
 		pcx = sqlite3VdbeFrameRestore(pFrame);
 		if (pOp->p2 == ON_CONFLICT_ACTION_IGNORE) {
 			/* Instruction pcx is the OP_Program that invoked the sub-program
@@ -2881,7 +2881,7 @@ case OP_Savepoint: {
 
 	if (p1==SAVEPOINT_BEGIN) {
 		/* Create a new savepoint structure. */
-		pNew = sql_savepoint(p, zName);
+		pNew = sql_savepoint_create(p, zName, psql_txn->change_count);
 		/* Link the new savepoint into the database handle's list. */
 		pNew->pNext = psql_txn->pSavepoint;
 		psql_txn->pSavepoint = pNew;
@@ -2929,6 +2929,16 @@ case OP_Savepoint: {
 				 * Since savepoints are stored in region, we do not
 				 * have to destroy them
 				 */
+			}
+			if (p1 == SAVEPOINT_ROLLBACK) {
+				/*
+				* Set nChanges right there,
+				* because savepoint statements
+				* do not call halt.
+				 */
+				assert(psql_txn->pSavepoint != NULL);
+				psql_txn->change_count =
+					psql_txn->pSavepoint->change_count;
 			}
 
 			/* If it is a RELEASE, then destroy the savepoint being operated on
@@ -3000,6 +3010,7 @@ case OP_TransactionCommit: {
 			rc = SQL_TARANTOOL_ERROR;
 			goto abort_due_to_error;
 		}
+		vdbe_changes_update(p, true);
 	} else {
 		sqlite3VdbeError(p, "cannot commit - no transaction is active");
 		rc = SQLITE_ERROR;
@@ -3019,6 +3030,7 @@ case OP_TransactionRollback: {
 			rc = SQL_TARANTOOL_ERROR;
 			goto abort_due_to_error;
 		}
+		vdbe_changes_update(p, false);
 	} else {
 		sqlite3VdbeError(p, "cannot rollback - no "
 				    "transaction is active");
@@ -3045,7 +3057,10 @@ case OP_TTransaction: {
 			goto abort_due_to_error;
 		}
 	} else {
-		p->anonymous_savepoint = sql_savepoint(p, NULL);
+		assert(p->psql_txn);
+		int new_changes = p->psql_txn->change_count;
+		p->anonymous_savepoint = sql_savepoint_create(p, NULL,
+							     new_changes);
 		if (p->anonymous_savepoint == NULL) {
 			rc = SQL_TARANTOOL_ERROR;
 			goto abort_due_to_error;
@@ -3836,7 +3851,7 @@ case OP_Delete: {
  * This is used by trigger programs.
  */
 case OP_ResetCount: {
-	sqlite3VdbeSetChanges(db, p->nChange);
+	vdbe_changes_update(p, true);
 	p->nChange = 0;
 	p->ignoreRaised = 0;
 	break;
@@ -4277,7 +4292,6 @@ case OP_IdxInsert: {        /* in2 */
 	assert(isSorter(pC)==(pOp->opcode==OP_SorterInsert));
 	pIn2 = &aMem[pOp->p2];
 	assert(pIn2->flags & MEM_Blob);
-	if (pOp->p5 & OPFLAG_NCHANGE) p->nChange++;
 	assert(pC->eCurType==CURTYPE_TARANTOOL || pOp->opcode==OP_SorterInsert);
 	rc = ExpandBlob(pIn2);
 	if (rc) goto abort_due_to_error;
@@ -4307,6 +4321,9 @@ case OP_IdxInsert: {        /* in2 */
 	}
 
 	if (pOp->p5 & OPFLAG_OE_IGNORE) {
+		/* Compensate nChange increment. */
+		if (rc != SQLITE_OK)
+			p->nChange--;
 		/* Ignore any kind of failes and do not raise error message */
 		rc = SQLITE_OK;
 		/* If we are in trigger, increment ignore raised counter */
@@ -4319,6 +4336,8 @@ case OP_IdxInsert: {        /* in2 */
 		p->errorAction = ON_CONFLICT_ACTION_ROLLBACK;
 	}
 	if (rc) goto abort_due_to_error;
+	if ((pOp->p5 & OPFLAG_NCHANGE) != 0)
+		p->nChange++;
 	break;
 }
 

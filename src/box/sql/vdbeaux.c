@@ -85,6 +85,7 @@ sql_alloc_txn()
 		return NULL;
 	}
 	txn->pSavepoint = NULL;
+	txn->change_count = 0;
 	txn->fk_deferred_count = 0;
 	return txn;
 }
@@ -2270,30 +2271,28 @@ sql_txn_begin(Vdbe *p)
 	return 0;
 }
 
-Savepoint *
-sql_savepoint(Vdbe *p, const char *zName)
+struct Savepoint *
+sql_savepoint_create(struct Vdbe *p, const char *name, int change_count)
 {
-	assert(p);
-	size_t nName = zName ? strlen(zName) + 1 : 0;
-	size_t savepoint_sz = sizeof(Savepoint) + nName;
-	Savepoint *pNew;
-
-	pNew = (Savepoint *)region_aligned_alloc(&fiber()->gc,
-						 savepoint_sz,
-						 alignof(Savepoint));
-	if (pNew == NULL) {
-		diag_set(OutOfMemory, savepoint_sz, "region",
-			 "savepoint");
+	assert(p != NULL);
+	size_t name_len = name != NULL ? strlen(name) + 1 : 0;
+	size_t savepoint_sz = sizeof(struct Savepoint) + name_len;
+	struct Savepoint *savepoint =
+		(struct Savepoint *) region_alloc(&fiber()->gc, savepoint_sz);
+	if (savepoint == NULL) {
+		diag_set(OutOfMemory, savepoint_sz, "region", "savepoint");
 		return NULL;
 	}
-	pNew->tnt_savepoint = box_txn_savepoint();
-	if (!pNew->tnt_savepoint)
+	savepoint->tnt_savepoint = box_txn_savepoint();
+	if (savepoint->tnt_savepoint == NULL)
 		return NULL;
-	if (zName) {
-		pNew->zName = (char *)&pNew[1];
-		memcpy(pNew->zName, zName, nName);
-	};
-	return pNew;
+	savepoint->change_count = change_count;
+	if (name != NULL) {
+		/* Name is placed right after structure itself. */
+		savepoint->zName = (char *) &savepoint[1];
+		memcpy(savepoint->zName, name, name_len);
+	}
+	return savepoint;
 }
 
 /*
@@ -2446,7 +2445,8 @@ sqlite3VdbeHalt(Vdbe * p)
 				closeCursorsAndFree(p);
 				sqlite3RollbackAll(p);
 				sqlite3CloseSavepoints(p);
-				p->nChange = 0;
+				assert(p->psql_txn);
+				p->nChange = -p->psql_txn->change_count;
 			}
 		}
 
@@ -2477,12 +2477,11 @@ sqlite3VdbeHalt(Vdbe * p)
 		 * has been rolled back, update the database connection change-counter.
 		 */
 		if (p->changeCntOn) {
-			if (eStatementOp != SAVEPOINT_ROLLBACK) {
-				sqlite3VdbeSetChanges(db, p->nChange);
-			} else {
-				sqlite3VdbeSetChanges(db, 0);
+			if (eStatementOp == SAVEPOINT_ROLLBACK) {
+				p->nChange = 0;
+				p->psql_txn->change_count = 0;
 			}
-			p->nChange = 0;
+			vdbe_changes_update(p, p->auto_commit);
 		}
 	}
 
@@ -3439,15 +3438,23 @@ sqlite3MemCompare(const Mem * pMem1, const Mem * pMem2, const struct coll * pCol
 	return sqlite3BlobCompare(pMem1, pMem2);
 }
 
-/*
- * This routine sets the value to be returned by subsequent calls to
- * sqlite3_changes() on the database handle 'db'.
- */
 void
-sqlite3VdbeSetChanges(sqlite3 * db, int nChange)
+vdbe_changes_update(struct Vdbe *p, bool transaction_end)
 {
-	db->nChange = nChange;
-	db->nTotalChange += nChange;
+	struct sqlite3 *db = p->db;
+	struct sql_txn *psql_txn = p->psql_txn;
+	db->nChange = p->nChange;
+	if (transaction_end) {
+		db->nTotalChange += p->nChange;
+		if (psql_txn != NULL) {
+			db->nTotalChange += psql_txn->change_count;
+			psql_txn->change_count = 0;
+		}
+	} else {
+		if (psql_txn != NULL)
+			psql_txn->change_count += p->nChange;
+	}
+	p->nChange = 0;
 }
 
 /*

@@ -440,9 +440,10 @@ int sqlite3VdbeExec(Vdbe *);
 int sqlite3VdbeList(Vdbe *);
 int
 sql_txn_begin(Vdbe *p);
-Savepoint *
-sql_savepoint(Vdbe *p,
-	      const char *zName);
+
+struct Savepoint *
+sql_savepoint_create(struct Vdbe *p, const char *name, int change_count);
+
 int sqlite3VdbeHalt(Vdbe *);
 int sqlite3VdbeMemTooBig(Mem *);
 int sqlite3VdbeMemCopy(Mem *, const Mem *);

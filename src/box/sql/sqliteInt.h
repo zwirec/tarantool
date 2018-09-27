@@ -1763,6 +1763,8 @@ struct Savepoint {
 	box_txn_savepoint_t *tnt_savepoint; /* Tarantool's savepoint struct */
 	char *zName;		/* Savepoint name (nul-terminated) */
 	Savepoint *pNext;	/* Parent savepoint (if any) */
+	/** Changes to db made since last START TRANSACTION. */
+	int change_count;
 };
 
 /*
@@ -4305,7 +4307,17 @@ Expr *sqlite3ExprAddCollateToken(Parse * pParse, Expr *, const Token *, int);
 Expr *sqlite3ExprAddCollateString(Parse *, Expr *, const char *);
 Expr *sqlite3ExprSkipCollate(Expr *);
 int sqlite3CheckIdentifierName(Parse *, char *);
-void sqlite3VdbeSetChanges(sqlite3 *, int);
+
+/**
+ * This routine sets the value to be returned by subsequent
+ * calls to changes() and total_changes().
+ *
+ * @param v Active Vdbe.
+ * @param transaction_end Indicator for total_changes update.
+ */
+void
+vdbe_changes_update(struct Vdbe *v, bool transaction_end);
+
 int sqlite3AddInt64(i64 *, i64);
 int sqlite3SubInt64(i64 *, i64);
 int sqlite3MulInt64(i64 *, i64);
