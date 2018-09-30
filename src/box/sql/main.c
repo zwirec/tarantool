@@ -784,12 +784,6 @@ sqlite3ErrName(int rc)
 		case SQLITE_IOERR_WRITE:
 			zName = "SQLITE_IOERR_WRITE";
 			break;
-		case SQLITE_IOERR_FSYNC:
-			zName = "SQLITE_IOERR_FSYNC";
-			break;
-		case SQLITE_IOERR_DIR_FSYNC:
-			zName = "SQLITE_IOERR_DIR_FSYNC";
-			break;
 		case SQLITE_IOERR_TRUNCATE:
 			zName = "SQLITE_IOERR_TRUNCATE";
 			break;
@@ -802,53 +796,17 @@ sqlite3ErrName(int rc)
 		case SQLITE_IOERR_RDLOCK:
 			zName = "SQLITE_IOERR_RDLOCK";
 			break;
-		case SQLITE_IOERR_DELETE:
-			zName = "SQLITE_IOERR_DELETE";
-			break;
 		case SQLITE_IOERR_NOMEM:
 			zName = "SQLITE_IOERR_NOMEM";
 			break;
 		case SQLITE_IOERR_ACCESS:
 			zName = "SQLITE_IOERR_ACCESS";
 			break;
-		case SQLITE_IOERR_CHECKRESERVEDLOCK:
-			zName = "SQLITE_IOERR_CHECKRESERVEDLOCK";
-			break;
-		case SQLITE_IOERR_LOCK:
-			zName = "SQLITE_IOERR_LOCK";
-			break;
 		case SQLITE_IOERR_CLOSE:
 			zName = "SQLITE_IOERR_CLOSE";
 			break;
-		case SQLITE_IOERR_DIR_CLOSE:
-			zName = "SQLITE_IOERR_DIR_CLOSE";
-			break;
-		case SQLITE_IOERR_SHMOPEN:
-			zName = "SQLITE_IOERR_SHMOPEN";
-			break;
-		case SQLITE_IOERR_SHMSIZE:
-			zName = "SQLITE_IOERR_SHMSIZE";
-			break;
-		case SQLITE_IOERR_SHMLOCK:
-			zName = "SQLITE_IOERR_SHMLOCK";
-			break;
-		case SQLITE_IOERR_SHMMAP:
-			zName = "SQLITE_IOERR_SHMMAP";
-			break;
-		case SQLITE_IOERR_SEEK:
-			zName = "SQLITE_IOERR_SEEK";
-			break;
-		case SQLITE_IOERR_DELETE_NOENT:
-			zName = "SQLITE_IOERR_DELETE_NOENT";
-			break;
-		case SQLITE_IOERR_MMAP:
-			zName = "SQLITE_IOERR_MMAP";
-			break;
 		case SQLITE_IOERR_GETTEMPPATH:
 			zName = "SQLITE_IOERR_GETTEMPPATH";
-			break;
-		case SQLITE_IOERR_CONVPATH:
-			zName = "SQLITE_IOERR_CONVPATH";
 			break;
 		case SQLITE_NOTFOUND:
 			zName = "SQLITE_NOTFOUND";

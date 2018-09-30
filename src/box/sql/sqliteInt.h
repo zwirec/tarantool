@@ -336,7 +336,6 @@ struct sqlite3_vfs {
 	void *pAppData;	/* Pointer to application-specific data */
 	int (*xOpen) (sqlite3_vfs *, const char *zName, sqlite3_file *,
 		      int flags, int *pOutFlags);
-	int (*xDelete) (sqlite3_vfs *, const char *zName, int syncDir);
 	int (*xRandomness) (sqlite3_vfs *, int nByte, char *zOut);
 	int (*xSleep) (sqlite3_vfs *, int microseconds);
 	int (*xCurrentTime) (sqlite3_vfs *, double *);
@@ -605,33 +604,21 @@ sqlite3_exec(sqlite3 *,	/* An open database */
 	     void *,	/* 1st argument to callback */
 	     char **errmsg	/* Error msg written here */
 	);
-#define SQLITE_IOERR_READ              (SQLITE_IOERR | (1<<8))
-#define SQLITE_IOERR_SHORT_READ        (SQLITE_IOERR | (2<<8))
-#define SQLITE_IOERR_WRITE             (SQLITE_IOERR | (3<<8))
-#define SQLITE_IOERR_FSYNC             (SQLITE_IOERR | (4<<8))
-#define SQLITE_IOERR_DIR_FSYNC         (SQLITE_IOERR | (5<<8))
-#define SQLITE_IOERR_TRUNCATE          (SQLITE_IOERR | (6<<8))
-#define SQLITE_IOERR_FSTAT             (SQLITE_IOERR | (7<<8))
-#define SQLITE_IOERR_UNLOCK            (SQLITE_IOERR | (8<<8))
-#define SQLITE_IOERR_RDLOCK            (SQLITE_IOERR | (9<<8))
-#define SQLITE_IOERR_DELETE            (SQLITE_IOERR | (10<<8))
-#define SQLITE_IOERR_BLOCKED           (SQLITE_IOERR | (11<<8))
-#define SQLITE_IOERR_NOMEM             (SQLITE_IOERR | (12<<8))
-#define SQLITE_IOERR_ACCESS            (SQLITE_IOERR | (13<<8))
-#define SQLITE_IOERR_CHECKRESERVEDLOCK (SQLITE_IOERR | (14<<8))
-#define SQLITE_IOERR_LOCK              (SQLITE_IOERR | (15<<8))
-#define SQLITE_IOERR_CLOSE             (SQLITE_IOERR | (16<<8))
-#define SQLITE_IOERR_DIR_CLOSE         (SQLITE_IOERR | (17<<8))
-#define SQLITE_IOERR_SHMOPEN           (SQLITE_IOERR | (18<<8))
-#define SQLITE_IOERR_SHMSIZE           (SQLITE_IOERR | (19<<8))
-#define SQLITE_IOERR_SHMLOCK           (SQLITE_IOERR | (20<<8))
-#define SQLITE_IOERR_SHMMAP            (SQLITE_IOERR | (21<<8))
-#define SQLITE_IOERR_SEEK              (SQLITE_IOERR | (22<<8))
-#define SQLITE_IOERR_DELETE_NOENT      (SQLITE_IOERR | (23<<8))
-#define SQLITE_IOERR_MMAP              (SQLITE_IOERR | (24<<8))
-#define SQLITE_IOERR_GETTEMPPATH       (SQLITE_IOERR | (25<<8))
-#define SQLITE_IOERR_CONVPATH          (SQLITE_IOERR | (26<<8))
-#define SQLITE_IOERR_VNODE             (SQLITE_IOERR | (27<<8))
+
+enum sql_ioerr_code {
+	SQLITE_IOERR_READ              = (SQLITE_IOERR | (1<<8)),
+	SQLITE_IOERR_SHORT_READ        = (SQLITE_IOERR | (2<<8)),
+	SQLITE_IOERR_WRITE             = (SQLITE_IOERR | (3<<8)),
+	SQLITE_IOERR_TRUNCATE          = (SQLITE_IOERR | (4<<8)),
+	SQLITE_IOERR_FSTAT             = (SQLITE_IOERR | (5<<8)),
+	SQLITE_IOERR_UNLOCK            = (SQLITE_IOERR | (6<<8)),
+	SQLITE_IOERR_RDLOCK            = (SQLITE_IOERR | (7<<8)),
+	SQLITE_IOERR_NOMEM             = (SQLITE_IOERR | (8<<8)),
+	SQLITE_IOERR_ACCESS            = (SQLITE_IOERR | (9<<8)),
+	SQLITE_IOERR_CLOSE             = (SQLITE_IOERR | (10<<8)),
+	SQLITE_IOERR_GETTEMPPATH       = (SQLITE_IOERR | (11<<8))
+};
+
 #define SQLITE_CONSTRAINT_CHECK        (SQLITE_CONSTRAINT | (1<<8))
 #define SQLITE_CONSTRAINT_FOREIGNKEY   (SQLITE_CONSTRAINT | (3<<8))
 #define SQLITE_CONSTRAINT_FUNCTION     (SQLITE_CONSTRAINT | (4<<8))

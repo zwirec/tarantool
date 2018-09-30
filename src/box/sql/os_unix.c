@@ -990,53 +990,6 @@ unixWrite(sqlite3_file * id, const void *pBuf, int amt, sqlite3_int64 offset)
 }
 
 /*
- * Open a file descriptor to the directory containing file zFilename.
- * If successful, *pFd is set to the opened file descriptor and
- * SQLITE_OK is returned. If an error occurs, either SQLITE_NOMEM
- * or SQLITE_CANTOPEN is returned and *pFd is set to an undefined
- * value.
- *
- * The directory file descriptor is used for only one thing - to
- * fsync() a directory to make sure file creation and deletion events
- * are flushed to disk.  Such fsyncs are not needed on newer
- * journaling filesystems, but are required on older filesystems.
- *
- * This routine can be overridden using the xSetSysCall interface.
- * The ability to override this routine was added in support of the
- * chromium sandbox.  Opening a directory is a security risk (we are
- * told) so making it overrideable allows the chromium sandbox to
- * replace this routine with a harmless no-op.  To make this routine
- * a no-op, replace it with a stub that returns SQLITE_OK but leaves
- * *pFd set to a negative number.
- *
- * If SQLITE_OK is returned, the caller is responsible for closing
- * the file descriptor *pFd using close().
- */
-static int
-openDirectory(const char *zFilename, int *pFd)
-{
-	int ii;
-	int fd;
-	char zDirname[MAX_PATHNAME + 1];
-
-	sqlite3_snprintf(MAX_PATHNAME, zDirname, "%s", zFilename);
-	for (ii = (int)strlen(zDirname); ii > 0 && zDirname[ii] != '/'; ii--) ;
-	if (ii > 0) {
-		zDirname[ii] = '\0';
-	} else {
-		if (zDirname[0] != '/')
-			zDirname[0] = '.';
-		zDirname[1] = 0;
-	}
-	fd = robust_open(zDirname, O_RDONLY | O_BINARY, 0);
-
-	*pFd = fd;
-	if (fd >= 0)
-		return SQLITE_OK;
-	return unixLogError(SQLITE_CANTOPEN_BKPT, "openDirectory", zDirname);
-}
-
-/*
  * This function is called to handle the SQLITE_FCNTL_SIZE_HINT
  * file-control operation.  Enlarge the database to nBytes in size
  * (rounded up to the next chunk-size).  If the database is already
@@ -1923,46 +1876,6 @@ unixOpen(sqlite3_vfs * pVfs,	/* The VFS for which this is the xOpen method */
 }
 
 /*
- * Delete the file at zPath. If the dirSync argument is true, fsync()
- * the directory after deleting the file.
- */
-static int
-unixDelete(sqlite3_vfs * NotUsed,	/* VFS containing this as the xDelete method */
-	   const char *zPath,	/* Name of file to be deleted */
-	   int dirSync		/* If true, fsync() directory after deleting file */
-    )
-{
-	int rc = SQLITE_OK;
-	UNUSED_PARAMETER(NotUsed);
-	if (unlink(zPath) == (-1)) {
-		if (errno == ENOENT) {
-			rc = SQLITE_IOERR_DELETE_NOENT;
-		} else {
-			rc = unixLogError(SQLITE_IOERR_DELETE, "unlink", zPath);
-		}
-		return rc;
-	}
-#ifndef SQLITE_DISABLE_DIRSYNC
-	if ((dirSync & 1) != 0) {
-		int fd;
-		rc = openDirectory(zPath, &fd);
-		if (rc == SQLITE_OK) {
-			struct stat buf;
-			if (fstat(fd, &buf)) {
-				rc = unixLogError(SQLITE_IOERR_DIR_FSYNC,
-						  "fsync", zPath);
-			}
-			robust_close(0, fd, __LINE__);
-		} else {
-			assert(rc == SQLITE_CANTOPEN);
-			rc = SQLITE_OK;
-		}
-	}
-#endif
-	return rc;
-}
-
-/*
  * Write nBuf bytes of random data to the supplied buffer zBuf.
  */
 static int
@@ -2076,7 +1989,6 @@ unixGetLastError(sqlite3_vfs * NotUsed, int NotUsed2, char *NotUsed3)
     VFSNAME,              /* zName */                       \
     (void*)&FINDER,       /* pAppData */                    \
     unixOpen,             /* xOpen */                       \
-    unixDelete,           /* xDelete */                     \
     unixRandomness,       /* xRandomness */                 \
     unixSleep,            /* xSleep */                      \
     NULL,                 /* xCurrentTime */                \
