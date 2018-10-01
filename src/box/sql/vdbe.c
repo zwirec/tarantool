@@ -3838,7 +3838,6 @@ case OP_Delete: {
 case OP_ResetCount: {
 	sqlite3VdbeSetChanges(db, p->nChange);
 	p->nChange = 0;
-	p->ignoreRaised = 0;
 	break;
 }
 
@@ -4309,10 +4308,6 @@ case OP_IdxInsert: {        /* in2 */
 	if (pOp->p5 & OPFLAG_OE_IGNORE) {
 		/* Ignore any kind of failes and do not raise error message */
 		rc = SQLITE_OK;
-		/* If we are in trigger, increment ignore raised counter */
-		if (p->pFrame) {
-			p->ignoreRaised++;
-		}
 	} else if (pOp->p5 & OPFLAG_OE_FAIL) {
 		p->errorAction = ON_CONFLICT_ACTION_FAIL;
 	} else if (pOp->p5 & OPFLAG_OE_ROLLBACK) {
@@ -4629,7 +4624,7 @@ case OP_LoadAnalysis: {
 	break;
 }
 
-/* Opcode: Program P1 P2 P3 P4 P5
+/* Opcode: Program P1 P2 P3 P4
  *
  * Execute the trigger program passed as P4 (type P4_SUBPROGRAM).
  *
@@ -4641,8 +4636,6 @@ case OP_LoadAnalysis: {
  * memory required by the sub-vdbe at runtime.
  *
  * P4 is a pointer to the VM containing the trigger program.
- *
- * If P5 is non-zero, then recursive program invocation is enabled.
  */
 case OP_Program: {        /* jump */
 	int nMem;               /* Number of memory registers for sub-program */
@@ -4658,10 +4651,7 @@ case OP_Program: {        /* jump */
 	pRt = &aMem[pOp->p3];
 	assert(pProgram->nOp>0);
 
-	/* If the p5 flag is clear, then recursive invocation of triggers is
-	 * disabled for backwards compatibility (p5 is set if this sub-program
-	 * is really a trigger, not a foreign key action, and the flag set
-	 * and cleared by the "PRAGMA recursive_triggers" command is clear).
+	/* Recursive invocation of triggers is disabled.
 	 *
 	 * It is recursive invocation of triggers, at the SQL level, that is
 	 * disabled. In some cases a single trigger may generate more than one
@@ -4670,19 +4660,17 @@ case OP_Program: {        /* jump */
 	 * single trigger all have the same value for the SubProgram.token
 	 * variable.
 	 */
-	if (pOp->p5) {
-		t = pProgram->token;
-		for(pFrame=p->pFrame; pFrame && pFrame->token!=t; pFrame=pFrame->pParent);
-		if (pFrame) break;
-	}
+	t = pProgram->token;
+	for(pFrame=p->pFrame; pFrame && pFrame->token!=t; pFrame=pFrame->pParent);
+	if (pFrame) break;
 
-	if (p->ignoreRaised > 0) {
-		break;
-	}
+//	if (p->ignoreRaised > 0) {
+//		break;
+//	}
 
 	if (p->nFrame>=db->aLimit[SQLITE_LIMIT_TRIGGER_DEPTH]) {
 		rc = SQLITE_ERROR;
-		sqlite3VdbeError(p, "too many levels of trigger recursion");
+		sqlite3VdbeError(p, "too many levels of trigger recursion %d", p->nFrame);
 		goto abort_due_to_error;
 	}
 

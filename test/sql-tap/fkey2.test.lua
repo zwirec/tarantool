@@ -1,6 +1,6 @@
 #!/usr/bin/env tarantool
 test = require("sqltester")
-test:plan(116)
+test:plan(110)
 
 -- This file implements regression tests for foreign keys.
 
@@ -416,105 +416,6 @@ test:do_execsql_test(
         -- </fkey2-3.7>
     })
 
-
-test:do_execsql_test(
-    "fkey2-4.1",
-    [[
-        DROP TABLE IF EXISTS t2;
-        DROP TABLE IF EXISTS t1;
-        CREATE TABLE t1(
-            node PRIMARY KEY,
-            parent REFERENCES t1 ON DELETE CASCADE);
-        CREATE TABLE t2(node PRIMARY KEY, parent);
-        CREATE TRIGGER t2t AFTER DELETE ON t2 BEGIN
-            DELETE FROM t2 WHERE parent = old.node;
-        END;
-        INSERT INTO t1 VALUES(1, NULL);
-        INSERT INTO t1 VALUES(2, 1);
-        INSERT INTO t1 VALUES(3, 1);
-        INSERT INTO t1 VALUES(4, 2);
-        INSERT INTO t1 VALUES(5, 2);
-        INSERT INTO t1 VALUES(6, 3);
-        INSERT INTO t1 VALUES(7, 3);
-        INSERT INTO t2 SELECT * FROM t1;
-    ]], {
-        -- <fkey2-4.1>
-        -- </fkey2-4.1>
-    })
-
-test:do_execsql_test(
-    "fkey2-4.2",
-    [[
-        PRAGMA recursive_triggers = off;
-        DELETE FROM t1 WHERE node = 1;
-        SELECT node FROM t1;
-    ]], {
-        -- <fkey2-4.2>
-        -- </fkey2-4.2>
-    })
-
-
-test:do_execsql_test(
-    "fkey2-4.3",
-    [[
-	   DELETE FROM t2 WHERE node = 1;
-	   SELECT node FROM t2;
-    ]], {
-        -- <fkey2-4.3>
-        4, 5, 6, 7
-        -- </fkey2-4.3>
-    })
-
-test:do_execsql_test(
-    "fkey2-4.4",
-    [[
-        PRAGMA recursive_triggers = on;
-        DROP TABLE t2;
-        DROP TABLE t1;
-        CREATE TABLE t1(
-            node PRIMARY KEY,
-            parent REFERENCES t1 ON DELETE CASCADE);
-        CREATE TABLE t2(node PRIMARY KEY, parent);
-        CREATE TRIGGER t2t AFTER DELETE ON t2 BEGIN
-            DELETE FROM t2 WHERE parent = old.node;
-        END;
-        INSERT INTO t1 VALUES(1, 1);
-        INSERT INTO t1 VALUES(2, 1);
-        INSERT INTO t1 VALUES(3, 1);
-        INSERT INTO t1 VALUES(4, 2);
-        INSERT INTO t1 VALUES(5, 2);
-        INSERT INTO t1 VALUES(6, 3);
-        INSERT INTO t1 VALUES(7, 3);
-        INSERT INTO t2 SELECT * FROM t1;
-        DELETE FROM t1 WHERE node = 1;
-        SELECT node FROM t1;
-        DELETE FROM t1 WHERE node = 1;
-        SELECT node FROM t1;
-    ]], {
-        -- <fkey2-4.4>
-        -- </fkey2-4.4>
-    })
-
-test:do_execsql_test(
-    "fkey2-4.5",
-    [[
-       DELETE FROM t2 WHERE node = 1;
-       SELECT node FROM t2;
-    ]], {
-        -- <fkey2-4.5>
-        -- </fkey2-4.5>
-    })
-
-test:do_execsql_test(
-    "fkey2-4.5",
-    [[
-       DELETE FROM t2 WHERE node = 1;
-       SELECT node FROM t2;
-    ]], {
-        -- <fkey2-4.5>
-        -- </fkey2-4.5>
-    })
-
 --------------------------------------------------------------------------
 -- Test that it is possible to use an INTEGER PRIMARY KEY as the child key
 -- of a foreign constraint.
@@ -522,8 +423,8 @@ test:do_execsql_test(
 test:do_execsql_test(
     "fkey2-5.1",
     [[
-        DROP TABLE IF EXISTS t1;
         DROP TABLE IF EXISTS t2;
+        DROP TABLE IF EXISTS t1;
         CREATE TABLE t1(a INTEGER PRIMARY KEY, b);
         CREATE TABLE t2(c INTEGER PRIMARY KEY REFERENCES t1, b);
     ]], {

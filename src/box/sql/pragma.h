@@ -180,11 +180,6 @@ static const PragmaName aPragmaName[] = {
 	 /* ePragFlg:  */ PragFlg_Result0 | PragFlg_NoColumns1,
 	 /* ColNames:  */ 0, 0,
 	 /* iArg:      */ SQLITE_ReadUncommitted},
-	{ /* zName:     */ "recursive_triggers",
-	 /* ePragTyp:  */ PragTyp_FLAG,
-	 /* ePragFlg:  */ PragFlg_Result0 | PragFlg_NoColumns1,
-	 /* ColNames:  */ 0, 0,
-	 /* iArg:      */ SQLITE_RecTriggers},
 #endif
 #if !defined(SQLITE_OMIT_FLAG_PRAGMAS)
 	{ /* zName:     */ "reverse_unordered_selects",

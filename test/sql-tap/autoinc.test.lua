@@ -640,7 +640,6 @@ test:do_test(
         -- </autoinc-10.3>
     })
 
-test:catchsql(" pragma recursive_triggers = off ")
 -- Ticket #3928.  Make sure that triggers to not make extra slots in
 -- the SQLITE_SEQUENCE table.
 --

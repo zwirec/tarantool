@@ -58,8 +58,6 @@ test:plan(26)
 -- The tests in this file were written before SQLite supported recursive
 -- trigger invocation, and some tests depend on that to pass. So disable
 -- recursive triggers for this file.
-test:catchsql " pragma recursive_triggers = off "
--- 1.
 ii = 0
 tbl_definitions = { "CREATE TABLE tbl (a INTEGER PRIMARY KEY, b);",
                     "CREATE TABLE tbl (a PRIMARY KEY, b);",

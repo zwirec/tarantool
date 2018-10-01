@@ -950,27 +950,12 @@ vdbe_code_row_trigger_direct(struct Parse *parser, struct sql_trigger *trigger,
 	if (pPrg == NULL)
 		return;
 
-	struct session *user_session = current_session();
-	bool is_recursive = (trigger->zName && !(user_session->sql_flags &
-						 SQLITE_RecTriggers));
-
 	sqlite3VdbeAddOp4(v, OP_Program, reg, ignore_jump,
 			  ++parser->nMem, (const char *)pPrg->pProgram,
 			  P4_SUBPROGRAM);
 	VdbeComment((v, "Call: %s.%s", (trigger->zName ? trigger->zName :
 					"fkey"),
 		     onErrorText(orconf)));
-
-	/*
-	 * Set the P5 operand of the OP_Program
-	 * instruction to non-zero if recursive invocation
-	 * of this trigger program is disallowed.
-	 * Recursive invocation is disallowed if (a) the
-	 * sub-program is really a trigger, not a foreign
-	 * key action, and (b) the flag to enable
-	 * recursive triggers is clear.
-	 */
-	sqlite3VdbeChangeP5(v, (u8)is_recursive);
 }
 
 void

@@ -355,14 +355,6 @@ struct Vdbe {
 	i64 nFkConstraint;	/* Number of imm. FK constraints this VM */
 	uint32_t schema_ver;	/* Schema version at the moment of VDBE creation. */
 
-	/*
-	 * In recursive triggers we can execute INSERT/UPDATE OR IGNORE
-	 * statements. If IGNORE error action happened inside a trigger,
-	 * an IgnoreRaised exception is being generated and recursion stops.
-	 * But now INSERT OR IGNORE query bytecode has been optimized and
-	 * ignoreRaised variable helps to track such situations
-	 */
-	u8 ignoreRaised;	/* Flag for ON CONFLICT IGNORE for triggers */
 	/** Data related to current transaction. */
 	struct sql_txn *psql_txn;
 	/** The auto-commit flag. */

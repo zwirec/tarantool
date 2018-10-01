@@ -1,6 +1,6 @@
 #!/usr/bin/env tarantool
 test = require("sqltester")
-test:plan(59)
+test:plan(45)
 
 --!./tcltestrunner.lua
 -- 2009 August 24
@@ -30,19 +30,6 @@ testprefix = "triggerC"
 -- triggerC-3.*:
 --
 -- triggerC-4.*:
---
--- triggerC-5.*: Test that when recursive triggers are enabled DELETE
---               triggers are fired when rows are deleted as part of OR
---               REPLACE conflict resolution. And that they are not fired
---               if recursive triggers are not enabled.
---
--- triggerC-6.*: Test that the recursive_triggers pragma returns correct
---               results when invoked without an argument.
---
--- Enable recursive triggers for this file.
---
-test:execsql " PRAGMA recursive_triggers = on "
---sqlite3_db_config_lookaside db 0 0 0
 ---------------------------------------------------------------------------
 -- This block of tests, triggerC-1.*, are not aimed at any specific
 -- property of the triggers sub-system. They were created to debug
@@ -198,11 +185,7 @@ test:do_catchsql_test(
     "triggerC-1.12",
     [[
         UPDATE OR REPLACE t5 SET a = 4 WHERE a = 1
-    ]], {
-        -- <triggerC-1.12>
-        1, "too many levels of trigger recursion"
-        -- </triggerC-1.12>
-    })
+    ]], { 0 })
 
 test:do_execsql_test(
     "triggerC-1.13",
@@ -246,115 +229,6 @@ test:do_catchsql_test(
         -- </triggerC-1.15>
     })
 
----------------------------------------------------------------------------
--- This block of tests, triggerC-2.*, tests that recursive trigger
--- programs (triggers that fire themselves) work. More specifically,
--- this block focuses on recursive INSERT triggers.
---
-test:do_execsql_test(
-    "triggerC-2.1.0",
-    [[
-        CREATE TABLE t2(a PRIMARY KEY);
-    ]], {
-        -- <triggerC-2.1.0>
-
-        -- </triggerC-2.1.0>
-    })
-
--- MUST_WORK_TEST
--- for _ in X(0, "X!foreach", [=[["n tdefn rc","\n  1 {\n    CREATE TRIGGER t2_trig AFTER INSERT ON t2 WHEN (new.a>0) BEGIN\n      INSERT INTO t2 VALUES(new.a - 1);\n    END;\n  } {0 {10 9 8 7 6 5 4 3 2 1 0}}\n\n  2 {\n    CREATE TRIGGER t2_trig AFTER INSERT ON t2 BEGIN\n      SELECT CASE WHEN new.a==2 THEN RAISE(IGNORE) ELSE NULL END;\n      INSERT INTO t2 VALUES(new.a - 1);\n    END;\n  } {0 {10 9 8 7 6 5 4 3 2}}\n\n  3 {\n    CREATE TRIGGER t2_trig BEFORE INSERT ON t2 WHEN (new.a>0) BEGIN\n      INSERT INTO t2 VALUES(new.a - 1);\n    END;\n  } {0 {0 1 2 3 4 5 6 7 8 9 10}}\n\n  4 {\n    CREATE TRIGGER t2_trig BEFORE INSERT ON t2 BEGIN\n      SELECT CASE WHEN new.a==2 THEN RAISE(IGNORE) ELSE NULL END;\n      INSERT INTO t2 VALUES(new.a - 1);\n    END;\n  } {0 {3 4 5 6 7 8 9 10}}\n\n  5 {\n    CREATE TRIGGER t2_trig BEFORE INSERT ON t2 BEGIN\n      INSERT INTO t2 VALUES(new.a - 1);\n    END;\n  } {1 {too many levels of trigger recursion}}\n\n  6 {\n    CREATE TRIGGER t2_trig AFTER INSERT ON t2 WHEN (new.a>0) BEGIN\n      INSERT OR IGNORE INTO t2 VALUES(new.a);\n    END;\n  } {0 10}\n\n  7 {\n    CREATE TRIGGER t2_trig BEFORE INSERT ON t2 WHEN (new.a>0) BEGIN\n      INSERT OR IGNORE INTO t2 VALUES(new.a);\n    END;\n  } {1 {too many levels of trigger recursion}}\n"]]=]) do
-
-local
-tests =   { {[[ CREATE TRIGGER t2_trig AFTER INSERT ON t2 WHEN (new.a>0) BEGIN
-                  INSERT INTO t2 VALUES(new.a - 1);
-                END;]], {0, {10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}}},
-
-            {[[ CREATE TRIGGER t2_trig AFTER INSERT ON t2 BEGIN
-                  SELECT CASE WHEN new.a==2 THEN RAISE(IGNORE) ELSE NULL END;
-                  INSERT INTO t2 VALUES(new.a - 1);
-                END;]], {0, {10, 9, 8, 7, 6, 5, 4, 3, 2}}},
-
-            {[[ CREATE TRIGGER t2_trig BEFORE INSERT ON t2 WHEN (new.a>0) BEGIN
-                  INSERT INTO t2 VALUES(new.a - 1);
-                END;]], {0, {10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0}}},
-
-            {[[ CREATE TRIGGER t2_trig BEFORE INSERT ON t2 BEGIN
-                  SELECT CASE WHEN new.a==2 THEN RAISE(IGNORE) ELSE NULL END;
-                  INSERT INTO t2 VALUES(new.a - 1);
-                END;]], {0, {10, 9, 8, 7, 6, 5, 4, 3}}},
-
-            {[[ CREATE TRIGGER t2_trig BEFORE INSERT ON t2 BEGIN
-                  INSERT INTO t2 VALUES(new.a - 1);
-                END;]], {1, "too many levels of trigger recursion"}},
-
-            {[[ CREATE TRIGGER t2_trig AFTER INSERT ON t2 WHEN (new.a>0) BEGIN
-                  INSERT OR IGNORE INTO t2 VALUES(new.a);
-                END;]], {0, {10}}},
-
-            {[[  CREATE TRIGGER t2_trig BEFORE INSERT ON t2 WHEN (new.a>0) BEGIN
-                   INSERT OR IGNORE INTO t2 VALUES(new.a);
-                 END;]], {1, "too many levels of trigger recursion"}}}
-
-for n, v in ipairs(tests) do
-    test:do_test(
-        "triggerC-2.1."..n,
-        function()
-            test:catchsql " DROP TRIGGER t2_trig "
-            test:execsql " DELETE FROM t2 "
-            test:execsql(v[1])
-            return test:catchsql [[
-                INSERT INTO t2 VALUES(10);
-                SELECT * FROM t2 ORDER BY a DESC;
-            ]]
-        end,
-        v[2])
-end
-
--- test:do_execsql_test(
---     "triggerC-2.2",
--- string.format([[
---         CREATE TABLE t22(x PRIMARY KEY);
-
---         CREATE TRIGGER t22a AFTER INSERT ON t22 BEGIN
---           INSERT INTO t22 SELECT x + (SELECT max(x) FROM t22) FROM t22;
---         END;
---         CREATE TRIGGER t22b BEFORE INSERT ON t22 BEGIN
---           SELECT CASE WHEN (SELECT count(*) FROM t22) >= %s
---                       THEN RAISE(IGNORE)
---                       ELSE NULL END;
---         END;
-
---         INSERT INTO t22 VALUES(1);
---         SELECT count(*) FROM t22;
---     ]], (SQLITE_MAX_TRIGGER_DEPTH / 2)), {
---         -- <triggerC-2.2>
---         (SQLITE_MAX_TRIGGER_DEPTH / 2)
---         -- </triggerC-2.2>
---     })
-
--- test:do_execsql_test(
---     "triggerC-2.3",
--- string.format([[
---         CREATE TABLE t23(x PRIMARY KEY);
-
---         CREATE TRIGGER t23a AFTER INSERT ON t23 BEGIN
---           INSERT INTO t23 VALUES(new.x + 1);
---         END;
-
---         CREATE TRIGGER t23b BEFORE INSERT ON t23 BEGIN
---           SELECT CASE WHEN new.x>%s
---                       THEN RAISE(IGNORE)
---                       ELSE NULL END;
---         END;
-
---         INSERT INTO t23 VALUES(1);
---         SELECT count(*) FROM t23;
---     ]], (SQLITE_MAX_TRIGGER_DEPTH / 2)), {
---         -- <triggerC-2.3>
---         (SQLITE_MAX_TRIGGER_DEPTH / 2)
---         -- </triggerC-2.3>
---     })
-
 -------------------------------------------------------------------------
 -- This block of tests, triggerC-3.*, test that SQLite throws an exception
 -- when it detects excessive recursion.
@@ -382,7 +256,7 @@ test:do_catchsql_test(
         INSERT INTO t3 VALUES(0,0)
     ]], {
         -- <triggerC-3.1.2>
-        1, "too many levels of trigger recursion"
+        0
         -- </triggerC-3.1.2>
     })
 
@@ -390,10 +264,7 @@ test:do_execsql_test(
     "triggerC-3.1.3",
     [[
         SELECT * FROM t3
-    ]], {
-        -- <triggerC-3.1.3>
-        -- </triggerC-3.1.3>
-    })
+    ]], {0, 0})
 
 test:do_execsql_test(
     "triggerC-3.2.1",
@@ -409,20 +280,13 @@ test:do_catchsql_test(
     "triggerC-3.2.2",
     [[
         INSERT INTO t3b VALUES(1);
-    ]], {
-        -- <triggerC-3.1.3>
-        1, "too many levels of trigger recursion"
-        -- </triggerC-3.1.3>
-    })
+    ]], { 0 })
 
 test:do_execsql_test(
     "triggerC-3.2.3",
     [[
         SELECT * FROM t3b;
-    ]], {
-        -- <triggerC-3.2.3>
-        -- </triggerC-3.2.3>
-    })
+    ]], { 1, 2 })
 
 -------------------------------------------------------------------------
 -- This next block of tests, triggerC-4.*, checks that affinity
@@ -597,159 +461,6 @@ for n, v in ipairs(tests4) do
                          SELECT t FROM log ORDER BY id;]], v[1]),
         v[2])
 end
----------------------------------------------------------------------------
--- This block of tests, triggerC-5.*, test that DELETE triggers are fired
--- if a row is deleted as a result of OR REPLACE conflict resolution.
---
-test:do_execsql_test(
-    "triggerC-5.1.0",
-    [[
-        DROP TABLE IF EXISTS t5;
-        CREATE TABLE t5(a INTEGER PRIMARY KEY, b);
-        CREATE UNIQUE INDEX t5i ON t5(b);
-        INSERT INTO t5 VALUES(1, 'a');
-        INSERT INTO t5 VALUES(2, 'b');
-        INSERT INTO t5 VALUES(3, 'c');
-
-        CREATE TABLE t5g(a PRIMARY KEY, b, c);
-        CREATE TRIGGER t5t BEFORE DELETE ON t5 BEGIN
-          INSERT INTO t5g VALUES(old.a, old.b, (SELECT count(*) FROM t5));
-        END;
-    ]], {
-        -- <triggerC-5.1.0>
-
-        -- </triggerC-5.1.0>
-    })
-
--- MUST_WORK_TEST
--- foreach {n dml t5g t5} {
---   1 "DELETE FROM t5 WHERE a=2"                        {2 b 3} {1 a 3 c}
---   2 "INSERT OR REPLACE INTO t5 VALUES(2, 'd')"        {2 b 3} {1 a 2 d 3 c}
---   3 "UPDATE OR REPLACE t5 SET a = 2 WHERE a = 3"      {2 b 3} {1 a 2 c}
---   4 "INSERT OR REPLACE INTO t5 VALUES(4, 'b')"        {2 b 3} {1 a 3 c 4 b}
---   5 "UPDATE OR REPLACE t5 SET b = 'b' WHERE b = 'c'"  {2 b 3} {1 a 3 b}
---   6 "INSERT OR REPLACE INTO t5 VALUES(2, 'c')"        {2 b 3 3 c 2} {1 a 2 c}
---   7 "UPDATE OR REPLACE t5 SET a=1, b='b' WHERE a = 3" {1 a 3 2 b 2} {1 b}
--- } {
---   do_test triggerC-5.1.$n {
---     execsql "
---       BEGIN;
---         $dml ;
---         SELECT * FROM t5g ORDER BY rowid;
---         SELECT * FROM t5 ORDER BY rowid;
---       ROLLBACK;
---     "
---   } [concat $t5g $t5]
--- }
-test:do_execsql_test(
-    "triggerC-5.2.0",
-    [[
-        DROP TRIGGER t5t;
-        CREATE TRIGGER t5t AFTER DELETE ON t5 BEGIN
-          INSERT INTO t5g VALUES(old.a, old.b, (SELECT count(*) FROM t5));
-        END;
-    ]], {
-        -- <triggerC-5.2.0>
-
-        -- </triggerC-5.2.0>
-    })
-
--- MUST_WORK_TEST
--- foreach {n dml t5g t5} {
---   1 "DELETE FROM t5 WHERE a=2"                        {2 b 2} {1 a 3 c}
---   2 "INSERT OR REPLACE INTO t5 VALUES(2, 'd')"        {2 b 2} {1 a 2 d 3 c}
---   3 "UPDATE OR REPLACE t5 SET a = 2 WHERE a = 3"      {2 b 2} {1 a 2 c}
---   4 "INSERT OR REPLACE INTO t5 VALUES(4, 'b')"        {2 b 2} {1 a 3 c 4 b}
---   5 "UPDATE OR REPLACE t5 SET b = 'b' WHERE b = 'c'"  {2 b 2} {1 a 3 b}
---   6 "INSERT OR REPLACE INTO t5 VALUES(2, 'c')"        {2 b 2 3 c 1} {1 a 2 c}
---   7 "UPDATE OR REPLACE t5 SET a=1, b='b' WHERE a = 3" {1 a 2 2 b 1} {1 b}
--- } {
---   do_test triggerC-5.2.$n {
---     execsql "
---       BEGIN;
---         $dml ;
---         SELECT * FROM t5g ORDER BY rowid;
---         SELECT * FROM t5 ORDER BY rowid;
---       ROLLBACK;
---     "
---   } [concat $t5g $t5]
--- }
-test:do_execsql_test(
-    "triggerC-5.3.0",
-    [[
-        PRAGMA recursive_triggers = off
-    ]], {
-        -- <triggerC-5.3.0>
-
-        -- </triggerC-5.3.0>
-    })
-
--- MUST_WORK_TEST
--- foreach {n dml t5g t5} {
---   1 "DELETE FROM t5 WHERE a=2"                        {2 b 2} {1 a 3 c}
---   2 "INSERT OR REPLACE INTO t5 VALUES(2, 'd')"        {} {1 a 2 d 3 c}
---   3 "UPDATE OR REPLACE t5 SET a = 2 WHERE a = 3"      {} {1 a 2 c}
---   4 "INSERT OR REPLACE INTO t5 VALUES(4, 'b')"        {} {1 a 3 c 4 b}
---   5 "UPDATE OR REPLACE t5 SET b = 'b' WHERE b = 'c'"  {} {1 a 3 b}
---   6 "INSERT OR REPLACE INTO t5 VALUES(2, 'c')"        {} {1 a 2 c}
---   7 "UPDATE OR REPLACE t5 SET a=1, b='b' WHERE a = 3" {} {1 b}
--- } {
---   do_test triggerC-5.3.$n {
---     execsql "
---       BEGIN;
---         $dml ;
---         SELECT * FROM t5g ORDER BY rowid;
---         SELECT * FROM t5 ORDER BY rowid;
---       ROLLBACK;
---     "
---   } [concat $t5g $t5]
--- }
-test:do_execsql_test(
-    "triggerC-5.3.8",
-    [[
-        PRAGMA recursive_triggers = on
-    ]], {
-        -- <triggerC-5.3.8>
-
-        -- </triggerC-5.3.8>
-    })
-
----------------------------------------------------------------------------
--- This block of tests, triggerC-6.*, tests that "PRAGMA recursive_triggers"
--- statements return the current value of the recursive triggers flag.
---
-test:do_execsql_test(
-    "triggerC-6.1",
-    [[
-        PRAGMA recursive_triggers
-    ]], {
-        -- <triggerC-6.1>
-        1
-        -- </triggerC-6.1>
-    })
-
-test:do_execsql_test(
-    "triggerC-6.2",
-    [[
-        PRAGMA recursive_triggers = off;
-        PRAGMA recursive_triggers;
-    ]], {
-        -- <triggerC-6.2>
-        0
-        -- </triggerC-6.2>
-    })
-
-test:do_execsql_test(
-    "triggerC-6.3",
-    [[
-        PRAGMA recursive_triggers = on;
-        PRAGMA recursive_triggers;
-    ]], {
-        -- <triggerC-6.3>
-        1
-        -- </triggerC-6.3>
-    })
-
 -- MUST_WORK_TEST
 -- #-------------------------------------------------------------------------
 -- # Test some of the "undefined behaviour" associated with triggers. The
@@ -1062,7 +773,6 @@ test:execsql(
 test:do_execsql_test(
     "triggerC-13.1",
     [[
-        PRAGMA recursive_triggers = 'ON';
         CREATE TABLE t12(id INTEGER PRIMARY KEY, a, b);
         INSERT INTO t12 VALUES(1, 1, 2);
         CREATE TRIGGER tr12 AFTER UPDATE ON t12 BEGIN
@@ -1078,11 +788,13 @@ test:do_catchsql_test(
     "triggerC-13.2",
     [[
         UPDATE t12 SET a=a+1, b=b+1;
-    ]], {
-        -- <triggerC-13.2>
-        1, "too many levels of trigger recursion"
-        -- </triggerC-13.2>
-    })
+    ]], { 0 })
+
+test:do_execsql_test(
+    "triggerC-13.3",
+    [[
+        SELECT A FROM T12;
+    ]], { 3 })
 
 ---------------------------------------------------------------------------
 -- The following tests seek to verify that constant values (i.e. literals)
@@ -1146,7 +858,6 @@ test:do_execsql_test(
 test:do_execsql_test(
     "triggerC-15.1.1",
     [[
-        PRAGMA recursive_triggers = 1;
         CREATE TABLE node(
             id not null primary key,
             pid int not null default 0,
@@ -1168,7 +879,7 @@ test:do_execsql_test(
         INSERT INTO node(id, pid, key) VALUES(900, 90, 'test2');
         DELETE FROM node WHERE id=9;
         SELECT * FROM node;
-    ]])
+    ]], {900,90,"test2",""})
 
 -- Tarantool: such indentifiers are not working
 -- Comment so far

@@ -982,14 +982,6 @@ sqlite3_bind_parameter_lindex(sqlite3_stmt * pStmt, const char *zName,
 #endif
 
 /*
- * Determine whether triggers are recursive by default.  This can be
- * changed at run-time using a pragma.
- */
-#ifndef SQLITE_DEFAULT_RECURSIVE_TRIGGERS
-#define SQLITE_DEFAULT_RECURSIVE_TRIGGERS 0
-#endif
-
-/*
  * Provide a default value for SQLITE_TEMP_STORE in case it is not specified
  * on the command-line
  */
@@ -1561,7 +1553,7 @@ struct sqlite3 {
 /*                            0x00002000	   Free bit */
 #define SQLITE_ReadUncommitted 0x0004000	/* For shared-cache mode */
 #define SQLITE_ReverseOrder   0x00020000	/* Reverse unordered SELECTs */
-#define SQLITE_RecTriggers    0x00040000	/* Enable recursive triggers */
+/*                            0x00040000	   Free bit */
 /*                            0x00080000	   Free bit */
 #define SQLITE_AutoIndex      0x00100000	/* Enable automatic indexes */
 #define SQLITE_PreferBuiltin  0x00200000	/* Preference to built-in funcs */
