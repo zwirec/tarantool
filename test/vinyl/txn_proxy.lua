@@ -23,6 +23,12 @@ local mt = {
     __call = function(self, code_str)
         self.c1:put(code_str)
         local res = yaml.decode(self.c2:get())
+        -- Get returns 0 arguments in case nothing found.
+        -- This value is encoded by console as "---" which is nil.
+        -- Tests using this file expect "{nil}" instead.
+        if res == nil then
+            res = {}
+        end
         return type(res) == 'table' and setmetatable(res, array_mt) or res
     end,
     __index = {

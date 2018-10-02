@@ -1231,7 +1231,7 @@ c:error()
 ...
 x, type(x), #x
 ---
-- 
+- ''
 - string
 - 0
 ...
@@ -1244,7 +1244,7 @@ c:error()
 ...
 x, type(x), #x
 ---
-- 
+- ''
 - string
 - 0
 ...
@@ -1281,7 +1281,7 @@ c:error()
 ...
 x, type(x), #x
 ---
-- 
+- ''
 - string
 - 0
 ...
@@ -1294,7 +1294,7 @@ c:error()
 ...
 x, type(x), #x
 ---
-- 
+- ''
 - string
 - 0
 ...
@@ -1307,7 +1307,7 @@ c:error()
 ...
 x, type(x), #x
 ---
-- 
+- ''
 - string
 - 0
 ...
@@ -1973,7 +1973,7 @@ c:receive(4)
 ...
 c:receive("*l")
 ---
-- 
+- ''
 ...
 wch:put("Fu")
 ---
@@ -1997,19 +1997,19 @@ c:receive()
 ---
 - null
 - closed
-- 
+- ''
 ...
 c:receive(10)
 ---
 - null
 - closed
-- 
+- ''
 ...
 c:receive("*a")
 ---
 - null
 - closed
-- 
+- ''
 ...
 c:close()
 ---
@@ -2343,7 +2343,7 @@ received_message == '' -- expected true
 ...
 received_message
 ---
-- 
+- ''
 ...
 e == 0 -- expected true
 ---
@@ -2366,7 +2366,7 @@ received_message == '' -- expected true
 ...
 received_message
 ---
-- 
+- ''
 ...
 from ~= nil -- expected true
 ---
@@ -2443,7 +2443,7 @@ received_message == '' -- expected true
 ...
 received_message
 ---
-- 
+- ''
 ...
 e == 0 -- expected true
 ---
@@ -2466,7 +2466,7 @@ received_message == '' -- expected true
 ...
 received_message
 ---
-- 
+- ''
 ...
 from ~= nil -- expected true
 ---

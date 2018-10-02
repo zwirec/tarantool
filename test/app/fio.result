@@ -69,7 +69,7 @@ err:match("basename") ~= nil
 ...
 fio.basename('/')
 ---
-- 
+- ''
 ...
 fio.basename('abc')
 ---

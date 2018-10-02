@@ -152,8 +152,8 @@ function apply(t, k, op)
         tx.ended = true
         table.insert(order_of_commit, t)
         num_committed = num_committed + 1
-        local res = tx.con:commit()
-        if res ~= "" and res[1]['error'] then
+        local res = tx.con:commit()[1]
+        if res ~= nil and res['error'] then
             tx.conflicted = true
         else
             tx.select_all = s1:select{}

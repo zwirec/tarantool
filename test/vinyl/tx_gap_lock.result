@@ -42,7 +42,7 @@ _ = s:insert{3}
 ...
 c:begin()
 ---
-- 
+- []
 ...
 c("s:select()") -- {1}, {3}
 ---
@@ -57,7 +57,7 @@ c("s:select()") -- {1}, {3}
 ...
 c:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -71,7 +71,7 @@ _ = s:insert{2}
 ...
 c:begin()
 ---
-- 
+- []
 ...
 c("s:select()") -- {1}, {2}
 ---
@@ -86,7 +86,7 @@ c("s:select()") -- {1}, {2}
 ...
 c:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -100,7 +100,7 @@ _ = s:insert{3}
 ...
 c:begin()
 ---
-- 
+- []
 ...
 c("s:select()") -- {2}, {3}
 ---
@@ -115,7 +115,7 @@ c("s:select()") -- {2}, {3}
 ...
 c:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -126,11 +126,11 @@ _ = s:insert{123}
 ...
 c1:begin()
 ---
-- 
+- []
 ...
 c2:begin()
 ---
-- 
+- []
 ...
 c1("s:select({}, {iterator = 'GT'})") -- {123}
 ---
@@ -153,11 +153,11 @@ c2("s:select({}, {iterator = 'LT'})") -- {123}
 ...
 c1:commit()
 ---
-- 
+- []
 ...
 c2:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -176,27 +176,27 @@ _ = s:insert{30}
 ...
 c1:begin()
 ---
-- 
+- []
 ...
 c2:begin()
 ---
-- 
+- []
 ...
 c3:begin()
 ---
-- 
+- []
 ...
 c4:begin()
 ---
-- 
+- []
 ...
 c5:begin()
 ---
-- 
+- []
 ...
 c6:begin()
 ---
-- 
+- []
 ...
 c1("s:select({10}, {iterator = 'GE'})") -- {10}, {20}, {30}
 ---
@@ -254,11 +254,11 @@ _ = s:replace{15, 2} -- send c2 and c3 to read view
 ...
 c2("s:get(15)") -- none
 ---
-- 
+- []
 ...
 c3("s:get(15)") -- none
 ---
-- 
+- []
 ...
 c4("s:get(15)") -- {15, 2}
 ---
@@ -277,39 +277,39 @@ _ = s:replace{35, 3} -- send c4, c5, and c6 to read view
 ...
 c4("s:get(35)") -- none
 ---
-- 
+- []
 ...
 c5("s:get(35)") -- none
 ---
-- 
+- []
 ...
 c6("s:get(35)") -- none
 ---
-- 
+- []
 ...
 c1:commit()
 ---
-- 
+- []
 ...
 c2:commit()
 ---
-- 
+- []
 ...
 c3:commit()
 ---
-- 
+- []
 ...
 c4:commit()
 ---
-- 
+- []
 ...
 c5:commit()
 ---
-- 
+- []
 ...
 c6:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -328,27 +328,27 @@ _ = s:insert{30}
 ...
 c1:begin()
 ---
-- 
+- []
 ...
 c2:begin()
 ---
-- 
+- []
 ...
 c3:begin()
 ---
-- 
+- []
 ...
 c4:begin()
 ---
-- 
+- []
 ...
 c5:begin()
 ---
-- 
+- []
 ...
 c6:begin()
 ---
-- 
+- []
 ...
 c1("s:select({30}, {iterator = 'LE'})") -- {30}, {20}, {10}
 ---
@@ -406,11 +406,11 @@ _ = s:replace{25, 2} -- send c2 and c3 to read view
 ...
 c2("s:get(25)") -- none
 ---
-- 
+- []
 ...
 c3("s:get(25)") -- none
 ---
-- 
+- []
 ...
 c4("s:get(25)") -- {25, 2}
 ---
@@ -429,39 +429,39 @@ _ = s:replace{5, 3} -- send c4, c5, and c6 to read view
 ...
 c4("s:get(5)") -- none
 ---
-- 
+- []
 ...
 c5("s:get(5)") -- none
 ---
-- 
+- []
 ...
 c6("s:get(5)") -- none
 ---
-- 
+- []
 ...
 c1:commit()
 ---
-- 
+- []
 ...
 c2:commit()
 ---
-- 
+- []
 ...
 c3:commit()
 ---
-- 
+- []
 ...
 c4:commit()
 ---
-- 
+- []
 ...
 c5:commit()
 ---
-- 
+- []
 ...
 c6:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -474,19 +474,19 @@ for i = 1, 9 do s:insert{i * 10} end
 ...
 c1:begin()
 ---
-- 
+- []
 ...
 c2:begin()
 ---
-- 
+- []
 ...
 c3:begin()
 ---
-- 
+- []
 ...
 c4:begin()
 ---
-- 
+- []
 ...
 c1("s:select({20}, {iterator = 'GE', limit = 3})") -- {20}, {30}, {40}
 ---
@@ -562,7 +562,7 @@ _ = s:replace{25, 4} -- send c3 to read view
 ...
 c3("s:get(25)") -- none
 ---
-- 
+- []
 ...
 c4("s:get(25)") -- {25, 4}
 ---
@@ -573,23 +573,23 @@ _ = s:replace{75, 5} -- send c4 to read view
 ...
 c4("s:get(75)") -- none
 ---
-- 
+- []
 ...
 c1:commit()
 ---
-- 
+- []
 ...
 c2:commit()
 ---
-- 
+- []
 ...
 c3:commit()
 ---
-- 
+- []
 ...
 c4:commit()
 ---
-- 
+- []
 ...
 s:drop()
 ---
@@ -620,11 +620,11 @@ _ = s:insert{3, 3}
 ...
 c1:begin()
 ---
-- 
+- []
 ...
 c2:begin()
 ---
-- 
+- []
 ...
 c1("s:select({2}, {iterator = 'EQ'})")  -- {2, 1}, {2, 2}, {2, 3}
 ---
@@ -669,11 +669,11 @@ c2("s:select({2}, {iterator = 'REQ'})") -- {2, 3}, {2, 2}, {2, 1}
 ...
 c1:commit()
 ---
-- 
+- []
 ...
 c2:commit()
 ---
-- 
+- []
 ...
 s:drop()
 ---
@@ -708,7 +708,7 @@ gap_lock_count() -- 0
 ...
 c:begin()
 ---
-- 
+- []
 ...
 c("s:select({10}, {iterator = 'GE', limit = 4})") -- locks [10, 40]
 ---
@@ -769,11 +769,11 @@ _ = s:insert{25} -- send c to read view
 ...
 c("s:get(25)") -- none
 ---
-- 
+- []
 ...
 c:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -797,7 +797,7 @@ gap_lock_count() -- 0
 ...
 c:begin()
 ---
-- 
+- []
 ...
 c("s:select({1},  {iterator = 'GT', limit = 1})") -- locks  (1, 10]
 ---
@@ -842,11 +842,11 @@ _ = s:insert{5} -- send c to read view
 ...
 c("s:get(5)") -- none
 ---
-- 
+- []
 ...
 c:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -861,7 +861,7 @@ gap_lock_count() -- 0
 ...
 c:begin()
 ---
-- 
+- []
 ...
 c("s:select({100}, {iterator = 'GT'})") -- locks (100, +inf)
 ---
@@ -888,11 +888,11 @@ _ = s:insert{1000} -- send c to read view
 ...
 c("s:get(1000)") -- none
 ---
-- 
+- []
 ...
 c:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -916,7 +916,7 @@ gap_lock_count() -- 0
 ...
 c:begin()
 ---
-- 
+- []
 ...
 c("s:select({1}, {iterator = 'GE', limit = 2})") -- locks [1, 2]
 ---
@@ -932,7 +932,7 @@ gap_lock_count() -- 1
 ...
 c:commit()
 ---
-- 
+- []
 ...
 s:drop()
 ---
@@ -950,19 +950,19 @@ gap_lock_count() -- 0
 ...
 c1:begin()
 ---
-- 
+- []
 ...
 c2:begin()
 ---
-- 
+- []
 ...
 c3:begin()
 ---
-- 
+- []
 ...
 c4:begin()
 ---
-- 
+- []
 ...
 c1("s:select({100}, {iterator = 'GE'})") -- c1: locks [{100}, +inf)
 ---
@@ -1005,11 +1005,11 @@ _ = s:insert{100, 50} -- send c1 and c2 to read view
 ...
 c1("s:get({100, 50})") -- none
 ---
-- 
+- []
 ...
 c2("s:get({100, 50})") -- none
 ---
-- 
+- []
 ...
 c3("s:get({100, 50})") -- {100, 50}
 ---
@@ -1028,7 +1028,7 @@ _ = s:insert{100, 100} -- send c3 to read view
 ...
 c3("s:get({100, 100})") -- none
 ---
-- 
+- []
 ...
 c4("s:get({100, 100})") -- {100, 100}
 ---
@@ -1043,7 +1043,7 @@ _ = s:insert{100, 101} -- send c4 to read view
 ...
 c4("s:get({100, 101})") -- none
 ---
-- 
+- []
 ...
 gap_lock_count() -- 6
 ---
@@ -1051,19 +1051,19 @@ gap_lock_count() -- 6
 ...
 c1:commit()
 ---
-- 
+- []
 ...
 c2:commit()
 ---
-- 
+- []
 ...
 c3:commit()
 ---
-- 
+- []
 ...
 c4:commit()
 ---
-- 
+- []
 ...
 s:truncate()
 ---
@@ -1075,19 +1075,19 @@ gap_lock_count() -- 0
 ...
 c1:begin()
 ---
-- 
+- []
 ...
 c2:begin()
 ---
-- 
+- []
 ...
 c3:begin()
 ---
-- 
+- []
 ...
 c4:begin()
 ---
-- 
+- []
 ...
 c1("s:select({100}, {iterator = 'LE'})") -- c1: locks (-inf, {100}]
 ---
@@ -1130,11 +1130,11 @@ _ = s:insert{100, 150} -- send c1 and c2 to read view
 ...
 c1("s:get({100, 150})") -- none
 ---
-- 
+- []
 ...
 c2("s:get({100, 150})") -- none
 ---
-- 
+- []
 ...
 c3("s:get({100, 150})") -- {100, 150}
 ---
@@ -1153,7 +1153,7 @@ _ = s:insert{100, 100} -- send c3 to read view
 ...
 c3("s:get({100, 100})") -- none
 ---
-- 
+- []
 ...
 c4("s:get({100, 100})") -- {100, 100}
 ---
@@ -1168,7 +1168,7 @@ _ = s:insert{100, 99} -- send c4 to read view
 ...
 c4("s:get({100, 99})") -- none
 ---
-- 
+- []
 ...
 gap_lock_count() -- 6
 ---
@@ -1176,19 +1176,19 @@ gap_lock_count() -- 6
 ...
 c1:commit()
 ---
-- 
+- []
 ...
 c2:commit()
 ---
-- 
+- []
 ...
 c3:commit()
 ---
-- 
+- []
 ...
 c4:commit()
 ---
-- 
+- []
 ...
 s:drop()
 ---

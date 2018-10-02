@@ -641,28 +641,28 @@ c0 = txn_proxy.new()
 ...
 c0:begin()
 ---
-- 
+- []
 ...
 c1 = txn_proxy.new()
 ---
 ...
 c1:begin()
 ---
-- 
+- []
 ...
 c2 = txn_proxy.new()
 ---
 ...
 c2:begin()
 ---
-- 
+- []
 ...
 c3 = txn_proxy.new()
 ---
 ...
 c3:begin()
 ---
-- 
+- []
 ...
 --
 -- Prepared transactions
@@ -770,7 +770,7 @@ c3('s:select{3}') -- c2 is not visible
 ...
 c3:commit()
 ---
-- 
+- []
 ...
 s:drop()
 ---
