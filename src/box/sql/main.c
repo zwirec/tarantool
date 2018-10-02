@@ -826,9 +826,6 @@ sqlite3ErrName(int rc)
 		case SQLITE_CONSTRAINT:
 			zName = "SQLITE_CONSTRAINT";
 			break;
-		case SQLITE_CONSTRAINT_UNIQUE:
-			zName = "SQLITE_CONSTRAINT_UNIQUE";
-			break;
 		case SQLITE_CONSTRAINT_TRIGGER:
 			zName = "SQLITE_CONSTRAINT_TRIGGER";
 			break;
@@ -838,14 +835,8 @@ sqlite3ErrName(int rc)
 		case SQLITE_CONSTRAINT_CHECK:
 			zName = "SQLITE_CONSTRAINT_CHECK";
 			break;
-		case SQLITE_CONSTRAINT_PRIMARYKEY:
-			zName = "SQLITE_CONSTRAINT_PRIMARYKEY";
-			break;
 		case SQLITE_CONSTRAINT_NOTNULL:
 			zName = "SQLITE_CONSTRAINT_NOTNULL";
-			break;
-		case SQLITE_CONSTRAINT_FUNCTION:
-			zName = "SQLITE_CONSTRAINT_FUNCTION";
 			break;
 		case SQLITE_MISMATCH:
 			zName = "SQLITE_MISMATCH";
