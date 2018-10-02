@@ -146,6 +146,16 @@ lbox_pushreplica(lua_State *L, struct replica *replica)
 	lua_settable(L, -3);
 
 	if (applier != NULL && applier->state != APPLIER_OFF) {
+		lua_pushstring(L, "lar");
+		lua_pushnumber(L, (ev_monotonic_now(loop()) - applier->last_row_time)/3600.0);
+		lua_settable(L, -3);
+	}
+	if (relay != NULL && relay_get_state(relay) != RELAY_OFF) {
+		lua_pushstring(L, "law");
+		lua_pushnumber(L, (ev_monotonic_now(loop()) - relay_get_lrt(relay))/3600.0);
+		lua_settable(L, -3);
+	}
+	if (applier != NULL && applier->state != APPLIER_OFF) {
 		lua_pushstring(L, "upstream");
 		lbox_pushapplier(L, applier);
 		lua_settable(L, -3);

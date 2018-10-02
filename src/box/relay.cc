@@ -146,6 +146,12 @@ relay_get_diag(struct relay *relay)
 	return &relay->diag;
 }
 
+double
+relay_get_lrt(struct relay *relay)
+{
+	return relay->last_row_tm;
+}
+
 enum relay_state
 relay_get_state(const struct relay *relay)
 {

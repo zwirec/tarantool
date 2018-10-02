@@ -73,6 +73,10 @@ relay_delete(struct relay *relay);
 struct diag*
 relay_get_diag(struct relay *relay);
 
+/** Get relay's last row time */
+double
+relay_get_lrt(struct relay *relay);
+
 /** Return the current state of relay. */
 enum relay_state
 relay_get_state(const struct relay *relay);

@@ -62,6 +62,7 @@
 extern char session_lua[],
 	tuple_lua[],
 	schema_lua[],
+	ctl_lua[],
 	load_cfg_lua[],
 	xlog_lua[],
 	checkpoint_daemon_lua[],
@@ -81,6 +82,7 @@ static const char *lua_sources[] = {
 	"box/console", console_lua,
 	"box/load_cfg", load_cfg_lua,
 	"box/xlog", xlog_lua,
+	"box/ctl", ctl_lua,
 	NULL
 };
 
