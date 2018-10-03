@@ -400,7 +400,8 @@ static void load(struct lua_yaml_loader *loader) {
  */
 static int l_load(lua_State *L) {
    struct lua_yaml_loader loader;
-   if (! lua_isstring(L, 1)) {
+   int top = lua_gettop(L);
+   if (!(top == 1 || top == 2) || !lua_isstring(L, 1)) {
 usage_error:
       return luaL_error(L, "Usage: yaml.decode(document, "\
                         "[{tag_only = boolean}])");
@@ -416,7 +417,7 @@ usage_error:
       return luaL_error(L, OOM_ERRMSG);
    yaml_parser_set_input_string(&loader.parser, (yaml_char_t *) document, len);
    bool tag_only;
-   if (lua_gettop(L) > 1) {
+   if (lua_gettop(L) == 2) {
       if (! lua_istable(L, 2))
          goto usage_error;
       lua_getfield(L, 2, "tag_only");
@@ -794,7 +795,7 @@ error:
 static int l_dump(lua_State *L) {
    struct luaL_serializer *serializer = luaL_checkserializer(L);
    int top = lua_gettop(L);
-   if (top > 2) {
+   if (!(top == 1 || top == 2)) {
 usage_error:
       return luaL_error(L, "Usage: encode(object, {tag_prefix = <string>, "\
                         "tag_handle = <string>})");
