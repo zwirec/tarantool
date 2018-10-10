@@ -465,6 +465,28 @@ box_check_replication_sync_timeout(void)
 	return timeout;
 }
 
+static double
+box_check_replication_dead_gap(void)
+{
+	double gap = cfg_getd("replication_dead_gap");
+	if (gap <= 0) {
+		tnt_raise(ClientError, ER_CFG, "replication_dead_gap",
+			  "the value must be grater than 0");
+	}
+	return gap;
+}
+
+static double
+box_check_replication_rw_gap(void)
+{
+	double gap = cfg_getd("replication_rw_gap");
+	if (gap <= 0) {
+		tnt_raise(ClientError, ER_CFG, "replication_dead_gap",
+			  "the value must be grater than 0");
+	}
+	return gap;
+}
+
 static void
 box_check_instance_uuid(struct tt_uuid *uuid)
 {
@@ -737,6 +759,18 @@ void
 box_set_replication_sync_timeout(void)
 {
 	replication_sync_timeout = box_check_replication_sync_timeout();
+}
+
+void
+box_set_replication_dead_gap(void)
+{
+	replication_dead_gap = box_check_replication_dead_gap();
+}
+
+void
+box_set_replication_rw_gap(void)
+{
+	replication_rw_gap = box_check_replication_rw_gap();
 }
 
 void

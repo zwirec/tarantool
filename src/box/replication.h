@@ -137,6 +137,18 @@ extern double replication_sync_timeout;
  */
 extern bool replication_skip_conflict;
 
+/*
+ * If replica is not active during time that exceeds replication_dead_gap it
+ * is considered as dead replica and can be thrown out from system space.
+ */
+extern double replication_dead_gap;
+
+/*
+ * If replica has both roles and gap between read/write activities exceeds this
+ * value it can be considered as dead one.
+ */
+extern double replication_rw_gap;
+
 /**
  * Wait for the given period of time before trying to reconnect
  * to a master.

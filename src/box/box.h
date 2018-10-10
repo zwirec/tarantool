@@ -198,6 +198,8 @@ void box_set_replication_connect_quorum(void);
 void box_set_replication_sync_lag(void);
 void box_set_replication_sync_timeout(void);
 void box_set_replication_skip_conflict(void);
+void box_set_replication_dead_gap(void);
+void box_set_replication_rw_gap(void);
 void box_set_net_msg_max(void);
 
 extern "C" {

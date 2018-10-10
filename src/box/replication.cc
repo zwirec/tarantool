@@ -53,7 +53,8 @@ int replication_connect_quorum = REPLICATION_CONNECT_QUORUM_ALL;
 double replication_sync_lag = 10.0; /* seconds */
 double replication_sync_timeout = 300.0; /* seconds */
 bool replication_skip_conflict = false;
-
+double replication_dead_gap = 0.0; /* hours */
+double replication_rw_gap = 0.0; /* hours */
 struct replicaset replicaset;
 
 static int
