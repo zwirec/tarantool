@@ -42,6 +42,7 @@
 #include "trivia/util.h"
 #include "tt_uuid.h"
 #include "uri.h"
+#include "box.h" /* replica_anon */
 
 #include "xrow.h"
 

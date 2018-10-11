@@ -132,18 +132,27 @@ lbox_pushreplica(lua_State *L, struct replica *replica)
 
 	/* 16 is used to get the best visual experience in YAML output */
 	lua_createtable(L, 0, 16);
+	/* An anonymous replica has a zero id. */
+	if (!replica->is_anon)
+	{
+		lua_pushstring(L, "id");
+		lua_pushinteger(L, replica->id);
+		lua_settable(L, -3);
+	}
 
-	lua_pushstring(L, "id");
-	lua_pushinteger(L, replica->id);
+	lua_pushstring(L, "anonymous");
+	lua_pushboolean(L, replica->is_anon);
 	lua_settable(L, -3);
 
 	lua_pushstring(L, "uuid");
 	lua_pushstring(L, tt_uuid_str(&replica->uuid));
 	lua_settable(L, -3);
-
-	lua_pushstring(L, "lsn");
-	luaL_pushuint64(L, vclock_get(&replicaset.vclock, replica->id));
-	lua_settable(L, -3);
+	/* Anonymous replica's lsn isn't added to the vclock. */
+	if (!replica->is_anon) {
+		lua_pushstring(L, "lsn");
+		luaL_pushuint64(L, vclock_get(&replicaset.vclock, replica->id));
+		lua_settable(L, -3);
+	}
 
 	if (applier != NULL && applier->state != APPLIER_OFF) {
 		lua_pushstring(L, "upstream");
@@ -185,6 +194,7 @@ lbox_info_replication(struct lua_State *L)
 	lua_setfield(L, -2, "__serialize");
 	lua_setmetatable(L, -2);
 
+	uint32_t anon_ctr = 0;
 	replicaset_foreach(replica) {
 		/* Applier hasn't received replica id yet */
 		if (replica->id == REPLICA_ID_NIL)
@@ -193,6 +203,19 @@ lbox_info_replication(struct lua_State *L)
 		lbox_pushreplica(L, replica);
 
 		lua_rawseti(L, -2, replica->id);
+		/*
+		 * Needed to start enumerating anonymous replicas
+		 * after the usual ones.
+		 */
+		anon_ctr = MAX(anon_ctr, replica->id);
+	}
+	replicaset_foreach(replica) {
+		if (!replica->is_anon)
+			continue;
+
+		lbox_pushreplica(L, replica);
+
+		lua_rawseti(L, -2, ++anon_ctr);
 	}
 
 	return 1;

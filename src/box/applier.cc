@@ -278,7 +278,7 @@ applier_join(struct applier *applier)
 	struct ev_io *coio = &applier->io;
 	struct ibuf *ibuf = &applier->ibuf;
 	struct xrow_header row;
-	xrow_encode_join_xc(&row, &INSTANCE_UUID);
+	xrow_encode_join_xc(&row, &INSTANCE_UUID, replica_anon);
 	coio_write_xrow(coio, &row);
 
 	/**
@@ -388,7 +388,7 @@ applier_subscribe(struct applier *applier)
 	struct vclock remote_vclock_at_subscribe;
 
 	xrow_encode_subscribe_xc(&row, &REPLICASET_UUID, &INSTANCE_UUID,
-				 &replicaset.vclock);
+				 &replicaset.vclock, replica_anon);
 	coio_write_xrow(coio, &row);
 
 	/* Read SUBSCRIBE response */

@@ -274,6 +274,12 @@ struct replica {
 	enum applier_state applier_sync_state;
 	/* The latch is used to order replication requests. */
 	struct latch order_latch;
+	/**
+	 * A flag indicating that the replica is anonymous,
+	 * i.e. is joined/subscribed without being added
+	 * to the _cluster table.
+	 */
+	bool is_anon;
 };
 
 enum {
@@ -343,10 +349,11 @@ replica_check_id(uint32_t replica_id);
  * Register the universally unique identifier of a remote replica and
  * a matching replica-set-local identifier in the  _cluster registry.
  * Called from on_replace_dd_cluster() when a remote master joins the
- * replica set.
+ * replica set or from box_process_join() upon an anonymous join.
  */
 struct replica *
-replicaset_add(uint32_t replica_id, const struct tt_uuid *instance_uuid);
+replicaset_add(uint32_t replica_id, const struct tt_uuid *instance_uuid,
+	       bool is_anon);
 
 /**
  * Try to connect appliers to remote peers and receive UUID.

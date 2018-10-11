@@ -583,7 +583,7 @@ void
 relay_subscribe(struct replica *replica, int fd, uint64_t sync,
 		struct vclock *replica_clock, uint32_t replica_version_id)
 {
-	assert(replica->id != REPLICA_ID_NIL);
+	assert(replica->id != REPLICA_ID_NIL || replica->is_anon);
 	struct relay *relay = replica->relay;
 	assert(relay->state != RELAY_FOLLOW);
 	/*

@@ -58,6 +58,8 @@ cfg_filter(box.cfg)
     - false
   - - readahead
     - 16320
+  - - replica_anon
+    - false
   - - replication_connect_timeout
     - 30
   - - replication_skip_conflict
@@ -159,6 +161,8 @@ cfg_filter(box.cfg)
     - false
   - - readahead
     - 16320
+  - - replica_anon
+    - false
   - - replication_connect_timeout
     - 30
   - - replication_skip_conflict

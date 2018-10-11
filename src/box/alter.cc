@@ -2916,7 +2916,7 @@ on_commit_dd_cluster(struct trigger *trigger, void *event)
 		replica_set_id(replica, id);
 	} else {
 		try {
-			replica = replicaset_add(id, &uuid);
+			replica = replicaset_add(id, &uuid, false);
 			/* Can't throw exceptions from on_commit trigger */
 		} catch(Exception *e) {
 			panic("Can't register replica: %s", e->errmsg);

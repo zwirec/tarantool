@@ -109,6 +109,9 @@ static struct gc_checkpoint_ref backup_gc;
  */
 static bool is_box_configured = false;
 static bool is_ro = true;
+
+bool replica_anon = false;
+
 static fiber_cond ro_cond;
 
 /**
@@ -217,6 +220,10 @@ process_nop(struct request *request)
 void
 box_set_ro(bool ro)
 {
+	if(replica_anon && !ro) {
+		tnt_raise(ClientError, ER_CFG, "read_only",
+			  "instance is anonymous and cannot become writeable.");
+	}
 	is_ro = ro;
 	fiber_cond_broadcast(&ro_cond);
 }
@@ -463,6 +470,17 @@ box_check_replication_sync_timeout(void)
 			  "the value must be greater than 0");
 	}
 	return timeout;
+}
+
+static bool
+box_check_replica_anon(void)
+{
+	bool is_anon = cfg_geti("replica_anon") != 0;
+	if (is_anon && !is_ro) {
+		tnt_raise(ClientError, ER_CFG, "replica_anon",
+			  "only a read-only instance may be anonymous.");
+	}
+	return is_anon;
 }
 
 static void
@@ -743,6 +761,12 @@ void
 box_set_replication_skip_conflict(void)
 {
 	replication_skip_conflict = cfg_geti("replication_skip_conflict");
+}
+
+void
+box_set_replica_anon(void)
+{
+	replica_anon = box_check_replica_anon();
 }
 
 void
@@ -1419,7 +1443,8 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 
 	/* Decode JOIN request */
 	struct tt_uuid instance_uuid = uuid_nil;
-	xrow_decode_join_xc(header, &instance_uuid);
+	bool anon;
+	xrow_decode_join_xc(header, &instance_uuid, &anon);
 
 	/* Check that bootstrap has been finished */
 	if (!is_box_configured)
@@ -1439,7 +1464,7 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	 * appropriate access privileges.
 	 */
 	struct replica *replica = replica_by_uuid(&instance_uuid);
-	if (replica == NULL || replica->id == REPLICA_ID_NIL) {
+	if ((replica == NULL || replica->id == REPLICA_ID_NIL) && !anon) {
 		box_check_writable_xc();
 		struct space *space = space_cache_find_xc(BOX_CLUSTER_ID);
 		access_check_space_xc(space, PRIV_W);
@@ -1492,7 +1517,15 @@ box_process_join(struct ev_io *io, struct xrow_header *header)
 	 * sending OK - if the hook fails, the error reaches the
 	 * client.
 	 */
-	box_on_join(&instance_uuid);
+	if (!anon)
+		box_on_join(&instance_uuid);
+	else {
+		/*
+		 * In case of an anonymous join manually add a
+		 * replica to replica hash.
+		 */
+		replicaset_add(REPLICA_ID_NIL, &instance_uuid, true);
+	}
 
 	replica = replica_by_uuid(&instance_uuid);
 	assert(replica != NULL);
@@ -1543,8 +1576,9 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 	struct vclock replica_clock;
 	uint32_t replica_version_id;
 	vclock_create(&replica_clock);
+	bool anon;
 	xrow_decode_subscribe_xc(header, &replicaset_uuid, &replica_uuid,
-				 &replica_clock, &replica_version_id);
+				 &replica_clock, &replica_version_id, &anon);
 
 	/* Forbid connection to itself */
 	if (tt_uuid_is_equal(&replica_uuid, &INSTANCE_UUID))
@@ -1567,10 +1601,18 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 
 	/* Check replica uuid */
 	struct replica *replica = replica_by_uuid(&replica_uuid);
-	if (replica == NULL || replica->id == REPLICA_ID_NIL) {
+	if ((replica == NULL || replica->id == REPLICA_ID_NIL) && !anon) {
 		tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
 			  tt_uuid_str(&replica_uuid),
 			  tt_uuid_str(&REPLICASET_UUID));
+	}
+	/*
+	 * This is an anonymous subscribe. We have to manually add a
+	 * replica to replica hash.
+	 */
+	if (replica == NULL) {
+		replicaset_add(REPLICA_ID_NIL, &replica_uuid, true);
+		replica = replica_by_uuid(&replica_uuid);
 	}
 
 	/* Don't allow multiple relays for the same replica */
@@ -2051,6 +2093,7 @@ box_cfg_xc(void)
 	box_set_replication_sync_lag();
 	box_set_replication_sync_timeout();
 	box_set_replication_skip_conflict();
+	box_set_replica_anon();
 	xstream_create(&join_stream, apply_initial_join_row);
 	xstream_create(&subscribe_stream, apply_row);
 
@@ -2086,7 +2129,7 @@ box_cfg_xc(void)
 	/* Check for correct registration of the instance in _cluster */
 	{
 		struct replica *self = replica_by_uuid(&INSTANCE_UUID);
-		if (self == NULL || self->id == REPLICA_ID_NIL) {
+		if ((self == NULL || self->id == REPLICA_ID_NIL) && !replica_anon) {
 			tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
 				  tt_uuid_str(&INSTANCE_UUID),
 				  tt_uuid_str(&REPLICASET_UUID));

@@ -79,6 +79,7 @@ enum iproto_key {
 	IPROTO_OPS = 0x28, /* UPSERT but not UPDATE ops, because of legacy */
 	IPROTO_BALLOT = 0x29,
 	IPROTO_TUPLE_META = 0x2a,
+	IPROTO_REPLICA_ANON = 0x2b,
 	/* Leave a gap between request keys and response keys */
 	IPROTO_DATA = 0x30,
 	IPROTO_ERROR = 0x31,

@@ -1,0 +1,103 @@
+test_run = require('test_run').new()
+---
+...
+box.schema.user.grant("guest", "replication")
+---
+...
+_ = box.schema.space.create("test")
+---
+...
+_ = box.space.test:create_index("pk")
+---
+...
+for i = 1, 100 do box.space.test:auto_increment{} end
+---
+...
+test_run:cmd("create server replica_anon with rpl_master=default, script='replication/replica_anon.lua'")
+---
+- true
+...
+test_run:cmd('start server replica_anon')
+---
+- true
+...
+-- Check anonymous join + subscribe.
+test_run:cmd("switch replica_anon")
+---
+- true
+...
+box.space.test:count()
+---
+- 100
+...
+box.info.replication[1].upstream.status
+---
+- follow
+...
+test_run:cmd("switch default")
+---
+- true
+...
+test_run:cmd("stop server replica_anon")
+---
+- true
+...
+for i = 1, 100 do box.space.test:auto_increment{} end
+---
+...
+-- Check anonymous subscribe without join.
+test_run:cmd("start server replica_anon")
+---
+- true
+...
+test_run:cmd("switch replica_anon")
+---
+- true
+...
+box.space.test:count()
+---
+- 200
+...
+test_run:cmd("switch default")
+---
+- true
+...
+for i = 1, 100 do box.space.test:auto_increment{} end
+---
+...
+-- Check following updates.
+test_run:cmd("switch replica_anon")
+---
+- true
+...
+while box.space.test:count() < 300 do fiber.sleep(0.01) end
+---
+...
+box.space.test:count()
+---
+- 300
+...
+test_run:cmd("switch default")
+---
+- true
+...
+-- Check display of anonymous replicas in box.info.
+box.info.replication[#box.info.replication].anonymous
+---
+- true
+...
+-- Cleanup.
+test_run:cmd("stop server replica_anon")
+---
+- true
+...
+test_run:cmd("cleanup server replica_anon")
+---
+- true
+...
+box.schema.user.revoke("guest", "replication")
+---
+...
+box.space.test:drop()
+---
+...

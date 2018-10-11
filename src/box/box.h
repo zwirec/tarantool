@@ -116,6 +116,8 @@ extern bool box_checkpoint_is_in_progress;
 /** Incremented with each next snapshot. */
 extern uint32_t snapshot_version;
 
+extern bool replica_anon;
+
 /**
  * Iterate over all spaces and save them to the
  * snapshot file.

@@ -150,6 +150,7 @@ replica_new(void)
 	replica->uuid = uuid_nil;
 	replica->applier = NULL;
 	replica->gc = NULL;
+	replica->is_anon = false;
 	rlist_create(&replica->in_anon);
 	trigger_create(&replica->on_applier_state,
 		       replica_on_applier_state_f, NULL, NULL);
@@ -170,17 +171,26 @@ replica_delete(struct replica *replica)
 	free(replica);
 }
 
+static void
+replica_set_anon(struct replica *replica, bool is_anon)
+{
+	replica->is_anon = is_anon;
+}
+
 struct replica *
-replicaset_add(uint32_t replica_id, const struct tt_uuid *replica_uuid)
+replicaset_add(uint32_t replica_id, const struct tt_uuid *replica_uuid, bool is_anon)
 {
 	assert(!tt_uuid_is_nil(replica_uuid));
-	assert(replica_id != REPLICA_ID_NIL && replica_id < VCLOCK_MAX);
+	assert(replica_id != REPLICA_ID_NIL && replica_id < VCLOCK_MAX ||
+	       is_anon && replica_id == REPLICA_ID_NIL);
 
 	assert(replica_by_uuid(replica_uuid) == NULL);
 	struct replica *replica = replica_new();
+	replica_set_anon(replica, is_anon);
 	replica->uuid = *replica_uuid;
 	replica_hash_insert(&replicaset.hash, replica);
-	replica_set_id(replica, replica_id);
+	if (!is_anon)
+		replica_set_id(replica, replica_id);
 	return replica;
 }
 
