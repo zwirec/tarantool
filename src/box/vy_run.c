@@ -476,6 +476,20 @@ vy_slice_cut(struct vy_slice *slice, int64_t id, struct tuple *begin,
 	return 0;
 }
 
+void
+vy_slice_stmt_stat(struct vy_slice *slice, struct vy_stmt_stat *stat)
+{
+	struct vy_run_info *run_info = &slice->run->info;
+	struct vy_stmt_stat *run_stmt_stat = &run_info->stmt_stat;
+	uint32_t run_pages = run_info->page_count;
+	uint32_t slice_pages = slice->last_page_no - slice->first_page_no + 1;
+
+	stat->inserts = run_stmt_stat->inserts * slice_pages / run_pages;
+	stat->replaces = run_stmt_stat->replaces * slice_pages / run_pages;
+	stat->deletes = run_stmt_stat->deletes * slice_pages / run_pages;
+	stat->upserts = run_stmt_stat->upserts * slice_pages / run_pages;
+}
+
 /**
  * Decode page information from xrow.
  *

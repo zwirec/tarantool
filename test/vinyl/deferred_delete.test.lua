@@ -249,6 +249,9 @@ test_run:cmd("switch test")
 
 fiber = require('fiber')
 
+var = box.schema.space.create('var')
+_ = var:create_index('primary', {parts = {1, 'string'}})
+
 s = box.schema.space.create('test', {engine = 'vinyl'})
 pk = s:create_index('pk', {run_count_per_level = 10})
 sk = s:create_index('sk', {run_count_per_level = 10, parts = {2, 'unsigned', 3, 'string'}, unique = false})
@@ -273,19 +276,25 @@ while pk:stat().disk.compact.count == 0 do fiber.sleep(0.001) end
 
 sk:stat().disk.dump.count -- 1
 
-sk:stat().rows -- 120 old REPLACEs + 120 new REPLACEs + 120 deferred DELETEs
+-- Excess of DELETEs triggers compaction. Wait for it to complete.
+while sk:stat().disk.compact.queue.rows > 0 do fiber.sleep(0.01) end
+
+-- Remember the total number of rows before restart.
+_ = var:put{'rows', sk:stat().rows}
 
 test_run:cmd("restart server test with args='1048576'")
+var = box.space.var
 s = box.space.test
 pk = s.index.pk
 sk = s.index.sk
 
--- Should be 360, the same amount of statements as before restart.
+-- Should be the same amount of statements as before restart.
 -- If we applied all deferred DELETEs, including the dumped ones,
 -- then there would be more.
-sk:stat().rows
+sk:stat().rows == var:get('rows')[2]
 
 s:drop()
+var:drop()
 
 test_run:cmd("switch default")
 test_run:cmd("stop server test")

@@ -241,7 +241,7 @@ space:drop()
 --
 s = box.schema.space.create('test', {engine = 'vinyl'})
 _ = s:create_index('pk')
-_ = s:create_index('sk', {parts = {2, 'unsigned'}, run_count_per_level = 10})
+_ = s:create_index('sk', {parts = {2, 'unsigned'}})
 
 s:insert{1, 10}
 box.snapshot()
@@ -250,7 +250,8 @@ s:update(1, {{'=', 2, 10}})
 s:delete(1)
 box.snapshot()
 
-s.index.sk:stat().rows -- INSERT in the first run + DELETE the second run
+while s.index.sk:stat().disk.compact.queue.rows > 0 do fiber.sleep(0.01) end
+s.index.sk:stat().rows -- 0 (INSERT + DELETE got purged by compaction)
 
 s:insert{1, 20}
 s.index.sk:select()

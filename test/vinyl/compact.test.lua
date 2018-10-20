@@ -95,3 +95,21 @@ compact()
 info() -- 4 ranges, 4 runs
 
 s:drop()
+
+--
+-- gh-3225: major compaction is triggered if key fields are
+-- frequently updated.
+--
+s = box.schema.space.create('test', {engine = 'vinyl'})
+i1 = s:create_index('primary', {run_count_per_level = 10})
+i2 = s:create_index('secondary', {run_count_per_level = 10, parts = {2, 'unsigned'}})
+
+for i = 1, 10 do s:replace{i, i} end
+box.snapshot()
+for i = 1, 10 do s:update(i, {{'+', 2, 10}}) end
+box.snapshot()
+
+while i2:stat().disk.compact.queue.rows > 0 do fiber.sleep(0.01) end
+i2:stat().disk.statement
+
+s:drop()

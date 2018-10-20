@@ -309,6 +309,12 @@ vy_disk_stmt_counter_sub(struct vy_disk_stmt_counter *c1,
 	c1->pages -= c2->pages;
 }
 
+static inline void
+vy_stmt_stat_reset(struct vy_stmt_stat *stat)
+{
+	memset(stat, 0, sizeof(*stat));
+}
+
 /**
  * Account a single statement of the given type in @stat.
  */

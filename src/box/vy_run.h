@@ -492,6 +492,14 @@ vy_slice_cut(struct vy_slice *slice, int64_t id, struct tuple *begin,
 	     struct vy_slice **result);
 
 /**
+ * Estimate statement count of each type spanned by a slice.
+ * Basically, this function returns run_info::stmt_stat scaled
+ * down proportionately to the slice size.
+ */
+void
+vy_slice_stmt_stat(struct vy_slice *slice, struct vy_stmt_stat *stat);
+
+/**
  * Open an iterator over on-disk run.
  *
  * Note, it is the caller's responsibility to make sure the slice

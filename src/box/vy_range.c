@@ -310,6 +310,8 @@ vy_range_update_compact_priority(struct vy_range *range,
 	/* Total number of statements in checked runs. */
 	struct vy_disk_stmt_counter total_stmt_count;
 	vy_disk_stmt_counter_reset(&total_stmt_count);
+	struct vy_stmt_stat total_stmt_stat;
+	vy_stmt_stat_reset(&total_stmt_stat);
 	/* Total number of checked runs. */
 	uint32_t total_run_count = 0;
 	/* Estimated size of a compacted run, if compaction is scheduled. */
@@ -326,6 +328,10 @@ vy_range_update_compact_priority(struct vy_range *range,
 
 	struct vy_slice *slice;
 	rlist_foreach_entry(slice, &range->slices, in_range) {
+		struct vy_stmt_stat stmt_stat;
+		vy_slice_stmt_stat(slice, &stmt_stat);
+		vy_stmt_stat_add(&total_stmt_stat, &stmt_stat);
+
 		uint64_t size = slice->count.bytes_compressed;
 		/*
 		 * The size of the first level is defined by
@@ -376,6 +382,22 @@ vy_range_update_compact_priority(struct vy_range *range,
 			range->compact_queue = total_stmt_count;
 			est_new_run_size = total_stmt_count.bytes_compressed;
 		}
+	}
+
+	/*
+	 * Even a perfectly shaped LSM tree can accumulate a huge
+	 * number of DELETE statements over time in case indexed
+	 * fields get updated frequently. To prevent read and space
+	 * amplification from growing uncontrollably, we force
+	 * major compaction if the total number of DELETEs plus the
+	 * statements that they are supposed to purge exceeds a
+	 * half of all statements, i.e.
+	 *
+	 *   2 * deletes > total / 2
+	 */
+	if (total_stmt_stat.deletes > total_stmt_count.rows / 4) {
+		range->compact_priority = range->slice_count;
+		range->compact_queue = range->count;
 	}
 }
 
