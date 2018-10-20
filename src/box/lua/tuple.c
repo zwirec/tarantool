@@ -488,6 +488,50 @@ lbox_tuple_to_string(struct lua_State *L)
 	return 1;
 }
 
+/* Create new tuple_format. */
+static int
+lbox_tuple_format_new(struct lua_State *L)
+{
+	if (!lua_istable(L, 1))
+		luaL_error(L, "Wrong argument.");
+	uint32_t field_count = lua_objlen(L, 1);
+	struct field_def *fields = region_alloc(&fiber()->gc,
+						field_count * sizeof(*fields));
+	for (uint32_t i = 0; i < field_count; ++i) {
+		lua_rawgeti(L, 1, i + 1);
+		lua_getfield(L, -1, "name");
+		size_t str_len = lua_objlen(L, -1);
+		char *name = region_alloc(&fiber()->gc, str_len + 1);
+		memcpy(name, lua_tolstring(L, -1, &str_len), str_len + 1);
+
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "type");
+		str_len = lua_objlen(L, -1);
+		const char *type_str = lua_tolstring(L, -1, &str_len);
+		enum field_type type = field_type_by_name(type_str,
+							  strlen(type_str));
+
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "is_nullable");
+		bool is_nullable = lua_toboolean(L, -1);
+
+		lua_pop(L, 2);
+		fields[i].type = type;
+		fields[i].name = name;
+		fields[i].is_nullable = is_nullable;
+	}
+
+	struct tuple_dictionary *dict = tuple_dictionary_new(fields,
+							     field_count);
+
+	struct tuple_format *format =
+		tuple_format_new(&tuple_format_runtime->vtab, NULL, 0, 0,
+				 fields, field_count, dict);
+	tuple_format_ref(format);
+	lua_pushinteger(L, format->id);
+	return 1;
+}
+
 void
 luaT_pushtuple(struct lua_State *L, box_tuple_t *tuple)
 {
@@ -513,6 +557,8 @@ static const struct luaL_Reg lbox_tuple_meta[] = {
 
 static const struct luaL_Reg lbox_tuplelib[] = {
 	{"new", lbox_tuple_new},
+	/* Should be in internal, probably. Temporary here. */
+	{"tuple_format_new", lbox_tuple_format_new},
 	{NULL, NULL}
 };
 
@@ -541,6 +587,7 @@ box_lua_tuple_init(struct lua_State *L)
 	/* Get CTypeID for `struct tuple' */
 	int rc = luaL_cdef(L, "struct tuple;");
 	assert(rc == 0);
+	rc = luaL_cdef(L, "struct tuple_format;");
 	(void) rc;
 	CTID_CONST_STRUCT_TUPLE_REF = luaL_ctypeid(L, "const struct tuple &");
 	assert(CTID_CONST_STRUCT_TUPLE_REF != 0);
