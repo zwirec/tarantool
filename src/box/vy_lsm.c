@@ -695,6 +695,7 @@ vy_lsm_add_run(struct vy_lsm *lsm, struct vy_run *run)
 	rlist_add_entry(&lsm->runs, run, in_lsm);
 	lsm->run_count++;
 	vy_disk_stmt_counter_add(&lsm->stat.disk.count, &run->count);
+	vy_stmt_stat_add(&lsm->stat.disk.stmt, &run->info.stmt_stat);
 
 	lsm->bloom_size += bloom_size;
 	lsm->page_index_size += page_index_size;
@@ -723,6 +724,7 @@ vy_lsm_remove_run(struct vy_lsm *lsm, struct vy_run *run)
 	rlist_del_entry(run, in_lsm);
 	lsm->run_count--;
 	vy_disk_stmt_counter_sub(&lsm->stat.disk.count, &run->count);
+	vy_stmt_stat_sub(&lsm->stat.disk.stmt, &run->info.stmt_stat);
 
 	lsm->bloom_size -= bloom_size;
 	lsm->page_index_size -= page_index_size;
