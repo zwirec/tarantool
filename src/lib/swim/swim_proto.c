@@ -35,6 +35,7 @@
 
 const char *swim_member_status_strs[] = {
 	"alive",
+	"dead",
 };
 
 void
@@ -43,6 +44,11 @@ swim_member_def_create(struct swim_member_def *def)
 	memset(def, 0, sizeof(*def));
 	def->status = MEMBER_ALIVE;
 }
+
+const char *swim_fd_msg_type_strs[] = {
+	"ping",
+	"ack",
+};
 
 /** Helper function to decode IP. */
 static inline int
@@ -121,6 +127,15 @@ swim_process_member_key(enum swim_member_key key, const char **pos,
 				     &def->addr) != 0)
 			return -1;
 		break;
+	case SWIM_MEMBER_INCARNATION:
+		if (mp_typeof(**pos) != MP_UINT ||
+		    mp_check_uint(*pos, end) > 0) {
+			say_error("%s member incarnation should be uint",
+				  msg_pref);
+			return -1;
+		}
+		def->incarnation = mp_decode_uint(pos);
+		break;
 	default:
 		unreachable();
 	}
@@ -155,6 +170,81 @@ swim_member_def_decode(struct swim_member_def *def, const char **pos,
 }
 
 void
+swim_fd_header_bin_create(struct swim_fd_header_bin *header,
+			  enum swim_fd_msg_type type, uint64_t incarnation)
+{
+	header->k_header = SWIM_FAILURE_DETECTION;
+	header->m_header = 0x82;
+
+	header->k_type = SWIM_FD_MSG_TYPE;
+	header->v_type = type;
+
+	header->k_incarnation = SWIM_FD_INCARNATION;
+	header->m_incarnation = 0xcf;
+	header->v_incarnation = mp_bswap_u64(incarnation);
+}
+
+int
+swim_failure_detection_def_decode(struct swim_failure_detection_def *def,
+				  const char **pos, const char *end,
+				  const char *msg_pref)
+{
+	if (mp_typeof(**pos) != MP_MAP || mp_check_map(*pos, end) > 0) {
+		say_error("%s root should be a map", msg_pref);
+		return -1;
+	}
+	memset(def, 0, sizeof(*def));
+	def->type = swim_fd_msg_type_MAX;
+	uint64_t size = mp_decode_map(pos);
+	if (size != 2) {
+		say_error("%s root map should have two keys - message type "\
+			  "and incarnation", msg_pref);
+		return -1;
+	}
+	for (int i = 0; i < (int) size; ++i) {
+		if (mp_typeof(**pos) != MP_UINT ||
+		    mp_check_uint(*pos, end) > 0) {
+			say_error("%s a key should be uint", msg_pref);
+			return -1;
+		}
+		uint64_t key = mp_decode_uint(pos);
+		switch(key) {
+		case SWIM_FD_MSG_TYPE:
+			if (mp_typeof(**pos) != MP_UINT ||
+			    mp_check_uint(*pos, end) > 0) {
+				say_error("%s message type should be uint",
+					  msg_pref);
+				return -1;
+			}
+			key = mp_decode_uint(pos);
+			if (key >= swim_fd_msg_type_MAX) {
+				say_error("%s unknown message type", msg_pref);
+				return -1;
+			}
+			def->type = key;
+			break;
+		case SWIM_FD_INCARNATION:
+			if (mp_typeof(**pos) != MP_UINT ||
+			    mp_check_uint(*pos, end) > 0) {
+				say_error("%s incarnation should be uint",
+					  msg_pref);
+				return -1;
+			}
+			def->incarnation = mp_decode_uint(pos);
+			break;
+		default:
+			say_error("%s unknown key", msg_pref);
+			return -1;
+		}
+	}
+	if (def->type == swim_fd_msg_type_MAX) {
+		say_error("%s message type should be specified", msg_pref);
+		return -1;
+	}
+	return 0;
+}
+
+void
 swim_anti_entropy_header_bin_create(struct swim_anti_entropy_header_bin *header,
 				    int batch_size)
 {
@@ -166,22 +256,25 @@ swim_anti_entropy_header_bin_create(struct swim_anti_entropy_header_bin *header,
 void
 swim_member_bin_fill(struct swim_member_bin *header,
 		     enum swim_member_status status,
-		     const struct sockaddr_in *addr)
+		     const struct sockaddr_in *addr, uint64_t incarnation)
 {
 	header->v_status = status;
 	header->v_addr = mp_bswap_u32(addr->sin_addr.s_addr);
 	header->v_port = mp_bswap_u16(addr->sin_port);
+	header->v_incarnation = mp_bswap_u64(incarnation);
 }
 
 void
 swim_member_bin_create(struct swim_member_bin *header)
 {
-	header->m_header = 0x83;
+	header->m_header = 0x84;
 	header->k_status = SWIM_MEMBER_STATUS;
 	header->k_addr = SWIM_MEMBER_ADDRESS;
 	header->m_addr = 0xce;
 	header->k_port = SWIM_MEMBER_PORT;
 	header->m_port = 0xcd;
+	header->k_incarnation = SWIM_MEMBER_INCARNATION;
+	header->m_incarnation = 0xcf;
 }
 
 void

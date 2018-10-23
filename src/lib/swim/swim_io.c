@@ -188,7 +188,8 @@ swim_scheduler_on_output(struct ev_loop *loop, struct ev_io *io, int events)
 				     sizeof(task->dst));
 	if (rc != 0)
 		diag_log();
-	task->complete(task, rc);
+	if (task->complete != NULL)
+		task->complete(task, rc);
 }
 
 static void

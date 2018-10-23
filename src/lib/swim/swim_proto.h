@@ -44,6 +44,11 @@ enum swim_member_status {
 	 * members table.
 	 */
 	MEMBER_ALIVE = 0,
+	/**
+	 * The member is considered to be dead. It will disappear
+	 * from the membership, if it is not pinned.
+	 */
+	MEMBER_DEAD,
 	swim_member_status_MAX,
 };
 
@@ -55,6 +60,7 @@ extern const char *swim_member_status_strs[];
  */
 struct swim_member_def {
 	struct sockaddr_in addr;
+	uint64_t incarnation;
 	enum swim_member_status status;
 };
 
@@ -72,7 +78,69 @@ swim_member_def_decode(struct swim_member_def *def, const char **pos,
  */
 enum swim_component_type {
 	SWIM_ANTI_ENTROPY = 0,
+	SWIM_FAILURE_DETECTION,
 };
+
+/** {{{                Failure detection component              */
+
+/** Possible failure detection keys. */
+enum swim_fd_key {
+	/** Type of the failure detection message: ping or ack. */
+	SWIM_FD_MSG_TYPE,
+	/**
+	 * Incarnation of the sender. To make the member alive if
+	 * it was considered to be dead, but ping/ack with greater
+	 * incarnation was received from it.
+	 */
+	SWIM_FD_INCARNATION,
+};
+
+/** Failure detection message type. */
+enum swim_fd_msg_type {
+	SWIM_FD_MSG_PING,
+	SWIM_FD_MSG_ACK,
+	swim_fd_msg_type_MAX,
+};
+
+extern const char *swim_fd_msg_type_strs[];
+
+/** SWIM failure detection MsgPack header template. */
+struct PACKED swim_fd_header_bin {
+	/** mp_encode_uint(SWIM_FAILURE_DETECTION) */
+	uint8_t k_header;
+	/** mp_encode_map(2) */
+	uint8_t m_header;
+
+	/** mp_encode_uint(SWIM_FD_MSG_TYPE) */
+	uint8_t k_type;
+	/** mp_encode_uint(enum swim_fd_msg_type) */
+	uint8_t v_type;
+
+	/** mp_encode_uint(SWIM_FD_INCARNATION) */
+	uint8_t k_incarnation;
+	/** mp_encode_uint(64bit incarnation) */
+	uint8_t m_incarnation;
+	uint64_t v_incarnation;
+};
+
+void
+swim_fd_header_bin_create(struct swim_fd_header_bin *header,
+			  enum swim_fd_msg_type type, uint64_t incarnation);
+
+/** A decoded failure detection message. */
+struct swim_failure_detection_def {
+	/** Type of the message. */
+	enum swim_fd_msg_type type;
+	/** Incarnation of the sender. */
+	uint64_t incarnation;
+};
+
+int
+swim_failure_detection_def_decode(struct swim_failure_detection_def *def,
+				  const char **pos, const char *end,
+				  const char *msg_pref);
+
+/** }}}               Failure detection component               */
 
 /** {{{                  Anti-entropy component                 */
 
@@ -88,6 +156,7 @@ enum swim_member_key {
 	 */
 	SWIM_MEMBER_ADDRESS,
 	SWIM_MEMBER_PORT,
+	SWIM_MEMBER_INCARNATION,
 	swim_member_key_MAX,
 };
 
@@ -106,7 +175,7 @@ swim_anti_entropy_header_bin_create(struct swim_anti_entropy_header_bin *header,
 
 /** SWIM member MsgPack template. */
 struct PACKED swim_member_bin {
-	/** mp_encode_map(3) */
+	/** mp_encode_map(4) */
 	uint8_t m_header;
 
 	/** mp_encode_uint(SWIM_MEMBER_STATUS) */
@@ -125,12 +194,18 @@ struct PACKED swim_member_bin {
 	/** mp_encode_uint(addr.sin_port) */
 	uint8_t m_port;
 	uint16_t v_port;
+
+	/** mp_encode_uint(SWIM_MEMBER_INCARNATION) */
+	uint8_t k_incarnation;
+	/** mp_encode_uint(64bit incarnation) */
+	uint8_t m_incarnation;
+	uint64_t v_incarnation;
 };
 
 void
 swim_member_bin_fill(struct swim_member_bin *header,
 		     enum swim_member_status status,
-		     const struct sockaddr_in *addr);
+		     const struct sockaddr_in *addr, uint64_t incarnation);
 
 void
 swim_member_bin_create(struct swim_member_bin *header);
@@ -202,11 +277,19 @@ swim_meta_def_decode(struct swim_meta_def *def, const char **pos,
  *     SWIM_META_SRC_PORT: uint, port
  * }
  * {
+ *     SWIM_FAILURE_DETECTION: {
+ *         SWIM_FD_MSG_TYPE: uint, enum swim_fd_msg_type,
+ *         SWIM_FD_INCARNATION: uint
+ *     },
+ *
+ *                 OR/AND
+ *
  *     SWIM_ANTI_ENTROPY: [
  *         {
  *             SWIM_MEMBER_STATUS: uint, enum member_status,
  *             SWIM_MEMBER_ADDRESS: uint, ip,
- *             SWIM_MEMBER_PORT: uint, port
+ *             SWIM_MEMBER_PORT: uint, port,
+ *             SWIM_MEMBER_INCARNATION: uint
  *         },
  *         ...
  *     ],

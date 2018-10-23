@@ -56,12 +56,15 @@ swim_new(const struct swim_transport_vtab *transport_vtab);
  *        @heartbeat_rate seconds. It is rather the protocol
  *        speed. Protocol period depends on member count and
  *        @heartbeat_rate.
+ * @param ack_timeout Time in seconds after which a ping is
+ *        considered to be unacknowledged.
  *
  * @retval 0 Success.
  * @retval -1 Error.
  */
 int
-swim_cfg(struct swim *swim, const char *uri, double heartbeat_rate);
+swim_cfg(struct swim *swim, const char *uri, double heartbeat_rate,
+	 double ack_timeout);
 
 /**
  * Stop listening and broadcasting messages, cleanup all internal

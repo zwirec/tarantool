@@ -75,6 +75,28 @@ lua_swim_gc(struct lua_State *L)
 	return 0;
 }
 
+static inline double
+lua_swim_get_timeout_field(struct lua_State *L, int ncfg,
+			   const char *fieldname, const char *funcname)
+{
+	double timeout;
+	lua_getfield(L, ncfg, fieldname);
+	if (lua_isnumber(L, -1)) {
+		timeout = lua_tonumber(L, -1);
+		if (timeout <= 0) {
+			return luaL_error(L, "swim.%s: %s should be positive "\
+					  "number", funcname, fieldname);
+		}
+	} else if (! lua_isnil(L, -1)) {
+		return luaL_error(L, "swim.%s: %s should be positive number",
+				  funcname, fieldname);
+	} else {
+		timeout = -1;
+	}
+	lua_pop(L, 1);
+	return timeout;
+}
+
 /**
  * Configure @a swim instance using a table stored in @a ncfg-th
  * position on Lua stack.
@@ -106,23 +128,12 @@ lua_swim_cfg_impl(struct lua_State *L, int ncfg, struct swim *swim,
 	}
 	lua_pop(L, 1);
 
-	double heartbeat_rate;
-	lua_getfield(L, ncfg, "heartbeat");
-	if (lua_isnumber(L, -1)) {
-		heartbeat_rate = lua_tonumber(L, -1);
-		if (heartbeat_rate <= 0) {
-			return luaL_error(L, "swim.%s: heartbeat should be "\
-					  "positive number", funcname);
-		}
-	} else if (! lua_isnil(L, -1)) {
-		return luaL_error(L, "swim.%s: heartbeat should be positive "\
-				  "number", funcname);
-	} else {
-		heartbeat_rate = -1;
-	}
-	lua_pop(L, 1);
+	double heartbeat_rate =
+		lua_swim_get_timeout_field(L, ncfg, "heartbeat", funcname);
+	double ack_timeout =
+		lua_swim_get_timeout_field(L, ncfg, "ack_timeout", funcname);
 
-	return swim_cfg(swim, server_uri, heartbeat_rate);
+	return swim_cfg(swim, server_uri, heartbeat_rate, ack_timeout);
 }
 
 static int
