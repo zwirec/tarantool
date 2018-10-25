@@ -575,6 +575,49 @@ local function update_index_parts_1_6_0(parts)
     return result
 end
 
+local function format_field_index_by_name(format, name)
+    for k,v in pairs(format) do
+        if v.name == name then
+            return k
+        end
+    end
+    return nil
+end
+
+local function format_field_resolve(format, name)
+    local idx = nil
+    local field_name = nil
+    -- try resolve whole name
+    idx = format_field_index_by_name(format, name)
+    if idx ~= nil then
+        print("Case 1 "..idx)
+        return idx, nil
+    end
+    -- try resolve [%d]
+    field_name = string.match(name, "^%[(%d+)%]")
+    idx = tonumber(field_name)
+    if idx ~= nil then
+        print("Case 2 "..idx..string.sub(name, string.len(field_name) + 3))
+        return idx, string.sub(name, string.len(field_name) + 3)
+    end
+    -- try resolve ["%s"] or ['%s']
+    field_name = string.match(name, "^%[\"(.*)\"%]") or
+                 string.match(name, "^%[\'(.*)\'%]")
+    idx = format_field_index_by_name(format, field_name)
+    if idx ~= nil then
+        print("Case 3 "..idx..string.sub(name, string.len(field_name) + 5))
+        return idx, string.sub(name, string.len(field_name) + 5)
+    end
+    -- try to resolve .*[ and .*.
+    field_name = string.match(name, "^([^.%[]-)[.%[]")
+    idx = format_field_index_by_name(format, field_name)
+    if idx ~= nil then
+        print("Case 4 "..idx..string.sub(name, string.len(field_name) + 1))
+        return idx, string.sub(name, string.len(field_name) + 1)
+    end
+    return nil, nil
+end
+
 local function update_index_parts(format, parts)
     if type(parts) ~= "table" then
         box.error(box.error.ILLEGAL_PARAMS,
@@ -626,16 +669,19 @@ local function update_index_parts(format, parts)
             box.error(box.error.ILLEGAL_PARAMS,
                       "options.parts[" .. i .. "]: field (name or number) is expected")
         elseif type(part.field) == 'string' then
-            for k,v in pairs(format) do
-                if v.name == part.field then
-                    part.field = k
-                    break
-                end
+            local idx, path = format_field_resolve(format, part.field)
+            if idx == nil then
+               box.error(box.error.ILLEGAL_PARAMS,
+                         "options.parts[" .. i .. "]: field was not found by name '" .. part.field .. "'")
             end
-            if type(part.field) == 'string' then
+            if part.path ~= nil and part.path ~= path then
                 box.error(box.error.ILLEGAL_PARAMS,
-                          "options.parts[" .. i .. "]: field was not found by name '" .. part.field .. "'")
+                          "options.parts[" .. i .. "]: field path '"..
+                          path.." doesn't math the path '" ..part.path.."'")
             end
+            parts_can_be_simplified = parts_can_be_simplified and path == nil
+            part.field = idx
+            part.path = path or part.path
         elseif part.field == 0 then
             box.error(box.error.ILLEGAL_PARAMS,
                       "options.parts[" .. i .. "]: field (number) must be one-based")
