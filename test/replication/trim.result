@@ -1,0 +1,244 @@
+test_run = require('test_run').new()
+---
+...
+SERVERS = {'trim1', 'trim2', 'trim3'}
+---
+...
+-- Deploy cluster
+test_run:create_cluster(SERVERS, "replication", {args="0.1"})
+---
+...
+test_run:wait_fullmesh(SERVERS)
+---
+...
+test_run:cmd('switch trim1')
+---
+- true
+...
+len = box.space._cluster:len()
+---
+...
+-- no errors
+replicaset_list_inactive()
+---
+- []
+...
+replica_prune()
+---
+- error: 'builtin/box/ctl.lua:41: Usage: replica_displace([uuid])'
+...
+replicaset_purge()
+---
+- error: 'builtin/box/ctl.lua:50: Usage: replicaset_trim([uuid_table])'
+...
+-- create zombies after restart all replicas
+test_run:cmd('switch trim1')
+---
+- true
+...
+fiber = require('fiber')
+---
+...
+old_trim2 = test_run:get_param('trim2', 'id')
+---
+...
+old_trim3 = test_run:get_param('trim3', 'id')
+---
+...
+len = box.space._cluster:len()
+---
+...
+test_run:cmd('switch default')
+---
+- true
+...
+test_run:cmd('stop server trim2')
+---
+- true
+...
+test_run:cmd('cleanup server trim2')
+---
+- true
+...
+test_run:cmd('start server trim2')
+---
+- true
+...
+test_run:cmd('stop server trim3')
+---
+- true
+...
+test_run:cmd('cleanup server trim3')
+---
+- true
+...
+test_run:cmd('start server trim3')
+---
+- true
+...
+test_run:cmd('switch trim1')
+---
+- true
+...
+replicaset_list_inactive() ~= nil
+---
+- true
+...
+box.space._cluster:len() == len + #replicaset_list_inactive()
+---
+- true
+...
+-- check that we showed and throw away only dead replicas
+trim2 = test_run:get_param('trim2', 'id')
+---
+...
+trim3 = test_run:get_param('trim3', 'id')
+---
+...
+while box.info.replication[trim2[1]].upstream.status == 'follow' do fiber.sleep(0.01) end
+---
+...
+while box.info.replication[trim3[1]].upstream.status =='follow' do fiber.sleep(0.01) end
+---
+...
+box.info.replication[trim2[1]].downstream.status == nil
+---
+- true
+...
+box.info.replication[trim3[1]].downstream.status == nil
+---
+- true
+...
+box.info.replication[old_trim2[1]].upstream == nil
+---
+- true
+...
+box.info.replication[old_trim3[1]].upstream == nil
+---
+- true
+...
+box.info.replication[old_trim2[1]].downstream.status == 'stopped'
+---
+- true
+...
+box.info.replication[old_trim3[1]].downstream.status == 'stopped'
+---
+- true
+...
+--
+replicaset_list_inactive() == 2
+---
+- false
+...
+replicaset_purge(replicaset_list_inactive())
+---
+...
+#replicaset_list_inactive() == 0
+---
+- true
+...
+box.space._cluster:len() == len
+---
+- true
+...
+box.info.replication[trim2[1]] ~= nil
+---
+- true
+...
+box.info.replication[trim3[1]] ~= nil
+---
+- true
+...
+box.info.replication[trim2[1]].downstream.status == nil
+---
+- true
+...
+box.info.replication[trim3[1]].downstream.status == nil
+---
+- true
+...
+box.info.replication[old_trim2[1]] == nil
+---
+- true
+...
+box.info.replication[old_trim3[1]] == nil
+---
+- true
+...
+-- no applier no relay
+test_run:cmd('switch default')
+---
+- true
+...
+test_run:cmd('stop server trim2')
+---
+- true
+...
+test_run:cmd('cleanup server trim2')
+---
+- true
+...
+test_run:cmd('start server trim2')
+---
+- true
+...
+test_run:cmd('stop server trim3')
+---
+- true
+...
+test_run:cmd('cleanup server trim3')
+---
+- true
+...
+test_run:cmd('start server trim3')
+---
+- true
+...
+test_run:cmd('stop server trim1')
+---
+- true
+...
+test_run:cmd('cleanup server trim1')
+---
+- true
+...
+test_run:cmd('start server trim1')
+---
+- true
+...
+test_run:cmd('switch trim1')
+---
+- true
+...
+box.ctl.wait_rw(10)
+---
+- error: timed out
+...
+inactive = replicaset_list_inactive()
+---
+...
+-- prune given replica
+replica_prune(inactive[1])
+---
+- error: Can't modify data because this instance is in read-only mode.
+...
+#replicaset_list_inactive() ~= #inactive
+---
+- false
+...
+replicaset_purge(replicaset_list_inactive())
+---
+- error: Can't modify data because this instance is in read-only mode.
+...
+box.space._cluster:len() == 3
+---
+- false
+...
+-- Cleanup
+test_run:cmd('switch default')
+---
+- true
+...
+test_run:drop_cluster(SERVERS)
+---
+...
