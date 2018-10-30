@@ -151,10 +151,25 @@ local function normalize_uri(port)
     return tostring(port);
 end
 
+local function normalize_uri_list(port)
+    if port == nil then
+        return port
+    end
+    if type(port) == 'table' then
+        if #port == 1 then
+            return tostring(port[1])
+        end
+        for i in pairs(port) do
+            port[i] = tostring(port[i])
+        end
+        return port
+    end
+    return tostring(port);
+end
 -- options that require special handling
 local modify_cfg = {
     listen             = normalize_uri,
-    replication        = normalize_uri,
+    replication        = normalize_uri_list,
 }
 
 local function purge_password_from_uri(uri)
@@ -365,6 +380,24 @@ local function apply_default_cfg(cfg, default_cfg)
     end
 end
 
+-- Return true if two configurations are equivalent.
+local function compare_cfg(t1, t2)
+    if type(t1) ~= 'table' and type(t2) ~= 'table' then
+        return t1 == t2
+    end
+    if type(t1) == 'table' and type(t2) == 'table' then
+        if #t1 ~= #t2 then
+            return false
+        end
+        for i, j in pairs(t2) do
+            if t1[i] ~= j then
+                return false
+            end
+        end
+        return true
+    end
+end
+
 local function reload_cfg(oldcfg, cfg)
     cfg = upgrade_cfg(cfg, translate_cfg)
     local newcfg = prepare_cfg(cfg, default_cfg, template_cfg, modify_cfg)
@@ -377,7 +410,7 @@ local function reload_cfg(oldcfg, cfg)
     for key in pairs(cfg) do
         local val = newcfg[key]
         local oldval = oldcfg[key]
-        if oldval ~= val then
+        if not compare_cfg(val, oldval) then
             rawset(oldcfg, key, val)
             if not pcall(dynamic_cfg[key]) then
                 rawset(oldcfg, key, oldval) -- revert the old value
@@ -452,7 +485,7 @@ local function load_cfg(cfg)
         local val = cfg[key]
         if val ~= nil and not dynamic_cfg_skip_at_load[key] then
             fun()
-            if val ~= default_cfg[key] then
+            if not compare_cfg(val, default_cfg[key]) then
                 log.info("set '%s' configuration option to %s", key, json.encode(val))
             end
         end

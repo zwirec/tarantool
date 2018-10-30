@@ -191,3 +191,44 @@ test_run:cmd("stop server replica")
 test_run:cmd("cleanup server replica")
 test_run:cmd("delete server replica")
 box.schema.user.revoke('guest', 'replication')
+
+
+--
+-- gh-3711 Do not restart replication on box.cfg if the configuration didn't change
+--
+box.schema.user.grant('guest', 'replication')
+
+test_run:cmd("create server replica with rpl_master=default, script='replication/replica.lua'")
+test_run:cmd("start server replica")
+test_run:cmd("switch replica")
+replication = box.cfg.replication
+test_run:cmd("switch default")
+-- access rights is checked only during reconnect, so if new config is equivalent
+-- to old one, replication won't restart
+box.schema.user.revoke('guest', 'replication')
+test_run:cmd("switch replica")
+box.cfg{replication = {replication}}
+box.info.status == 'running'
+box.cfg{replication = replication}
+box.info.status == 'running'
+
+-- check table
+test_run:cmd("switch default")
+box.schema.user.grant('guest', 'replication')
+test_run:cmd("switch replica")
+listen = box.cfg.replication
+a = string.split(listen, ':')
+self = string.format('localhost:%s', a[2] + 1)
+box.cfg{listen = self, replication = {self, replication}}
+
+test_run:cmd("switch default")
+box.schema.user.revoke('guest', 'replication')
+
+test_run:cmd("switch replica")
+box.cfg{replication = {self, replication}}
+box.info.status == 'running'
+
+test_run:cmd("switch default")
+test_run:cmd("stop server replica")
+test_run:cmd("cleanup server replica")
+test_run:cmd("delete server replica")
