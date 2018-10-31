@@ -79,6 +79,7 @@ swim_member_def_decode(struct swim_member_def *def, const char **pos,
 enum swim_component_type {
 	SWIM_ANTI_ENTROPY = 0,
 	SWIM_FAILURE_DETECTION,
+	SWIM_DISSEMINATION,
 };
 
 /** {{{                Failure detection component              */
@@ -212,6 +213,60 @@ swim_member_bin_create(struct swim_member_bin *header);
 
 /** }}}                  Anti-entropy component                 */
 
+/** {{{                 Dissemination component                 */
+
+/** SWIM dissemination MsgPack template. */
+struct PACKED swim_diss_header_bin {
+	/** mp_encode_uint(SWIM_DISSEMINATION) */
+	uint8_t k_header;
+	/** mp_encode_array() */
+	uint8_t m_header;
+	uint32_t v_header;
+};
+
+void
+swim_diss_header_bin_create(struct swim_diss_header_bin *header,
+			    int batch_size);
+
+/** SWIM event MsgPack template. */
+struct PACKED swim_event_bin {
+	/** mp_encode_map(4) */
+	uint8_t m_header;
+
+	/** mp_encode_uint(SWIM_MEMBER_STATUS) */
+	uint8_t k_status;
+	/** mp_encode_uint(enum member_status) */
+	uint8_t v_status;
+
+	/** mp_encode_uint(SWIM_MEMBER_ADDRESS) */
+	uint8_t k_addr;
+	/** mp_encode_uint(addr.sin_addr.s_addr) */
+	uint8_t m_addr;
+	uint32_t v_addr;
+
+	/** mp_encode_uint(SWIM_MEMBER_PORT) */
+	uint8_t k_port;
+	/** mp_encode_uint(addr.sin_port) */
+	uint8_t m_port;
+	uint16_t v_port;
+
+	/** mp_encode_uint(SWIM_MEMBER_INCARNATION) */
+	uint8_t k_incarnation;
+	/** mp_encode_uint(64bit incarnation) */
+	uint8_t m_incarnation;
+	uint64_t v_incarnation;
+};
+
+void
+swim_event_bin_create(struct swim_event_bin *header);
+
+void
+swim_event_bin_fill(struct swim_event_bin *header,
+		    enum swim_member_status status,
+		    const struct sockaddr_in *addr, uint64_t incarnation);
+
+/** }}}                 Dissemination component                 */
+
 /** {{{                     Meta component                      */
 
 enum swim_meta_key {
@@ -281,6 +336,18 @@ swim_meta_def_decode(struct swim_meta_def *def, const char **pos,
  *         SWIM_FD_MSG_TYPE: uint, enum swim_fd_msg_type,
  *         SWIM_FD_INCARNATION: uint
  *     },
+ *
+ *                 OR/AND
+ *
+ *     SWIM_DISSEMINATION: [
+ *         {
+ *             SWIM_MEMBER_STATUS: uint, enum member_status,
+ *             SWIM_MEMBER_ADDRESS: uint, ip,
+ *             SWIM_MEMBER_PORT: uint, port,
+ *             SWIM_MEMBER_INCARNATION: uint
+ *         },
+ *         ...
+ *     ],
  *
  *                 OR/AND
  *

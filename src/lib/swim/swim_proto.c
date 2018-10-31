@@ -278,6 +278,38 @@ swim_member_bin_create(struct swim_member_bin *header)
 }
 
 void
+swim_diss_header_bin_create(struct swim_diss_header_bin *header, int batch_size)
+{
+	header->k_header = SWIM_DISSEMINATION;
+	header->m_header = 0xdd;
+	header->v_header = mp_bswap_u32(batch_size);
+}
+
+void
+swim_event_bin_create(struct swim_event_bin *header)
+{
+	header->m_header = 0x84;
+	header->k_status = SWIM_MEMBER_STATUS;
+	header->k_addr = SWIM_MEMBER_ADDRESS;
+	header->m_addr = 0xce;
+	header->k_port = SWIM_MEMBER_PORT;
+	header->m_port = 0xcd;
+	header->k_incarnation = SWIM_MEMBER_INCARNATION;
+	header->m_incarnation = 0xcf;
+}
+
+void
+swim_event_bin_fill(struct swim_event_bin *header,
+		    enum swim_member_status status,
+		    const struct sockaddr_in *addr, uint64_t incarnation)
+{
+	header->v_status = status;
+	header->v_addr = mp_bswap_u32(addr->sin_addr.s_addr);
+	header->v_port = mp_bswap_u16(addr->sin_port);
+	header->v_incarnation = mp_bswap_u64(incarnation);
+}
+
+void
 swim_meta_header_bin_create(struct swim_meta_header_bin *header,
 			    const struct sockaddr_in *src)
 {

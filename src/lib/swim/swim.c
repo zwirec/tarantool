@@ -173,6 +173,27 @@ struct swim_member {
 	struct swim_task ping_task;
 	/** Position in a queue of members waiting for an ack. */
 	struct rlist in_queue_wait_ack;
+	/**
+	 *
+	 *                 Dissemination component
+	 *
+	 * Dissemination component sends events. Event is a
+	 * notification about member status update. So formally,
+	 * this structure already has all the needed attributes.
+	 * But also an event somehow should be sent to all members
+	 * at least once according to SWIM, so it requires
+	 * something like TTL for each type of event, which
+	 * decrements on each send. And a member can not be
+	 * removed from the global table until it gets dead and
+	 * its status TTLs is 0, so as to allow other members
+	 * learn its dead status.
+	 */
+	int status_ttl;
+	/**
+	 * Events are put into a queue sorted by event occurrence
+	 * time.
+	 */
+	struct rlist in_queue_events;
 };
 
 /**
@@ -235,6 +256,12 @@ struct swim {
 	struct rlist queue_wait_ack;
 	/** Generator of ack checking events. */
 	struct ev_periodic wait_ack_tick;
+	/**
+	 *
+	 *                 Dissemination component
+	 */
+	/** Queue of events sorted by occurrence time. */
+	struct rlist queue_events;
 };
 
 static inline uint64_t
@@ -254,14 +281,25 @@ swim_member_schedule_ack_wait(struct swim *swim, struct swim_member *member)
 	}
 }
 
+static inline void
+swim_schedule_event(struct swim *swim, struct swim_member *member)
+{
+	if (rlist_empty(&member->in_queue_events)) {
+		rlist_add_tail_entry(&swim->queue_events, member,
+				     in_queue_events);
+	}
+	member->status_ttl = mh_size(swim->members);
+}
+
 /**
  * Make all needed actions to process a member's update like a
  * change of its status, or incarnation, or both.
  */
 static void
-swim_member_status_is_updated(struct swim_member *member)
+swim_member_status_is_updated(struct swim *swim, struct swim_member *member)
 {
 	member->unacknowledged_pings = 0;
+	swim_schedule_event(swim, member);
 }
 
 /**
@@ -279,17 +317,16 @@ swim_member_update_status(struct swim *swim, struct swim_member *member,
 			  enum swim_member_status new_status,
 			  uint64_t incarnation)
 {
-	(void) swim;
 	assert(member != swim->self);
 	if (member->incarnation == incarnation) {
 		if (member->status < new_status) {
 			member->status = new_status;
-			swim_member_status_is_updated(member);
+			swim_member_status_is_updated(swim, member);
 		}
 	} else if (member->incarnation < incarnation) {
 		member->status = new_status;
 		member->incarnation = incarnation;
-		swim_member_status_is_updated(member);
+		swim_member_status_is_updated(swim, member);
 	}
 }
 
@@ -310,6 +347,9 @@ swim_member_delete(struct swim *swim, struct swim_member *member)
 	rlist_del_entry(member, in_queue_wait_ack);
 	swim_task_destroy(&member->ack_task);
 	swim_task_destroy(&member->ping_task);
+
+	/* Dissemination component. */
+	assert(rlist_empty(&member->in_queue_events));
 
 	free(member);
 }
@@ -367,6 +407,10 @@ swim_member_new(struct swim *swim, const struct sockaddr_in *addr,
 	rlist_create(&member->in_queue_wait_ack);
 	swim_task_create(&member->ack_task, NULL, NULL);
 	swim_task_create(&member->ping_task, swim_ping_task_complete, swim);
+
+	/* Dissemination component. */
+	rlist_create(&member->in_queue_events);
+	swim_member_status_is_updated(swim, member);
 
 	return member;
 }
@@ -479,6 +523,40 @@ swim_encode_failure_detection(struct swim *swim, struct swim_packet *packet,
 	return 1;
 }
 
+/**
+ * Encode dissemination component.
+ * @retval 0 Not error, but nothing is encoded.
+ * @retval 1 Something is encoded.
+ */
+static int
+swim_encode_dissemination(struct swim *swim, struct swim_packet *packet)
+{
+	struct swim_diss_header_bin diss_header_bin;
+	int size = sizeof(diss_header_bin);
+	char *header = swim_packet_alloc(packet, size);
+	if (header == NULL)
+		return 0;
+	int i = 0;
+	struct swim_member *member;
+	struct swim_event_bin event_bin;
+	swim_event_bin_create(&event_bin);
+	rlist_foreach_entry(member, &swim->queue_events, in_queue_events) {
+		char *pos = swim_packet_alloc(packet, sizeof(event_bin));
+		if (pos == NULL)
+			break;
+		swim_event_bin_fill(&event_bin, member->status, &member->addr,
+				    member->incarnation);
+		memcpy(pos, &event_bin, sizeof(event_bin));
+		++i;
+	}
+	if (i == 0)
+		return 0;
+	swim_diss_header_bin_create(&diss_header_bin, i);
+	memcpy(header, &diss_header_bin, sizeof(diss_header_bin));
+	swim_packet_flush(packet);
+	return 1;
+}
+
 /** Encode SWIM components into a sequence of UDP packets. */
 static void
 swim_encode_round_msg(struct swim *swim, struct swim_packet *packet)
@@ -488,6 +566,7 @@ swim_encode_round_msg(struct swim *swim, struct swim_packet *packet)
 	int map_size = 0;
 	map_size += swim_encode_failure_detection(swim, packet,
 						  SWIM_FD_MSG_PING);
+	map_size += swim_encode_dissemination(swim, packet);
 	map_size += swim_encode_anti_entropy(swim, packet);
 
 	assert(mp_sizeof_map(map_size) == 1);
@@ -495,6 +574,21 @@ swim_encode_round_msg(struct swim *swim, struct swim_packet *packet)
 }
 
 /** Once per specified timeout trigger a next broadcast step. */
+static void
+swim_decrease_events_ttl(struct swim *swim)
+{
+	struct swim_member *member, *tmp;
+	rlist_foreach_entry_safe(member, &swim->queue_events, in_queue_events,
+				 tmp) {
+		if (--member->status_ttl == 0)
+			rlist_del_entry(member, in_queue_events);
+	}
+}
+
+/**
+ * Do one round step. Send encoded components to a next member
+ * from the queue.
+ */
 static void
 swim_round_step_begin(struct ev_loop *loop, struct ev_periodic *p, int events)
 {
@@ -526,6 +620,8 @@ swim_round_step_complete(struct swim_task *task, int rc)
 	struct swim *swim = (struct swim *) task->ctx;
 	ev_periodic_start(loop(), &swim->round_tick);
 	swim_ping_task_complete(task, rc);
+	if (rc == 0)
+		swim_decrease_events_ttl(swim);
 }
 
 /** Send a failure detection message. */
@@ -581,12 +677,12 @@ swim_check_acks(struct ev_loop *loop, struct ev_periodic *p, int events)
 		case MEMBER_ALIVE:
 			if (m->unacknowledged_pings >= NO_ACKS_TO_DEAD) {
 				m->status = MEMBER_DEAD;
-				swim_member_status_is_updated(m);
+				swim_member_status_is_updated(swim, m);
 			}
 			break;
 		case MEMBER_DEAD:
 			if (m->unacknowledged_pings >= NO_ACKS_TO_GC &&
-			    ! m->is_pinned)
+			    ! m->is_pinned && m->status_ttl == 0)
 				swim_member_delete(swim, m);
 			break;
 		default:
@@ -631,6 +727,7 @@ swim_update_member(struct swim *swim, const struct swim_member_def *def)
 					  def->incarnation);
 		return member;
 	}
+	uint64_t old_incarnation = self->incarnation;
 	/*
 	 * It is possible that other instances know a bigger
 	 * incarnation of this instance - such thing happens when
@@ -649,6 +746,8 @@ swim_update_member(struct swim *swim, const struct swim_member_def *def)
 		 */
 		self->incarnation++;
 	}
+	if (old_incarnation != self->incarnation)
+		swim_member_status_is_updated(swim, self);
 	return member;
 }
 
@@ -717,6 +816,29 @@ swim_process_failure_detection(struct swim *swim, const char **pos,
 	return 0;
 }
 
+static int
+swim_process_dissemination(struct swim *swim, const char **pos, const char *end)
+{
+	const char *msg_pref = "Invald SWIM dissemination message:";
+	if (mp_typeof(**pos) != MP_ARRAY || mp_check_array(*pos, end) > 0) {
+		say_error("%s message should be an array", msg_pref);
+		return -1;
+	}
+	uint64_t size = mp_decode_array(pos);
+	for (uint64_t i = 0; i < size; ++i) {
+		if (mp_typeof(**pos) != MP_MAP ||
+		    mp_check_map(*pos, end) > 0) {
+			say_error("%s event should be map", msg_pref);
+			return -1;
+		}
+		struct swim_member_def def;
+		if (swim_member_def_decode(&def, pos, end, msg_pref) != 0)
+			return -1;
+		swim_update_member(swim, &def);
+	}
+	return 0;
+}
+
 /** Receive and process a new message. */
 static void
 swim_on_input(struct swim_scheduler *scheduler,
@@ -748,6 +870,11 @@ swim_on_input(struct swim_scheduler *scheduler,
 			say_verbose("SWIM: process failure detection");
 			if (swim_process_failure_detection(swim, &pos, end,
 							   src) != 0)
+				return;
+			break;
+		case SWIM_DISSEMINATION:
+			say_verbose("SWIM: process dissemination");
+			if (swim_process_dissemination(swim, &pos, end) != 0)
 				return;
 			break;
 		default:
@@ -785,6 +912,10 @@ swim_new(const struct swim_transport_vtab *transport_vtab)
 	ev_init(&swim->wait_ack_tick, swim_check_acks);
 	ev_periodic_set(&swim->wait_ack_tick, 0, ACK_TIMEOUT_DEFAULT, NULL);
 	swim->wait_ack_tick.data = (void *) swim;
+
+	/* Dissemination component. */
+	rlist_create(&swim->queue_events);
+
 	return swim;
 }
 
@@ -855,8 +986,10 @@ swim_remove_member(struct swim *swim, const char *uri)
 	if (swim_uri_to_addr(uri, &addr) != 0)
 		return -1;
 	struct swim_member *member = swim_find_member(swim, &addr);
-	if (member != NULL)
+	if (member != NULL) {
+		rlist_del_entry(member, in_queue_events);
 		swim_member_delete(swim, member);
+	}
 	return 0;
 }
 
@@ -892,6 +1025,7 @@ swim_delete(struct swim *swim)
 	while (node != mh_end(swim->members)) {
 		struct swim_member *m = (struct swim_member *)
 			mh_i64ptr_node(swim->members, node)->val;
+		rlist_del_entry(m, in_queue_events);
 		swim_member_delete(swim, m);
 		node = mh_first(swim->members);
 	}
