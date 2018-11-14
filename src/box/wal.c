@@ -207,8 +207,11 @@ xlog_write_entry(struct xlog *l, struct journal_entry *entry)
 	 */
 	xlog_tx_begin(l);
 	struct xrow_header **row = entry->rows;
+	int64_t txn = entry->rows[0]->lsn;
 	for (; row < entry->rows + entry->n_rows; row++) {
 		(*row)->tm = ev_now(loop());
+		if (row < entry->rows + entry->n_rows - 1)
+			(*row)->txn = txn;
 		struct errinj *inj = errinj(ERRINJ_WAL_BREAK_LSN, ERRINJ_INT);
 		if (inj != NULL && inj->iparam == (*row)->lsn) {
 			(*row)->lsn = inj->iparam - 1;
@@ -809,6 +812,8 @@ wal_write_to_disk(struct cmsg *msg)
 	struct journal_entry *entry;
 	struct stailq_entry *last_committed = NULL;
 	stailq_foreach_entry(entry, &wal_msg->commit, fifo) {
+//		if (entry->n_rows > 1)
+//			++entry->n_rows;
 		wal_assign_lsn(writer, entry->rows, entry->rows + entry->n_rows);
 		entry->res = vclock_sum(&writer->vclock);
 		int rc = xlog_write_entry(l, entry);

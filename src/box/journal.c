@@ -32,6 +32,8 @@
 #include <small/region.h>
 #include <fiber.h>
 #include <diag.h>
+#include "xrow.h"
+#include "iproto_constants.h"
 
 /**
  * Used to load from a memtx snapshot. LSN is not used,
@@ -59,6 +61,8 @@ journal_entry_new(size_t n_rows)
 
 	size_t size = (sizeof(struct journal_entry) +
 		       sizeof(entry->rows[0]) * n_rows);
+	if (n_rows > 1)
+		size += sizeof(entry->rows[0]) + sizeof(entry->rows[0][0]);
 
 	entry = region_aligned_alloc(&fiber()->gc, size,
 				     alignof(struct journal_entry));
@@ -66,6 +70,12 @@ journal_entry_new(size_t n_rows)
 		diag_set(OutOfMemory, size, "region", "struct journal_entry");
 		return NULL;
 	}
+	if (n_rows > 1) {
+		memset(entry->rows + n_rows + 1, 0, sizeof(entry->rows[0][0]));
+		entry->rows[n_rows] = (struct xrow_header *)(entry->rows + n_rows + 1);
+		entry->rows[n_rows]->type = IPROTO_COMMIT;
+	}
+
 	entry->approx_len = 0;
 	entry->n_rows = n_rows;
 	entry->res = -1;

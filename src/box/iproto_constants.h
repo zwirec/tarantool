@@ -60,6 +60,7 @@ enum iproto_key {
 	IPROTO_SCHEMA_VERSION = 0x05,
 	IPROTO_SERVER_VERSION = 0x06,
 	IPROTO_GROUP_ID = 0x07,
+	IPROTO_TXN = 0x08,
 	/* Leave a gap for other keys in the header. */
 	IPROTO_SPACE_ID = 0x10,
 	IPROTO_INDEX_ID = 0x11,
@@ -195,6 +196,10 @@ enum iproto_type {
 	IPROTO_EXECUTE = 11,
 	/** No operation. Treated as DML, used to bump LSN. */
 	IPROTO_NOP = 12,
+	/** Commit request. */
+	IPROTO_COMMIT = 13,
+	/** Rollback request. */
+	IPROTO_ROLLBACK,
 	/** The maximum typecode used for box.stat() */
 	IPROTO_TYPE_STAT_MAX,
 
@@ -275,7 +280,8 @@ static inline bool
 iproto_type_is_dml(uint32_t type)
 {
 	return (type >= IPROTO_SELECT && type <= IPROTO_DELETE) ||
-		type == IPROTO_UPSERT || type == IPROTO_NOP;
+		type == IPROTO_UPSERT || type == IPROTO_NOP ||
+		type == IPROTO_COMMIT || type == IPROTO_ROLLBACK;
 }
 
 /**

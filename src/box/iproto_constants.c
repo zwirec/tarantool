@@ -106,6 +106,7 @@ const char *iproto_type_strs[] =
 	"UPSERT",
 	"CALL",
 	"EXECUTE",
+	"COMMIT",
 	NULL, /* NOP */
 };
 
@@ -136,7 +137,7 @@ const char *iproto_key_strs[IPROTO_KEY_MAX] = {
 	"schema version",   /* 0x05 */
 	"server version",   /* 0x06 */
 	"group id",         /* 0x07 */
-	NULL,               /* 0x08 */
+	"txn",               /* 0x08 */
 	NULL,               /* 0x09 */
 	NULL,               /* 0x0a */
 	NULL,               /* 0x0b */

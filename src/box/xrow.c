@@ -133,6 +133,9 @@ error:
 		case IPROTO_SCHEMA_VERSION:
 			header->schema_version = mp_decode_uint(pos);
 			break;
+		case IPROTO_TXN:
+			header->txn = mp_decode_uint(pos);
+			break;
 		default:
 			/* unknown header */
 			mp_next(pos);
@@ -140,7 +143,8 @@ error:
 	}
 	assert(*pos <= end);
 	/* Nop requests aren't supposed to have a body. */
-	if (*pos < end && header->type != IPROTO_NOP) {
+	if (*pos < end && header->type != IPROTO_NOP &&
+	    header->type != IPROTO_COMMIT && header->type != IPROTO_ROLLBACK) {
 		const char *body = *pos;
 		if (mp_check(pos, end)) {
 			diag_set(ClientError, ER_INVALID_MSGPACK, "packet body");
@@ -221,6 +225,11 @@ xrow_header_encode(const struct xrow_header *header, uint64_t sync,
 	if (header->tm) {
 		d = mp_encode_uint(d, IPROTO_TIMESTAMP);
 		d = mp_encode_double(d, header->tm);
+		map_size++;
+	}
+	if (header->txn != 0 && header->txn != header->lsn) {
+		d = mp_encode_uint(d, IPROTO_TXN);
+		d = mp_encode_uint(d, header->txn);
 		map_size++;
 	}
 	assert(d <= data + XROW_HEADER_LEN_MAX);

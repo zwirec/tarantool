@@ -221,6 +221,11 @@ lbox_xlog_parser_iterate(struct lua_State *L)
 		lua_pushnumber(L, row.tm);
 		lua_settable(L, -3); /* timestamp */
 	}
+	if (row.txn != 0) {
+		lbox_xlog_pushkey(L, iproto_key_name(IPROTO_TXN));
+		lua_pushnumber(L, row.txn);
+		lua_settable(L, -3); /* timestamp */
+	}
 
 	lua_settable(L, -3); /* HEADER */
 
