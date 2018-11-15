@@ -508,7 +508,8 @@ box.schema.space.drop = function(space_id, space_name, opts)
     local keys = _vindex:select(space_id)
     for i = #keys, 1, -1 do
         local v = keys[i]
-        _index:delete{v[1], v[2]}
+        local index = box.space[space_id].index[v[2]]
+        index:drop()
     end
     revoke_object_privs('space', space_id)
     _truncate:delete{space_id}
