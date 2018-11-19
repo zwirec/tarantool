@@ -1228,11 +1228,13 @@ analysis_loader(void *data, int argc, char **argv, char **unused)
 	if (space_id == 0)
 		return -1;
 	struct space *space = space_by_id(space_id);
-	assert(space != NULL);
+	if (space == NULL)
+		return -1;
 	struct index *index;
 	uint32_t iid = atoll(argv[1]);
 	index = space_index(space, iid);
-	assert(index != NULL);
+	if (index == NULL)
+		return -1;
 	/*
 	 * Additional field is used to describe total
 	 * count of tuples in index. Although now all
@@ -1382,12 +1384,15 @@ load_stat_from_space(struct sqlite3 *db, const char *sql_select_prepare,
 	uint32_t current_idx_count = 0;
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
 		uint32_t space_id = sqlite3_column_int(stmt, 0);
-		assert(space_id != 0);
+		if (space_id == 0)
+			continue;
 		struct space *space = space_by_id(space_id);
-		assert(space != NULL);
+		if (space == NULL)
+			continue;
 		uint32_t iid = sqlite3_column_int(stmt, 1);
 		struct index *index = space_index(space, iid);
-		assert(index != NULL);
+		if (index == NULL)
+			continue;
 		uint32_t sample_count = sqlite3_column_int(stmt, 2);
 		uint32_t column_count = index->def->key_def->part_count;
 		struct index_stat *stat = &stats[current_idx_count];
@@ -1441,12 +1446,15 @@ load_stat_from_space(struct sqlite3 *db, const char *sql_select_prepare,
 	current_idx_count = 0;
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
 		uint32_t space_id = sqlite3_column_int(stmt, 0);
-		assert(space_id != 0);
+		if (space_id == 0)
+			continue;
 		struct space *space = space_by_id(space_id);
-		assert(space != NULL);
+		if (space == NULL)
+			continue;
 		uint32_t iid = sqlite3_column_int(stmt, 1);
 		struct index *index = space_index(space, iid);
-		assert(index != NULL);
+		if (index == NULL)
+			continue;
 		uint32_t column_count = index->def->key_def->part_count;
 		if (index != prev_index) {
 			if (prev_index != NULL) {
@@ -1511,12 +1519,14 @@ load_stat_to_index(struct sqlite3 *db, const char *sql_select_load,
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
 		uint32_t space_id = sqlite3_column_int(stmt, 0);
 		if (space_id == 0)
-			return -1;
+			continue;
 		struct space *space = space_by_id(space_id);
-		assert(space != NULL);
+		if (space == NULL)
+			continue;
 		uint32_t iid = sqlite3_column_int(stmt, 1);
 		struct index *index = space_index(space, iid);
-		assert(index != NULL);
+		if (index == NULL)
+			continue;
 		free(index->def->opts.stat);
 		index->def->opts.stat = stats[current_idx_count++];
 	}
