@@ -136,6 +136,7 @@ struct wal_writer
 
 	bool in_rollback;
 	struct cmsg *last_batch;
+	struct fiber_cond rollback_cond;
 };
 
 struct wal_msg {
@@ -363,6 +364,7 @@ wal_writer_create(struct wal_writer *writer, enum wal_mode wal_mode,
 	writer->checkpoint_lsn = checkpoint_lsn;
 	rlist_create(&writer->watchers);
 	writer->last_batch = NULL;
+	fiber_cond_create(&writer->rollback_cond);
 }
 
 /** Destroy a WAL writer structure. */
@@ -955,9 +957,11 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 	fiber_set_cancellable(cancellable);
 	if (entry->res > 0) {
 	} else {
-		assert(stailq_first_entry(&writer->rollback,
-					  struct journal_entry, fifo) == entry);
+		while (stailq_first_entry(&writer->rollback,
+					  struct journal_entry, fifo) != entry)
+			fiber_cond_wait(&writer->rollback_cond);
 		stailq_shift(&writer->rollback);
+		fiber_cond_broadcast(&writer->rollback_cond);
 	}
 	return entry->res;
 }
