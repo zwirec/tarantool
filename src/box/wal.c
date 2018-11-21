@@ -955,8 +955,7 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 	bool cancellable = fiber_set_cancellable(false);
 	fiber_yield(); /* Request was inserted. */
 	fiber_set_cancellable(cancellable);
-	if (entry->res > 0) {
-	} else {
+	if (entry->res < 0) {
 		while (stailq_first_entry(&writer->rollback,
 					  struct journal_entry, fifo) != entry)
 			fiber_cond_wait(&writer->rollback_cond);
