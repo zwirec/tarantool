@@ -255,6 +255,33 @@ wal_writer_end_rollback(struct cmsg *msg)
 	writer->in_rollback = false;
 }
 
+static void
+promote_entry(struct journal_entry *entry)
+{
+	struct xrow_header **last = entry->rows + entry->n_rows - 1;
+	while (last >= entry->rows) {
+		/*
+		 * Find last row from local instance id
+		 * and promote vclock.
+		 */
+		if ((*last)->replica_id == instance_id) {
+			/*
+			 * In master-master configuration, during sudden
+			 * power-loss, if the data have not been written
+			 * to WAL but have already been sent to others,
+			 * they will send the data back. In this case
+			 * vclock has already been promoted by applier.
+			 */
+			if (vclock_get(&replicaset.vclock,
+				       instance_id) < (*last)->lsn) {
+				vclock_follow_xrow(&replicaset.vclock,
+						   *last);
+			}
+			break;
+		}
+		--last;
+	}
+}
 
 /**
  * Complete execution of a batch of WAL write requests:
@@ -267,6 +294,11 @@ tx_schedule_commit(struct cmsg *msg)
 {
 	struct wal_writer *writer = &wal_writer_singleton;
 	struct wal_msg *batch = (struct wal_msg *) msg;
+	if (!stailq_empty(&batch->commit)) {
+		struct journal_entry *entry;
+		stailq_foreach_entry(entry, &batch->commit, fifo)
+			promote_entry(entry);
+	}
 	/*
 	 * Move the rollback list to the writer first, since
 	 * wal_msg memory disappears after the first
@@ -922,29 +954,6 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 	fiber_yield(); /* Request was inserted. */
 	fiber_set_cancellable(cancellable);
 	if (entry->res > 0) {
-		struct xrow_header **last = entry->rows + entry->n_rows - 1;
-		while (last >= entry->rows) {
-			/*
-			 * Find last row from local instance id
-			 * and promote vclock.
-			 */
-			if ((*last)->replica_id == instance_id) {
-				/*
-				 * In master-master configuration, during sudden
-				 * power-loss, if the data have not been written
-				 * to WAL but have already been sent to others,
-				 * they will send the data back. In this case
-				 * vclock has already been promoted by applier.
-				 */
-				if (vclock_get(&replicaset.vclock,
-					       instance_id) < (*last)->lsn) {
-					vclock_follow_xrow(&replicaset.vclock,
-							   *last);
-				}
-				break;
-			}
-			--last;
-		}
 	} else {
 		assert(stailq_first_entry(&writer->rollback,
 					  struct journal_entry, fifo) == entry);
