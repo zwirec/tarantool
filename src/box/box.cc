@@ -1213,6 +1213,26 @@ box_truncate(uint32_t space_id)
 {
 	try {
 		struct space *space = space_cache_find_xc(space_id);
+		for (uint32_t i = 0; i < space->index_count; i++) {
+			struct index *index = space_index(space, i);
+			if (!index_is_functional(index->def))
+				continue;
+			struct region *region = &fiber()->gc;
+			size_t name_size = 4 + strlen(space->def->name) +
+					   strlen(index->def->name) + 1;
+			char *ispace_name =
+				(char *)region_alloc_xc(region, name_size);
+			sprintf(ispace_name, "_i_%s_%s", index->def->name,
+				space->def->name);
+			uint32_t ispace_id =
+				box_space_id_by_name(ispace_name, name_size - 1);
+			if (ispace_id == BOX_ID_NIL) {
+				tnt_raise(SystemError, "can't find space '%.*s'",
+					  ispace_name, name_size - 1);
+			}
+			struct space *ispace = space_cache_find_xc(ispace_id);
+			space_truncate(ispace);
+		}
 		space_truncate(space);
 		return 0;
 	} catch (Exception *exc) {

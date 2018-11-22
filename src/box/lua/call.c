@@ -465,6 +465,57 @@ lbox_func_reload(lua_State *L)
 	return 0;
 }
 
+
+void
+lua_func_idx_configure(const char *space_name, const char *idx_name, int mode,
+		       int32_t *trigger_ref)
+{
+	lua_State *L = lua_newthread(tarantool_L);
+	int coro_ref = luaL_ref(tarantool_L, LUA_REGISTRYINDEX);
+	lua_getglobal(L, "func_idx_configure");
+	lua_pushstring(L, space_name);
+	lua_pushstring(L, idx_name);
+	if (mode != 1) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, *trigger_ref);
+		lua_pushstring(L, "unset_trigger");
+	} else {
+		lua_pushnil(L);
+		lua_pushstring(L, "set_trigger");
+	}
+	lua_call(L, 4, 1);
+	if (trigger_ref != NULL)
+		*trigger_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	luaL_unref(tarantool_L, LUA_REGISTRYINDEX, coro_ref);
+}
+
+int
+lua_func_new(const char *func_code, int32_t *func_ref)
+{
+	lua_State *L = lua_newthread(tarantool_L);
+	int coro_ref = luaL_ref(tarantool_L, LUA_REGISTRYINDEX);
+	int rc = 0;
+	if ((rc = luaL_loadstring(L, func_code)) != 0) {
+		const char *err_descr =
+			rc == LUA_ERRSYNTAX ?
+			"syntax error during pre-compilation" :
+			rc == LUA_ERRMEM ? "memory allocation error" :
+			"unknow";
+		diag_set(ClientError, ER_CREATE_FUNCTION, "user-defined",
+			 err_descr);
+		return -1;
+	}
+	lua_call(L, 0, 1);
+	*func_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	luaL_unref(tarantool_L, LUA_REGISTRYINDEX, coro_ref);
+	return 0;
+}
+
+void
+lua_func_delete(uint32_t func_ref)
+{
+	luaL_unref(tarantool_L, LUA_REGISTRYINDEX, func_ref);
+}
+
 static const struct luaL_Reg boxlib_internal[] = {
 	{"call_loadproc",  lbox_call_loadproc},
 	{"func_reload", lbox_func_reload},

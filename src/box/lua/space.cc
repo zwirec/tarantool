@@ -31,6 +31,7 @@
 #include "box/lua/space.h"
 #include "box/lua/tuple.h"
 #include "lua/utils.h"
+#include "lua/msgpack.h"
 #include "lua/trigger.h"
 
 extern "C" {
@@ -310,6 +311,32 @@ lbox_fillspace(struct lua_State *L, struct space *space, int i)
 		}
 
 		lua_settable(L, -3); /* space.index[k].parts */
+
+		if (index_is_functional(index_def)) {
+			lua_pushstring(L, "functional");
+			lua_newtable(L);
+
+			lua_pushstring(L, index_def->opts.func_code);
+			lua_setfield(L, -2, "func_code");
+
+			const char *func_format = index_def->opts.func_format;
+			luamp_decode(L, luaL_msgpack_default,
+				     (const char **)&func_format);
+			lua_setfield(L, -2, "func_format");
+
+			lua_rawgeti(L, LUA_REGISTRYINDEX, index->func_ref);
+			assert(lua_isfunction(L, -1));
+			lua_setfield(L, -2, "func");
+
+			lua_rawgeti(L, LUA_REGISTRYINDEX, index->func_trigger_ref);
+			assert(lua_isfunction(L, -1));
+			lua_setfield(L, -2, "trigger");
+
+			lua_settable(L, -3);
+		}
+
+		lua_pushboolean(L, index_opts->is_multikey);
+		lua_setfield(L, -2, "is_multikey");
 
 		lua_pushstring(L, "sequence_id");
 		if (k == 0 && space->sequence != NULL) {

@@ -31,6 +31,7 @@
 #include "index_def.h"
 #include "schema_def.h"
 #include "identifier.h"
+#include "fiber.h"
 
 const char *index_type_strs[] = { "HASH", "TREE", "BITSET", "RTREE" };
 
@@ -46,7 +47,32 @@ const struct index_opts index_opts_default = {
 	/* .run_size_ratio      = */ 3.5,
 	/* .bloom_fpr           = */ 0.05,
 	/* .lsn                 = */ 0,
+	/* .is_multikey         = */ false,
+	/* .func_code           = */ NULL,
+	/* .func_format         = */ NULL,
 };
+
+static int
+func_format_decode(const char **str, uint32_t len, char *opt, uint32_t errcode,
+		    uint32_t field_no)
+{
+	(void)opt;
+	(void)errcode;
+	(void)field_no;
+
+	const char *start = *str - mp_sizeof_array(len);
+	const char *end = start;
+	mp_next(&end);
+
+	struct region *region = &fiber()->gc;
+	char *out = region_alloc(region, end - start + 1);
+	memcpy(out, start, end - start);
+	out[end - start] = '\0';
+	*(char **)opt = out;
+	*str = end;
+
+	return 0;
+}
 
 const struct opt_def index_opts_reg[] = {
 	OPT_DEF("unique", OPT_BOOL, struct index_opts, is_unique),
@@ -59,6 +85,10 @@ const struct opt_def index_opts_reg[] = {
 	OPT_DEF("run_size_ratio", OPT_FLOAT, struct index_opts, run_size_ratio),
 	OPT_DEF("bloom_fpr", OPT_FLOAT, struct index_opts, bloom_fpr),
 	OPT_DEF("lsn", OPT_INT64, struct index_opts, lsn),
+	OPT_DEF("func_code", OPT_STRPTR, struct index_opts, func_code),
+	OPT_DEF_ARRAY("func_format", struct index_opts, func_format,
+		      func_format_decode),
+	OPT_DEF("is_multikey", OPT_BOOL, struct index_opts, is_multikey),
 	OPT_END,
 };
 
@@ -106,7 +136,26 @@ index_def_new(uint32_t space_id, uint32_t iid, const char *name,
 	def->space_id = space_id;
 	def->iid = iid;
 	def->opts = *opts;
+	if (opts->func_code != NULL) {
+		def->opts.func_code = strdup(opts->func_code);
+		if (def->opts.func_code == NULL) {
+			diag_set(OutOfMemory, strlen(opts->func_code) + 1,
+				 "strdup", "def->opts.func_code");
+			goto error;
+		}
+	}
+	if (def->opts.func_format != NULL) {
+		def->opts.func_format = strdup(opts->func_format);
+		if (def->opts.func_format == NULL) {
+			diag_set(OutOfMemory, strlen(def->opts.func_format) + 1,
+				"strdup", "def->opts.func_format");
+			goto error;
+		}
+	}
 	return def;
+error:
+	index_def_delete(def);
+	return NULL;
 }
 
 struct index_def *
@@ -133,13 +182,33 @@ index_def_dup(const struct index_def *def)
 		return NULL;
 	}
 	rlist_create(&dup->link);
+	dup->opts = def->opts;
+	if (def->opts.func_code != NULL) {
+		dup->opts.func_code = strdup(def->opts.func_code);
+		if (def->opts.func_code == NULL) {
+			diag_set(OutOfMemory, strlen(def->opts.func_code) + 1,
+				 "strdup", "def->opts.func_code");
+			goto error;
+		}
+	}
+	if (def->opts.func_format != NULL) {
+		dup->opts.func_format = strdup(def->opts.func_format);
+		if (def->opts.func_format == NULL) {
+			diag_set(OutOfMemory, strlen(def->opts.func_format) + 1,
+				"strdup", "def->opts.func_format");
+			goto error;
+		}
+	}
 	return dup;
+error:
+	index_def_delete(dup);
+	return NULL;
 }
-
 /** Free a key definition. */
 void
 index_def_delete(struct index_def *index_def)
 {
+	index_opts_destroy(&index_def->opts);
 	free(index_def->name);
 
 	if (index_def->key_def) {
@@ -169,6 +238,14 @@ index_def_cmp(const struct index_def *key1, const struct index_def *key2)
 	if (index_opts_cmp(&key1->opts, &key2->opts))
 		return index_opts_cmp(&key1->opts, &key2->opts);
 
+	int rc = 0;
+	if ((rc = !!index_is_functional(key1) -
+		  !!index_is_functional(key2)) != 0)
+		return rc;
+	else if (index_is_functional(key1) &&
+		 (rc = strcmp(key1->opts.func_code, key2->opts.func_code)) != 0)
+		return rc;
+
 	return key_part_cmp(key1->key_def->parts, key1->key_def->part_count,
 			    key2->key_def->parts, key2->key_def->part_count);
 }
@@ -187,7 +264,8 @@ index_def_is_valid(struct index_def *index_def, const char *space_name)
 			 space_name, "primary key must be unique");
 		return false;
 	}
-	if (index_def->key_def->part_count == 0) {
+	if (index_def->key_def->part_count == 0 &&
+	    !index_is_functional(index_def)) {
 		diag_set(ClientError, ER_MODIFY_INDEX, index_def->name,
 			 space_name, "part count must be positive");
 		return false;

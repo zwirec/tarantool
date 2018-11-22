@@ -43,6 +43,7 @@
 #include "xrow.h"
 #include "iproto_constants.h"
 #include "schema.h"
+#include "lua/call.h"
 
 int
 access_check_space(struct space *space, user_access_t access)

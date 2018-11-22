@@ -28,6 +28,7 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include "lua/call.h"
 #include "index.h"
 #include "tuple.h"
 #include "say.h"
@@ -490,6 +491,17 @@ index_create(struct index *index, struct engine *engine,
 	index->engine = engine;
 	index->def = def;
 	index->space_cache_version = space_cache_version;
+	index->func_ref = 0;
+	index->func_trigger_ref = 0;
+	if (index_is_functional(index->def)) {
+		if (lua_func_new(index->def->opts.func_code,
+				 &index->func_ref) != 0)
+			diag_raise();
+		struct space *space = space_cache_find(index->def->space_id);
+		assert(space != NULL);
+		lua_func_idx_configure(space_name(space), index->def->name, 1,
+				       &index->func_trigger_ref);
+	}
 	return 0;
 }
 
@@ -502,7 +514,17 @@ index_delete(struct index *index)
 	 * the index is primary or secondary.
 	 */
 	struct index_def *def = index->def;
+	int32_t func_ref = index->func_ref;
+	int32_t func_trigger_ref = index->func_trigger_ref;
 	index->vtab->destroy(index);
+	if (index_is_functional(def)) {
+		struct space *space = space_cache_find(index->def->space_id);
+		assert(space != NULL);
+		lua_func_idx_configure(space_name(space), def->name, 0,
+				       &func_trigger_ref);
+		lua_func_delete(func_ref);
+		lua_func_delete(func_trigger_ref);
+	}
 	index_def_delete(def);
 }
 
