@@ -48,6 +48,7 @@
 #include "error.h"
 #include "session.h"
 #include "cfg.h"
+#include "txn.h"
 
 STRS(applier_state, applier_STATE);
 
@@ -389,19 +390,26 @@ applier_subscribe(struct applier *applier)
 	/* Send SUBSCRIBE request */
 	struct ev_io *coio = &applier->io;
 	struct ibuf *ibuf = &applier->ibuf;
-	struct xrow_header row;
+	struct xrow_header *row;
 	struct vclock remote_vclock_at_subscribe;
 
-	xrow_encode_subscribe_xc(&row, &REPLICASET_UUID, &INSTANCE_UUID,
+	ibuf_reset(&applier->row_buf);
+	row = (struct xrow_header *)ibuf_reserve(&applier->row_buf,
+						 sizeof(struct xrow_header));
+	if (row == NULL)
+		tnt_raise(OutOfMemory, sizeof(struct xrow_header), "slab",
+			  "struct xrow_header");
+
+	xrow_encode_subscribe_xc(row, &REPLICASET_UUID, &INSTANCE_UUID,
 				 &replicaset.vclock);
-	coio_write_xrow(coio, &row);
+	coio_write_xrow(coio, row);
 
 	/* Read SUBSCRIBE response */
 	if (applier->version_id >= version_id(1, 6, 7)) {
-		coio_read_xrow(coio, ibuf, &row);
-		if (iproto_type_is_error(row.type)) {
-			xrow_decode_error_xc(&row);  /* error */
-		} else if (row.type != IPROTO_OK) {
+		coio_read_xrow(coio, ibuf, row);
+		if (iproto_type_is_error(row->type)) {
+			xrow_decode_error_xc(row);  /* error */
+		} else if (row->type != IPROTO_OK) {
 			tnt_raise(ClientError, ER_PROTOCOL,
 				  "Invalid response to SUBSCRIBE");
 		}
@@ -410,7 +418,7 @@ applier_subscribe(struct applier *applier)
 		 * responds with its current vclock.
 		 */
 		vclock_create(&remote_vclock_at_subscribe);
-		xrow_decode_vclock_xc(&row, &remote_vclock_at_subscribe);
+		xrow_decode_vclock_xc(row, &remote_vclock_at_subscribe);
 	}
 	/*
 	 * Tarantool < 1.6.7:
@@ -462,6 +470,12 @@ applier_subscribe(struct applier *applier)
 	 * Process a stream of rows from the binary log.
 	 */
 	while (true) {
+		row = (struct xrow_header *)ibuf_alloc(&applier->row_buf,
+						       sizeof(struct xrow_header));
+		if (row == NULL)
+			tnt_raise(OutOfMemory, sizeof(struct xrow_header),
+				  "slab", "struct xrow_header");
+
 		if (applier->state == APPLIER_FINAL_JOIN &&
 		    instance_id != REPLICA_ID_NIL) {
 			say_info("final data received");
@@ -490,30 +504,64 @@ applier_subscribe(struct applier *applier)
 		 * broken - the master might just be idle.
 		 */
 		if (applier->version_id < version_id(1, 7, 7)) {
-			coio_read_xrow(coio, ibuf, &row);
+			coio_read_xrow(coio, ibuf, row);
 		} else {
 			double timeout = replication_disconnect_timeout();
-			coio_read_xrow_timeout_xc(coio, ibuf, &row, timeout);
+			coio_read_xrow_timeout_xc(coio, ibuf, row, timeout);
 		}
 
-		if (iproto_type_is_error(row.type))
-			xrow_decode_error_xc(&row);  /* error */
+		if (iproto_type_is_error(row->type))
+			xrow_decode_error_xc(row);  /* error */
 		/* Replication request. */
-		if (row.replica_id == REPLICA_ID_NIL ||
-		    row.replica_id >= VCLOCK_MAX) {
+		if (row->replica_id == REPLICA_ID_NIL ||
+		    row->replica_id >= VCLOCK_MAX) {
 			/*
 			 * A safety net, this can only occur
 			 * if we're fed a strangely broken xlog.
 			 */
 			tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
-				  int2str(row.replica_id),
+				  int2str(row->replica_id),
 				  tt_uuid_str(&REPLICASET_UUID));
 		}
 
-		applier->lag = ev_now(loop()) - row.tm;
+		applier->lag = ev_now(loop()) - row->tm;
 		applier->last_row_time = ev_monotonic_now(loop());
 
-		if (vclock_get(&replicaset.vclock, row.replica_id) < row.lsn) {
+		struct replica *replica = replica_by_id(row->replica_id);
+		struct latch *latch = (replica ? &replica->order_latch :
+				       &replicaset.applier.order_latch);
+		// latch server for first row in transaction
+		if (ibuf_used(&applier->row_buf) == sizeof(struct xrow_header)) {
+			latch_lock(latch);
+		}
+		if (vclock_get(&replicaset.vclock, row->replica_id) >= row->lsn) {
+			ibuf_reset(&applier->row_buf);
+			latch_unlock(latch);
+			continue;
+		}
+
+		/*
+		 * In a full mesh topology, the same set
+		 * of changes may arrive via two
+		 * concurrently running appliers. Thanks
+		 * to vclock_follow() above, the first row
+		 * in the set will be skipped - but the
+		 * remaining may execute out of order,
+		 * when the following xstream_write()
+		 * yields on WAL. Hence we need a latch to
+		 * strictly order all changes which belong
+		 * to the same server id.
+		 */
+
+		// Transaction is not finished
+		if (row->txn != 0)
+			continue;
+
+
+		int res;
+		struct xrow_header *rrow = (struct xrow_header *)applier->row_buf.rpos;
+		struct txn *txn = txn_begin(false);
+		while (rrow <= row) {
 			/**
 			 * Promote the replica set vclock before
 			 * applying the row. If there is an
@@ -521,42 +569,33 @@ applier_subscribe(struct applier *applier)
 			 * the row is skipped when the replication
 			 * is resumed.
 			 */
-			vclock_follow_xrow(&replicaset.vclock, &row);
-			struct replica *replica = replica_by_id(row.replica_id);
-			struct latch *latch = (replica ? &replica->order_latch :
-					       &replicaset.applier.order_latch);
-			/*
-			 * In a full mesh topology, the same set
-			 * of changes may arrive via two
-			 * concurrently running appliers. Thanks
-			 * to vclock_follow() above, the first row
-			 * in the set will be skipped - but the
-			 * remaining may execute out of order,
-			 * when the following xstream_write()
-			 * yields on WAL. Hence we need a latch to
-			 * strictly order all changes which belong
-			 * to the same server id.
-			 */
-			latch_lock(latch);
-			int res = xstream_write(applier->subscribe_stream, &row);
-			latch_unlock(latch);
-			if (res != 0) {
-				struct error *e = diag_last_error(diag_get());
-				/**
-				 * Silently skip ER_TUPLE_FOUND error if such
-				 * option is set in config.
-				 */
-				if (e->type == &type_ClientError &&
-				    box_error_code(e) == ER_TUPLE_FOUND &&
-				    replication_skip_conflict)
-					diag_clear(diag_get());
-				else
-					diag_raise();
-			}
+			vclock_follow_xrow(&replicaset.vclock, row);
+			res = xstream_write(applier->subscribe_stream, row);
+			++rrow;
+			if (res != 0)
+				break;
 		}
+		latch_unlock(latch);
+		if (res != 0) {
+			txn_rollback();
+			struct error *e = diag_last_error(diag_get());
+			/**
+			 * Silently skip ER_TUPLE_FOUND error if such
+			 * option is set in config.
+			 */
+			if (e->type == &type_ClientError &&
+			    box_error_code(e) == ER_TUPLE_FOUND &&
+			    replication_skip_conflict)
+				diag_clear(diag_get());
+			else
+				diag_raise();
+		}
+		txn_commit(txn);
+		ibuf_reset(&applier->row_buf);
 		if (applier->state == APPLIER_SYNC ||
-		    applier->state == APPLIER_FOLLOW)
+		    applier->state == APPLIER_FOLLOW) {
 			fiber_cond_signal(&applier->writer_cond);
+		}
 		if (ibuf_used(ibuf) == 0)
 			ibuf_reset(ibuf);
 		fiber_gc();
@@ -730,6 +769,8 @@ applier_new(const char *uri, struct xstream *join_stream,
 	fiber_cond_create(&applier->resume_cond);
 	fiber_cond_create(&applier->writer_cond);
 
+	ibuf_create(&applier->row_buf, &cord()->slabc, 8 * sizeof(struct xrow_header));
+
 	return applier;
 }
 
@@ -742,6 +783,7 @@ applier_delete(struct applier *applier)
 	trigger_destroy(&applier->on_state);
 	fiber_cond_destroy(&applier->resume_cond);
 	fiber_cond_destroy(&applier->writer_cond);
+	ibuf_destroy(&applier->row_buf);
 	free(applier);
 }
 

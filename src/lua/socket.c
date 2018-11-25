@@ -391,11 +391,13 @@ static const struct { char name[32]; int value; } ai_flags[] = {
 #ifdef AI_CANONIDN
 	{"AI_CANONIDN",			AI_CANONIDN			},
 #endif
+#if false
 #ifdef AI_IDN_ALLOW_UNASSIGNED
 	{"AI_IDN_ALLOW_UNASSIGNED",	AI_IDN_ALLOW_UNASSIGNED		},
 #endif
 #ifdef AI_IDN_USE_STD3_ASCII_RULES
 	{"AI_IDN_USE_STD3_ASCII_RULES",	AI_IDN_USE_STD3_ASCII_RULES	},
+#endif
 #endif
 #ifdef AI_NUMERICSERV
 	{"AI_NUMERICSERV",		AI_NUMERICSERV			},

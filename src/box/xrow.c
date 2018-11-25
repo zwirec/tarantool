@@ -227,7 +227,7 @@ xrow_header_encode(const struct xrow_header *header, uint64_t sync,
 		d = mp_encode_double(d, header->tm);
 		map_size++;
 	}
-	if (header->txn != 0 && header->txn != header->lsn) {
+	if (header->txn != 0) {
 		d = mp_encode_uint(d, IPROTO_TXN);
 		d = mp_encode_uint(d, header->txn);
 		map_size++;

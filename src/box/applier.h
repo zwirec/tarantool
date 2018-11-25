@@ -120,6 +120,7 @@ struct applier {
 	struct xstream *join_stream;
 	/** xstream to process rows during final JOIN and SUBSCRIBE */
 	struct xstream *subscribe_stream;
+	struct ibuf row_buf;
 };
 
 /**
