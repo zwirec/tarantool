@@ -212,6 +212,8 @@ xlog_write_entry(struct xlog *l, struct journal_entry *entry)
 		(*row)->tm = ev_now(loop());
 		if (row < entry->rows + entry->n_rows - 1)
 			(*row)->txn = txn;
+		else
+			(*row)->txn = 0;
 		struct errinj *inj = errinj(ERRINJ_WAL_BREAK_LSN, ERRINJ_INT);
 		if (inj != NULL && inj->iparam == (*row)->lsn) {
 			(*row)->lsn = inj->iparam - 1;
