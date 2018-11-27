@@ -1048,7 +1048,7 @@ sql_encode_table_opts(struct region *region, struct Table *table,
 	int checks_cnt = 0;
 	struct ExprList_item *a;
 	bool is_view = table->def->opts.is_view;
-	struct ExprList *checks = table->def->opts.checks;
+	struct ExprList *checks = table->def->opts.checks_ast;
 	if (checks != NULL) {
 		checks_cnt = checks->nExpr;
 		a = checks->a;
