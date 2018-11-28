@@ -592,15 +592,6 @@ try{
 			}
 			++rrow;
 		}
-		if (false && res == 0) {
-			rrow = (struct xrow_header *)applier->row_buf.rpos;
-			while (rrow <= row) {
-				vclock_follow_xrow(&replicaset.vclock, rrow);
-				rrow++;
-			}
-		}
-		latch_unlock(latch);
-		latch = NULL;
 		if (res != 0) {
 			if (txn != NULL) {
 				txn_rollback();
@@ -623,6 +614,8 @@ try{
 
 		if (res == 0 && txn != NULL)
 			res = txn_commit(txn);
+		latch_unlock(latch);
+		latch = NULL;
 		obuf_reset(&req_buf);
 		ibuf_reset(&applier->row_buf);
 		if (txn != NULL && res != 0)
