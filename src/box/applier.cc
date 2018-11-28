@@ -469,6 +469,10 @@ applier_subscribe(struct applier *applier)
 	/*
 	 * Process a stream of rows from the binary log.
 	 */
+	struct obuf req_buf;
+	obuf_create(&req_buf, &cord()->slabc, 16384);
+struct latch *latch = NULL;
+try{
 	while (true) {
 		row = (struct xrow_header *)ibuf_alloc(&applier->row_buf,
 						       sizeof(struct xrow_header));
@@ -509,7 +513,6 @@ applier_subscribe(struct applier *applier)
 			double timeout = replication_disconnect_timeout();
 			coio_read_xrow_timeout_xc(coio, ibuf, row, timeout);
 		}
-
 		if (iproto_type_is_error(row->type))
 			xrow_decode_error_xc(row);  /* error */
 		/* Replication request. */
@@ -524,19 +527,31 @@ applier_subscribe(struct applier *applier)
 				  tt_uuid_str(&REPLICASET_UUID));
 		}
 
+
 		applier->lag = ev_now(loop()) - row->tm;
 		applier->last_row_time = ev_monotonic_now(loop());
 
 		struct replica *replica = replica_by_id(row->replica_id);
-		struct latch *latch = (replica ? &replica->order_latch :
-				       &replicaset.applier.order_latch);
+
+		if (row->body->iov_base != NULL) {
+			void *new_base = obuf_alloc(&req_buf, row->body->iov_len);
+			memcpy(new_base, row->body->iov_base, row->body->iov_len);
+			row->body->iov_base = new_base;
+		}
 		// latch server for first row in transaction
 		if (ibuf_used(&applier->row_buf) == sizeof(struct xrow_header)) {
+			latch = (replica ? &replica->order_latch :
+				       &replicaset.applier.order_latch);
 			latch_lock(latch);
 		}
+		struct txn *txn = NULL;
+		int res = 0;
 		if (vclock_get(&replicaset.vclock, row->replica_id) >= row->lsn) {
 			ibuf_reset(&applier->row_buf);
+			obuf_reset(&req_buf);
 			latch_unlock(latch);
+			latch = NULL;
+			goto sig;
 			continue;
 		}
 
@@ -555,29 +570,44 @@ applier_subscribe(struct applier *applier)
 
 		// Transaction is not finished
 		if (row->txn != 0)
-			continue;
+			goto sig;
 
+		struct xrow_header *rrow;
+		if (res == 0) {
+			rrow = (struct xrow_header *)applier->row_buf.rpos;
+			while (rrow <= row) {
+				vclock_follow_xrow(&replicaset.vclock, rrow);
+				rrow++;
+			}
+		}
 
-		int res;
-		struct xrow_header *rrow = (struct xrow_header *)applier->row_buf.rpos;
-		struct txn *txn = txn_begin(false);
+		rrow = (struct xrow_header *)applier->row_buf.rpos;
+
+		if (rrow != row)
+			txn = txn_begin(false);
 		while (rrow <= row) {
-			/**
-			 * Promote the replica set vclock before
-			 * applying the row. If there is an
-			 * exception (conflict) applying the row,
-			 * the row is skipped when the replication
-			 * is resumed.
-			 */
-			vclock_follow_xrow(&replicaset.vclock, row);
-			res = xstream_write(applier->subscribe_stream, row);
-			++rrow;
-			if (res != 0)
+			res = xstream_write(applier->subscribe_stream, rrow);
+			if (res != 0) {
 				break;
+			}
+			++rrow;
+		}
+		if (false && res == 0) {
+			rrow = (struct xrow_header *)applier->row_buf.rpos;
+			while (rrow <= row) {
+				vclock_follow_xrow(&replicaset.vclock, rrow);
+				rrow++;
+			}
 		}
 		latch_unlock(latch);
+		latch = NULL;
 		if (res != 0) {
-			txn_rollback();
+			if (txn != NULL) {
+				txn_rollback();
+				txn = NULL;
+			}
+			obuf_reset(&req_buf);
+			ibuf_reset(&applier->row_buf);
 			struct error *e = diag_last_error(diag_get());
 			/**
 			 * Silently skip ER_TUPLE_FOUND error if such
@@ -590,8 +620,14 @@ applier_subscribe(struct applier *applier)
 			else
 				diag_raise();
 		}
-		txn_commit(txn);
+
+		if (res == 0 && txn != NULL)
+			res = txn_commit(txn);
+		obuf_reset(&req_buf);
 		ibuf_reset(&applier->row_buf);
+		if (txn != NULL && res != 0)
+			diag_raise();
+sig:
 		if (applier->state == APPLIER_SYNC ||
 		    applier->state == APPLIER_FOLLOW) {
 			fiber_cond_signal(&applier->writer_cond);
@@ -600,6 +636,11 @@ applier_subscribe(struct applier *applier)
 			ibuf_reset(ibuf);
 		fiber_gc();
 	}
+} catch(...) {
+	if (latch != NULL)
+		latch_unlock(latch);
+	throw;
+}
 }
 
 static inline void
