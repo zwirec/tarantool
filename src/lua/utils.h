@@ -525,6 +525,40 @@ luaL_checkfinite(struct lua_State *L, struct luaL_serializer *cfg,
 		luaL_error(L, "number must not be NaN or Inf");
 }
 
+/* {{{ Helper functions to interact with a Lua iterator from C */
+
+/**
+ * Holds iterator state (references to Lua objects).
+ */
+struct luaL_iterator;
+
+/**
+ * Create a Lua iterator from a gen, param, state triplet.
+ *
+ * If idx == 0, then three top stack values are used as the
+ * triplet.
+ *
+ * Otherwise idx is index on Lua stack points to a
+ * {gen, param, state} table.
+ */
+struct luaL_iterator *
+luaL_iterator_new(lua_State *L, int idx);
+
+/**
+ * Move iterator to the next value. Push values returned by
+ * gen(param, state) and return its count. Zero means no more
+ * results available.
+ */
+int
+luaL_iterator_next(lua_State *L, struct luaL_iterator *it);
+
+/**
+ * Free all resources held by the iterator.
+ */
+void luaL_iterator_delete(lua_State *L, struct luaL_iterator *it);
+
+/* }}} */
+
 int
 tarantool_lua_utils_init(struct lua_State *L);
 
