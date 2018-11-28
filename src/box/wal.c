@@ -850,10 +850,6 @@ done:
 				vclock_follow_xrow(&writer->wal_vclock, *row);
 		}
 
-	say_error("wal upd %s to %s",
-		  vclock_to_string(&writer->req_vclock),
-		  vclock_to_string(&writer->wal_vclock));
-
 	if (!stailq_empty(&rollback)) {
 		/* Update status of the successfully committed requests. */
 		stailq_foreach_entry(entry, &rollback, fifo)
@@ -937,7 +933,6 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 		 */
 		say_error("Aborting transaction %llu during "
 			  "cascading rollback",
-			  //FIXME writer in 
 			  vclock_sum(&writer->wal_vclock));
 		return -1;
 	}
@@ -976,7 +971,6 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 	 */
 	bool cancellable = fiber_set_cancellable(false);
 
-	say_error("wal enter %s", vclock_to_string(&replicaset.vclock));
 	fiber_yield(); /* Request was inserted. */
 	fiber_set_cancellable(cancellable);
 	if (entry->res < 0) {
@@ -986,7 +980,6 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 		stailq_shift(&writer->rollback);
 		fiber_cond_broadcast(&writer->rollback_cond);
 	}
-	say_error("wal out %i %s", entry->res, vclock_to_string(&replicaset.vclock));
 	return entry->res;
 }
 
