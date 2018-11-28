@@ -151,6 +151,7 @@ struct wal_msg {
 	 * be rolled back.
 	 */
 	struct stailq rollback;
+	struct vclock wal_vclock;
 };
 
 /**
@@ -259,34 +260,6 @@ wal_writer_end_rollback(struct cmsg *msg)
 	writer->in_rollback = false;
 }
 
-static void
-promote_entry(struct journal_entry *entry)
-{
-	struct xrow_header **last = entry->rows + entry->n_rows - 1;
-	while (last >= entry->rows) {
-		/*
-		 * Find last row from local instance id
-		 * and promote vclock.
-		 */
-		if ((*last)->replica_id == instance_id) {
-			/*
-			 * In master-master configuration, during sudden
-			 * power-loss, if the data have not been written
-			 * to WAL but have already been sent to others,
-			 * they will send the data back. In this case
-			 * vclock has already been promoted by applier.
-			 */
-			if (vclock_get(&replicaset.vclock,
-				       instance_id) < (*last)->lsn) {
-				vclock_follow_xrow(&replicaset.vclock,
-						   *last);
-			}
-			break;
-		}
-		--last;
-	}
-}
-
 /**
  * Complete execution of a batch of WAL write requests:
  * schedule all committed requests, and, should there
@@ -299,9 +272,10 @@ tx_schedule_commit(struct cmsg *msg)
 	struct wal_writer *writer = &wal_writer_singleton;
 	struct wal_msg *batch = (struct wal_msg *) msg;
 	if (!stailq_empty(&batch->commit)) {
-		struct journal_entry *entry;
-		stailq_foreach_entry(entry, &batch->commit, fifo)
-			promote_entry(entry);
+		vclock_copy(&replicaset.vclock, &batch->wal_vclock);
+//		struct journal_entry *entry;
+//		stailq_foreach_entry(entry, &batch->commit, fifo)
+//			promote_entry(entry);
 	}
 	/*
 	 * Move the rollback list to the writer first, since
@@ -769,6 +743,7 @@ wal_write_to_disk(struct cmsg *msg)
 		usleep(10);
 	struct journal_entry *entry;
 
+	vclock_copy(&wal_msg->wal_vclock, &writer->wal_vclock);
 	if (writer->in_rollback ||	/* We're rolling back a failed write. */
 	   wal_opt_rotate(writer) != 0 ||	/* Xlog is only rotated between queue processing  */
 	   wal_fallocate(writer, wal_msg->approx_len) != 0)	/* Ensure there's enough disk space before writing anything. */
@@ -849,6 +824,7 @@ done:
 			     ++row)
 				vclock_follow_xrow(&writer->wal_vclock, *row);
 		}
+	vclock_copy(&wal_msg->wal_vclock, &writer->wal_vclock);
 
 	if (!stailq_empty(&rollback)) {
 		/* Update status of the successfully committed requests. */

@@ -573,14 +573,6 @@ try{
 			goto sig;
 
 		struct xrow_header *rrow;
-		if (res == 0) {
-			rrow = (struct xrow_header *)applier->row_buf.rpos;
-			while (rrow <= row) {
-				vclock_follow_xrow(&replicaset.vclock, rrow);
-				rrow++;
-			}
-		}
-
 		rrow = (struct xrow_header *)applier->row_buf.rpos;
 
 		if (rrow != row)
