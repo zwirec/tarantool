@@ -139,6 +139,7 @@ struct relay {
 		/** Known relay vclock. */
 		struct vclock vclock;
 	} tx;
+	struct ibuf send_buf;
 };
 
 struct diag*
@@ -279,12 +280,19 @@ relay_final_join_f(va_list ap)
 	struct relay *relay = va_arg(ap, struct relay *);
 	coio_enable();
 	relay_set_cord_name(relay->io.fd);
+	ibuf_create(&relay->send_buf, &cord()->slabc, 16384);
 
 	/* Send all WALs until stop_vclock */
 	assert(relay->stream.write != NULL);
 	recover_remaining_wals(relay->r, &relay->stream,
 			       &relay->stop_vclock, true);
+	if (ibuf_used(&relay->send_buf) > 0) {
+		coio_write(&relay->io, relay->send_buf.rpos,
+			   ibuf_used(&relay->send_buf));
+		ibuf_reset(&relay->send_buf);
+	}
 	assert(vclock_compare(&relay->r->vclock, &relay->stop_vclock) == 0);
+	ibuf_destroy(&relay->send_buf);
 	return 0;
 }
 
@@ -422,6 +430,11 @@ relay_process_wal_event(struct wal_watcher_msg *msg)
 	try {
 		recover_remaining_wals(relay->r, &relay->stream, NULL,
 				       (msg->events & WAL_EVENT_ROTATE) != 0);
+		if (ibuf_used(&relay->send_buf) > 0) {
+			coio_write(&relay->io, relay->send_buf.rpos,
+				   ibuf_used(&relay->send_buf));
+			ibuf_reset(&relay->send_buf);
+		}
 	} catch (Exception *e) {
 		e->log();
 		diag_move(diag_get(), &relay->diag);
@@ -495,6 +508,7 @@ relay_subscribe_f(va_list ap)
 {
 	struct relay *relay = va_arg(ap, struct relay *);
 	struct recovery *r = relay->r;
+	ibuf_create(&relay->send_buf, &cord()->slabc, 16384);
 
 	coio_enable();
 	cbus_endpoint_create(&relay->endpoint, cord_name(cord()),
@@ -589,6 +603,7 @@ relay_subscribe_f(va_list ap)
 	if (inj != NULL && inj->dparam > 0)
 		fiber_sleep(inj->dparam);
 
+	ibuf_destroy(&relay->send_buf);
 	return diag_is_empty(diag_get()) ? 0: -1;
 }
 
@@ -696,6 +711,21 @@ relay_send_row(struct xstream *stream, struct xrow_header *packet)
 			say_warn("injected broken lsn: %lld",
 				 (long long) packet->lsn);
 		}
-		relay_send(relay, packet);
+		packet->sync = relay->sync;
+		relay->last_row_tm = ev_monotonic_now(loop());
+		struct iovec iov[XROW_IOVMAX];
+		int iovcnt = xrow_to_iovec_xc(packet, iov);
+		int i;
+		for (i = 0; i < iovcnt; ++i) {
+			void *p = ibuf_alloc(&relay->send_buf, iov[i].iov_len);
+			memcpy(p, iov[i].iov_base, iov[i].iov_len);
+		}
+		if (packet->txn == 0 && ibuf_used(&relay->send_buf) >= 64 * 1024) {
+			coio_write(&relay->io, relay->send_buf.rpos,
+				   ibuf_used(&relay->send_buf));
+			ibuf_reset(&relay->send_buf);
+		}
+
+//		relay_send(relay, packet);
 	}
 }
