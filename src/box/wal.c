@@ -118,7 +118,8 @@ struct wal_writer
 	 * to the log with this LSN, WAL writer vclock is advanced
 	 * with this LSN and LSN becomes "real".
 	 */
-	struct vclock vclock;
+	struct vclock req_vclock;
+	struct vclock wal_vclock;
 	/**
 	 * Signature of the oldest checkpoint available on the instance.
 	 * The WAL writer must not delete WAL files that are needed to
@@ -360,8 +361,10 @@ wal_writer_create(struct wal_writer *writer, enum wal_mode wal_mode,
 	writer->in_rollback = false;
 
 	/* Create and fill writer->vclock. */
-	vclock_create(&writer->vclock);
-	vclock_copy(&writer->vclock, vclock);
+	vclock_create(&writer->req_vclock);
+	vclock_copy(&writer->req_vclock, vclock);
+	vclock_create(&writer->wal_vclock);
+	vclock_copy(&writer->wal_vclock, vclock);
 
 	writer->checkpoint_lsn = checkpoint_lsn;
 	rlist_create(&writer->watchers);
@@ -397,8 +400,9 @@ wal_open_f(struct cbus_call_msg *msg)
 {
 	(void)msg;
 	struct wal_writer *writer = &wal_writer_singleton;
+	//FIXME: do not use writer from wal thread
 	const char *path = xdir_format_filename(&writer->wal_dir,
-				vclock_sum(&writer->vclock), NONE);
+				vclock_sum(&writer->wal_vclock), NONE);
 	assert(!xlog_is_open(&writer->current_wal));
 	return xlog_open(&writer->current_wal, path);
 }
@@ -410,7 +414,7 @@ static int
 wal_open(struct wal_writer *writer)
 {
 	const char *path = xdir_format_filename(&writer->wal_dir,
-				vclock_sum(&writer->vclock), NONE);
+				vclock_sum(&writer->wal_vclock), NONE);
 	if (access(path, F_OK) != 0) {
 		if (errno == ENOENT) {
 			/* No WAL, nothing to do. */
@@ -537,14 +541,14 @@ wal_checkpoint_f(struct cmsg *data)
 	 */
 	if (msg->rotate && xlog_is_open(&writer->current_wal) &&
 	    vclock_sum(&writer->current_wal.meta.vclock) !=
-	    vclock_sum(&writer->vclock)) {
+	    vclock_sum(&writer->wal_vclock)) {
 
 		xlog_close(&writer->current_wal, false);
 		/*
 		 * The next WAL will be created on the first write.
 		 */
 	}
-	vclock_copy(msg->vclock, &writer->vclock);
+	vclock_copy(msg->vclock, &writer->wal_vclock);
 }
 
 void
@@ -568,11 +572,11 @@ wal_checkpoint(struct vclock *vclock, bool rotate)
 		 */
 		say_error("Aborting transaction %llu during "
 			  "cascading rollback",
-			  vclock_sum(&writer->vclock));
+			  vclock_sum(&writer->wal_vclock));
 		return -1;
 	}
 	if (writer->wal_mode == WAL_NONE) {
-		vclock_copy(vclock, &writer->vclock);
+		vclock_copy(vclock, &writer->wal_vclock);
 		return 0;
 	}
 	static struct cmsg_hop wal_checkpoint_route[] = {
@@ -664,7 +668,7 @@ wal_opt_rotate(struct wal_writer *writer)
 		return 0;
 
 	if (xdir_create_xlog(&writer->wal_dir, &writer->current_wal,
-			     &writer->vclock) != 0) {
+			     &writer->wal_vclock) != 0) {
 		diag_log();
 		return -1;
 	}
@@ -672,7 +676,7 @@ wal_opt_rotate(struct wal_writer *writer)
 	 * Keep track of the new WAL vclock. Required for garbage
 	 * collection, see wal_collect_garbage().
 	 */
-	xdir_add_vclock(&writer->wal_dir, &writer->vclock);
+	xdir_add_vclock(&writer->wal_dir, &writer->wal_vclock);
 
 	wal_notify_watchers(writer, WAL_EVENT_ROTATE);
 	return 0;
@@ -745,10 +749,10 @@ wal_assign_lsn(struct wal_writer *writer, struct xrow_header **row,
 	/** Assign LSN to all local rows. */
 	for ( ; row < end; row++) {
 		if ((*row)->replica_id == 0) {
-			(*row)->lsn = vclock_inc(&writer->vclock, instance_id);
+			(*row)->lsn = vclock_inc(&writer->req_vclock, instance_id);
 			(*row)->replica_id = instance_id;
 		} else {
-			vclock_follow_xrow(&writer->vclock, *row);
+			vclock_follow_xrow(&writer->req_vclock, *row);
 		}
 	}
 }
@@ -806,7 +810,7 @@ wal_write_to_disk(struct cmsg *msg)
 //		if (entry->n_rows > 1)
 //			++entry->n_rows;
 		wal_assign_lsn(writer, entry->rows, entry->rows + entry->n_rows);
-		entry->res = vclock_sum(&writer->vclock);
+		entry->res = vclock_sum(&writer->req_vclock);
 		int rc = xlog_write_entry(l, entry);
 		if (rc < 0)
 			goto done;
@@ -836,6 +840,20 @@ done:
 	struct stailq rollback;
 	stailq_cut_tail(&wal_msg->commit, last_committed, &rollback);
 
+	if (stailq_empty(&rollback))
+		vclock_copy(&writer->wal_vclock, &writer->req_vclock);
+	else
+		stailq_foreach_entry(entry, &wal_msg->commit, fifo) {
+			struct xrow_header **row;
+			for (row = entry->rows; row < entry->rows + entry->n_rows;
+			     ++row)
+				vclock_follow_xrow(&writer->wal_vclock, *row);
+		}
+
+	say_error("wal upd %s to %s",
+		  vclock_to_string(&writer->req_vclock),
+		  vclock_to_string(&writer->wal_vclock));
+
 	if (!stailq_empty(&rollback)) {
 		/* Update status of the successfully committed requests. */
 		stailq_foreach_entry(entry, &rollback, fifo)
@@ -843,6 +861,7 @@ done:
 		/* Rollback unprocessed requests */
 		stailq_concat(&wal_msg->rollback, &rollback);
 		writer->in_rollback = true;
+		vclock_copy(&writer->req_vclock, &writer->wal_vclock);
 	}
 	fiber_gc();
 	wal_notify_watchers(writer, WAL_EVENT_WRITE);
@@ -877,11 +896,11 @@ wal_thread_f(va_list ap)
 	 */
 	if (writer->wal_mode != WAL_NONE &&
 	    (!xlog_is_open(&writer->current_wal) ||
-	     vclock_compare(&writer->vclock,
+	     vclock_compare(&writer->wal_vclock,
 			    &writer->current_wal.meta.vclock) > 0)) {
 		struct xlog l;
 		if (xdir_create_xlog(&writer->wal_dir, &l,
-				     &writer->vclock) == 0)
+				     &writer->wal_vclock) == 0)
 			xlog_close(&l, false);
 		else
 			diag_log();
@@ -918,7 +937,8 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 		 */
 		say_error("Aborting transaction %llu during "
 			  "cascading rollback",
-			  vclock_sum(&writer->vclock));
+			  //FIXME writer in 
+			  vclock_sum(&writer->wal_vclock));
 		return -1;
 	}
 
@@ -955,6 +975,8 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 	 * transaction.
 	 */
 	bool cancellable = fiber_set_cancellable(false);
+
+	say_error("wal enter %s", vclock_to_string(&replicaset.vclock));
 	fiber_yield(); /* Request was inserted. */
 	fiber_set_cancellable(cancellable);
 	if (entry->res < 0) {
@@ -964,6 +986,7 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 		stailq_shift(&writer->rollback);
 		fiber_cond_broadcast(&writer->rollback_cond);
 	}
+	say_error("wal out %i %s", entry->res, vclock_to_string(&replicaset.vclock));
 	return entry->res;
 }
 
@@ -973,13 +996,14 @@ wal_write_in_wal_mode_none(struct journal *journal,
 {
 	struct wal_writer *writer = (struct wal_writer *) journal;
 	wal_assign_lsn(writer, entry->rows, entry->rows + entry->n_rows);
+	vclock_copy(&writer->wal_vclock, &writer->req_vclock);
 	int64_t old_lsn = vclock_get(&replicaset.vclock, instance_id);
-	int64_t new_lsn = vclock_get(&writer->vclock, instance_id);
+	int64_t new_lsn = vclock_get(&writer->wal_vclock, instance_id);
 	if (new_lsn > old_lsn) {
 		/* There were local writes, promote vclock. */
 		vclock_follow(&replicaset.vclock, instance_id, new_lsn);
 	}
-	return vclock_sum(&writer->vclock);
+	return vclock_sum(&writer->wal_vclock);
 }
 
 void
@@ -1072,7 +1096,7 @@ wal_watcher_notify(struct wal_watcher *watcher, unsigned events)
 
 	msg->events = events;
 	if (xdir_first_vclock(&writer->wal_dir, &msg->gc_vclock) < 0)
-		vclock_copy(&msg->gc_vclock, &writer->vclock);
+		vclock_copy(&msg->gc_vclock, &writer->wal_vclock);
 
 	cmsg_init(&msg->cmsg, watcher->route);
 	cpipe_push(&watcher->watcher_pipe, &msg->cmsg);
