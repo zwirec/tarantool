@@ -51,6 +51,7 @@ extern const char *sql_info_key_strs[];
 struct obuf;
 struct region;
 struct sql_bind;
+struct sqlite3_stmt;
 
 /** Response on EXECUTE request. */
 struct sql_response {
@@ -131,6 +132,57 @@ int
 sql_prepare_and_execute(const char *sql, int len, const struct sql_bind *bind,
 			uint32_t bind_count, struct sql_response *response,
 			struct region *region);
+
+/**
+ * Name and value of an SQL prepared statement parameter.
+ * @todo: merge with sqlite3_value.
+ */
+struct sql_bind {
+	/** Bind name. NULL for ordinal binds. */
+	const char *name;
+	/** Length of the @name. */
+	uint32_t name_len;
+	/** Ordinal position of the bind, for ordinal binds. */
+	uint32_t pos;
+
+	/** Byte length of the value. */
+	uint32_t bytes;
+	/** SQL type of the value. */
+	uint8_t type;
+	/** Bind value. */
+	union {
+		double d;
+		int64_t i64;
+		/** For string or blob. */
+		const char *s;
+	};
+};
+
+/**
+ * Decode a single bind column from the binary protocol packet.
+ * @param[out] bind Bind to decode to.
+ * @param i Ordinal bind number.
+ * @param packet MessagePack encoded parameter value. Either
+ *        scalar or map: {string_name: scalar_value}.
+ *
+ * @retval  0 Success.
+ * @retval -1 Memory or client error.
+ */
+int
+sql_bind_decode(struct sql_bind *bind, int i, const char **packet);
+
+/**
+ * Bind SQL parameter value to its position.
+ * @param stmt Prepared statement.
+ * @param p Parameter value.
+ * @param pos Ordinal bind position.
+ *
+ * @retval  0 Success.
+ * @retval -1 SQL error.
+ */
+int
+sql_bind_column(struct sqlite3_stmt *stmt, const struct sql_bind *p,
+		uint32_t pos);
 
 #if defined(__cplusplus)
 } /* extern "C" { */
