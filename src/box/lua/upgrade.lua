@@ -613,6 +613,31 @@ local function upgrade_to_2_1_0()
     upgrade_priv_to_2_1_0()
 end
 
+--------------------------------------------------------------------------------
+-- Tarantool 2.1.1
+--------------------------------------------------------------------------------
+
+local function upgrade_sql_stat_to_2_1_1(space_id, parts)
+    local _sql_stat = box.space[space_id]
+
+    local stats = _sql_stat:select()
+    for _, v in pairs(stats) do _sql_stat:delete{v.tbl, v.idx} end
+
+    local format = _sql_stat:format()
+    format[1].name = 'space_id'
+    format[1].type = 'unsigned'
+    format[2].name = 'index_id'
+    format[2].type = 'unsigned'
+    _sql_stat.index.primary:alter{parts={3, 'string'}}
+    _sql_stat:format(format)
+    _sql_stat.index.primary:alter{parts=parts}
+end
+
+local function upgrade_to_2_1_1()
+    upgrade_sql_stat_to_2_1_1(box.schema.SQL_STAT1_ID, {1, 'unsigned', 2, 'unsigned'})
+    upgrade_sql_stat_to_2_1_1(box.schema.SQL_STAT4_ID, {1, 'unsigned', 2, 'unsigned', 6, 'scalar'})
+end
+
 local function get_version()
     local version = box.space._schema:get{'version'}
     if version == nil then
@@ -640,7 +665,8 @@ local function upgrade(options)
         {version = mkversion(1, 7, 7), func = upgrade_to_1_7_7, auto = true},
         {version = mkversion(1, 10, 0), func = upgrade_to_1_10_0, auto = true},
         {version = mkversion(1, 10, 2), func = upgrade_to_1_10_2, auto = true},
-        {version = mkversion(2, 1, 0), func = upgrade_to_2_1_0, auto = true}
+        {version = mkversion(2, 1, 0), func = upgrade_to_2_1_0, auto = true},
+        {version = mkversion(2, 1, 1), func = upgrade_to_2_1_1, auto = true}
     }
 
     for _, handler in ipairs(handlers) do
