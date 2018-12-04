@@ -195,3 +195,6 @@ target_link_libraries(coll.test core unit ${ICU_LIBRARIES} misc)
 
 add_executable(tuple_bigref.test tuple_bigref.c)
 target_link_libraries(tuple_bigref.test tuple unit)
+
+add_executable(coll_bench.test coll_bench.cpp)
+target_link_libraries(coll_bench.test core unit ${ICU_LIBRARIES} misc)
