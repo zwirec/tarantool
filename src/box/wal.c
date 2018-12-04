@@ -139,6 +139,8 @@ struct wal_writer
 	 * Used for replication relays.
 	 */
 	struct rlist watchers;
+	// vclock to commit
+	struct vclock req_vclock;
 };
 
 struct wal_msg {
@@ -152,6 +154,8 @@ struct wal_msg {
 	 * be rolled back.
 	 */
 	struct stailq rollback;
+
+	struct vclock vclock;
 };
 
 /**
@@ -265,6 +269,7 @@ tx_schedule_commit(struct cmsg *msg)
 		/* Closes the input valve. */
 		stailq_concat(&writer->rollback, &batch->rollback);
 	}
+	vclock_copy(&replicaset.vclock, &batch->vclock);
 	tx_schedule_queue(&batch->commit);
 }
 
@@ -314,6 +319,7 @@ wal_writer_create(struct wal_writer *writer, enum wal_mode wal_mode,
 	/* Create and fill writer->vclock. */
 	vclock_create(&writer->vclock);
 	vclock_copy(&writer->vclock, vclock);
+	vclock_copy(&writer->req_vclock, vclock);
 
 	writer->checkpoint_lsn = checkpoint_lsn;
 	rlist_create(&writer->watchers);
@@ -743,10 +749,10 @@ wal_assign_lsn(struct wal_writer *writer, struct xrow_header **row,
 	/** Assign LSN to all local rows. */
 	for ( ; row < end; row++) {
 		if ((*row)->replica_id == 0) {
-			(*row)->lsn = vclock_inc(&writer->vclock, instance_id);
+			(*row)->lsn = vclock_inc(&writer->req_vclock, instance_id);
 			(*row)->replica_id = instance_id;
 		} else {
-			vclock_follow_xrow(&writer->vclock, *row);
+			vclock_follow_xrow(&writer->req_vclock, *row);
 		}
 	}
 }
@@ -814,14 +820,17 @@ wal_write_to_disk(struct cmsg *msg)
 		int rc = xlog_write_entry(l, entry);
 		if (rc < 0)
 			goto done;
-		if (rc > 0)
+		if (rc > 0) {
 			last_committed = &entry->fifo;
+			vclock_copy(&writer->vclock, &writer->req_vclock);
+		}
 		/* rc == 0: the write is buffered in xlog_tx */
 	}
 	if (xlog_flush(l) < 0)
 		goto done;
 
 	last_committed = stailq_last(&wal_msg->commit);
+	vclock_copy(&writer->vclock, &writer->req_vclock);
 
 done:
 	error = diag_last_error(diag_get());
@@ -830,6 +839,10 @@ done:
 		error_log(error);
 		diag_clear(diag_get());
 	}
+	// last successive vclock to batch
+	vclock_copy(&wal_msg->vclock, &writer->vclock);
+	// rollback request vclock to commited
+	vclock_copy(&writer->req_vclock, &writer->vclock);
 	/*
 	 * We need to start rollback from the first request
 	 * following the last committed request. If
@@ -961,31 +974,6 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 	bool cancellable = fiber_set_cancellable(false);
 	fiber_yield(); /* Request was inserted. */
 	fiber_set_cancellable(cancellable);
-	if (entry->res > 0) {
-		struct xrow_header **last = entry->rows + entry->n_rows - 1;
-		while (last >= entry->rows) {
-			/*
-			 * Find last row from local instance id
-			 * and promote vclock.
-			 */
-			if ((*last)->replica_id == instance_id) {
-				/*
-				 * In master-master configuration, during sudden
-				 * power-loss, if the data have not been written
-				 * to WAL but have already been sent to others,
-				 * they will send the data back. In this case
-				 * vclock has already been promoted by applier.
-				 */
-				if (vclock_get(&replicaset.vclock,
-					       instance_id) < (*last)->lsn) {
-					vclock_follow_xrow(&replicaset.vclock,
-							   *last);
-				}
-				break;
-			}
-			--last;
-		}
-	}
 	return entry->res;
 }
 

@@ -513,6 +513,10 @@ applier_subscribe(struct applier *applier)
 		applier->lag = ev_now(loop()) - row.tm;
 		applier->last_row_time = ev_monotonic_now(loop());
 
+			struct replica *replica = replica_by_id(row.replica_id);
+			struct latch *latch = (replica ? &replica->order_latch :
+					       &replicaset.applier.order_latch);
+		latch_lock(latch);
 		if (vclock_get(&replicaset.vclock, row.replica_id) < row.lsn) {
 			/**
 			 * Promote the replica set vclock before
@@ -521,10 +525,6 @@ applier_subscribe(struct applier *applier)
 			 * the row is skipped when the replication
 			 * is resumed.
 			 */
-			vclock_follow_xrow(&replicaset.vclock, &row);
-			struct replica *replica = replica_by_id(row.replica_id);
-			struct latch *latch = (replica ? &replica->order_latch :
-					       &replicaset.applier.order_latch);
 			/*
 			 * In a full mesh topology, the same set
 			 * of changes may arrive via two
@@ -537,7 +537,6 @@ applier_subscribe(struct applier *applier)
 			 * strictly order all changes which belong
 			 * to the same server id.
 			 */
-			latch_lock(latch);
 			int res = xstream_write(applier->subscribe_stream, &row);
 			latch_unlock(latch);
 			if (res != 0) {
@@ -553,7 +552,7 @@ applier_subscribe(struct applier *applier)
 				else
 					diag_raise();
 			}
-		}
+		} else latch_unlock(latch);
 		if (applier->state == APPLIER_SYNC ||
 		    applier->state == APPLIER_FOLLOW)
 			fiber_cond_signal(&applier->writer_cond);
