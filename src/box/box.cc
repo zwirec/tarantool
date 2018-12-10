@@ -1601,40 +1601,7 @@ box_process_subscribe(struct ev_io *io, struct xrow_header *header)
 			  "wal_mode = 'none'");
 	}
 
-	/*
-	 * Send a response to SUBSCRIBE request, tell
-	 * the replica how many rows we have in stock for it,
-	 * and identify ourselves with our own replica id.
-	 */
-	struct xrow_header row;
-	struct vclock current_vclock;
-	wal_checkpoint(&current_vclock, true);
-	xrow_encode_vclock_xc(&row, &current_vclock);
-	/*
-	 * Identify the message with the replica id of this
-	 * instance, this is the only way for a replica to find
-	 * out the id of the instance it has connected to.
-	 */
-	struct replica *self = replica_by_uuid(&INSTANCE_UUID);
-	assert(self != NULL); /* the local registration is read-only */
-	row.replica_id = self->id;
-	row.sync = header->sync;
-	coio_write_xrow(io, &row);
-
-	/*
-	 * Process SUBSCRIBE request via replication relay
-	 * Send current recovery vector clock as a marker
-	 * of the "current" state of the master. When
-	 * replica fetches rows up to this position,
-	 * it enters read-write mode.
-	 *
-	 * @todo: this is not implemented, this is imperfect, and
-	 * this is buggy in case there is rollback followed by
-	 * a stall in updates (in this case replica may hang
-	 * indefinitely).
-	 */
-	relay_subscribe(replica, io->fd, header->sync, &replica_clock,
-			replica_version_id);
+	wal_relay(replica, io, header->sync, &replica_clock);
 }
 
 void

@@ -41,8 +41,13 @@
 #include "xrow.h"
 #include "vy_log.h"
 #include "cbus.h"
+#include "coio.h"
 #include "coio_task.h"
 #include "replication.h"
+#include "recovery.h"
+#include "cfg.h"
+#include "xstream.h"
+#include "xrow_io.h"
 
 enum {
 	/**
@@ -87,6 +92,14 @@ struct wal_thread {
  * members used mainly in tx thread go first, wal thread members
  * following.
  */
+
+struct wal_buf_item {
+	struct vclock vclock;
+	uint64_t pos;
+	uint64_t size;
+	uint8_t buf_no;
+};
+
 struct wal_writer
 {
 	struct journal base;
@@ -138,6 +151,13 @@ struct wal_writer
 	bool in_rollback;
 	struct cmsg *last_batch;
 	struct fiber_cond rollback_cond;
+
+	struct rlist relay;
+	uint64_t buf_ver;
+	struct ibuf wal_buf_index;
+	struct ibuf wal_buf[2];
+
+	struct fiber_cond update_cond;
 };
 
 struct wal_msg {
@@ -153,6 +173,34 @@ struct wal_msg {
 	struct stailq rollback;
 	struct vclock wal_vclock;
 };
+
+#define WAL_RELAY_ONLINE   1
+#define WAL_RELAY_MEM      2
+#define WAL_RELAY_FILE     3
+#define WAL_RELAY_ERROR    4
+
+struct relay_status_msg {
+	/** Parent */
+	struct cmsg msg;
+	/** Relay instance */
+	struct wal_relay *relay;
+	/** Replica vclock. */
+	struct vclock vclock;
+};
+
+struct wal_relay {
+	struct rlist item;
+	uint32_t state;
+	struct vclock send_vclock;
+	struct vclock recv_vclock;
+	struct replica *replica;
+	struct fiber_cond online;
+	void *send_buf;
+	uint32_t to_send;
+	struct ev_io io;
+	struct fiber *fiber;
+};
+
 
 /**
  * Vinyl metadata log writer.
@@ -209,13 +257,7 @@ xlog_write_entry(struct xlog *l, struct journal_entry *entry)
 	 */
 	xlog_tx_begin(l);
 	struct xrow_header **row = entry->rows;
-	int64_t txn = entry->rows[0]->lsn;
 	for (; row < entry->rows + entry->n_rows; row++) {
-		(*row)->tm = ev_now(loop());
-		if (row < entry->rows + entry->n_rows - 1)
-			(*row)->txn = txn;
-		else
-			(*row)->txn = 0;
 		struct errinj *inj = errinj(ERRINJ_WAL_BREAK_LSN, ERRINJ_INT);
 		if (inj != NULL && inj->iparam == (*row)->lsn) {
 			(*row)->lsn = inj->iparam - 1;
@@ -339,11 +381,16 @@ wal_writer_create(struct wal_writer *writer, enum wal_mode wal_mode,
 	vclock_copy(&writer->req_vclock, vclock);
 	vclock_create(&writer->wal_vclock);
 	vclock_copy(&writer->wal_vclock, vclock);
+	struct wal_buf_item *last;
+	last = (struct wal_buf_item *)writer->wal_buf_index.wpos - 1;
+	vclock_copy(&last->vclock, vclock);
+
 
 	writer->checkpoint_lsn = checkpoint_lsn;
 	rlist_create(&writer->watchers);
 	writer->last_batch = NULL;
 	fiber_cond_create(&writer->rollback_cond);
+
 }
 
 /** Destroy a WAL writer structure. */
@@ -731,6 +778,134 @@ wal_assign_lsn(struct wal_writer *writer, struct xrow_header **row,
 	}
 }
 
+static char *
+wal_mem_prepare(struct wal_writer *writer)
+{
+	struct wal_buf_item *last;
+	last = (struct wal_buf_item *)writer->wal_buf_index.wpos - 1;
+	uint8_t buf_no = last->buf_no;
+	if (ibuf_used(&writer->wal_buf[buf_no]) > 8 * 1024 * 1024) {
+		struct wal_buf_item *first;
+		first = (struct wal_buf_item *)writer->wal_buf_index.rpos;
+		while (first->buf_no == 1 - buf_no)
+			++first;
+		writer->wal_buf_index.rpos = (char *)first;
+
+		buf_no = 1 - buf_no;
+		ibuf_reset(&writer->wal_buf[buf_no]);
+
+		if (last->size > 0)
+			last = (struct wal_buf_item *)ibuf_alloc(&writer->wal_buf_index,
+							 sizeof(struct wal_buf_item));
+		if (last == NULL)
+			return NULL;
+		last->buf_no = buf_no;
+		last->size = 0;
+		last->pos = 0;
+		vclock_copy(&last->vclock, &writer->req_vclock);
+	}
+	return writer->wal_buf[buf_no].wpos;
+}
+
+static char *
+wal_relay_broadcast(struct wal_writer *writer, const char *data)
+{
+	struct wal_relay *wal_relay;
+	struct wal_buf_item *last;
+	last = (struct wal_buf_item *)writer->wal_buf_index.wpos - 1;
+	struct ibuf *mem_buf = writer->wal_buf + last->buf_no;
+	ssize_t to_write = mem_buf->wpos - data;
+	rlist_foreach_entry(wal_relay, &writer->relay, item){
+		if (wal_relay->state != WAL_RELAY_ONLINE)
+			continue;
+		int written = write(wal_relay->io.fd, data, to_write);
+		if (written == to_write) {
+			vclock_copy(&wal_relay->send_vclock, &writer->wal_vclock);
+			continue;
+		}
+		if (written > 0) {
+			wal_relay->state = WAL_RELAY_MEM;
+			vclock_copy(&wal_relay->send_vclock, &writer->wal_vclock);
+			wal_relay->to_send = to_write - written;
+			wal_relay->send_buf = region_alloc(&wal_relay->fiber->gc,
+							   wal_relay->to_send);
+			if (wal_relay->send_buf != NULL)
+				memcpy(wal_relay->send_buf, data + written,
+				       wal_relay->to_send);
+			else
+				wal_relay->state = WAL_RELAY_ERROR;
+		} else {
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				wal_relay->state = WAL_RELAY_MEM;
+			else
+				wal_relay->state = WAL_RELAY_ERROR;
+		}
+		fiber_cond_signal(&wal_relay->online);
+	}
+	return mem_buf->wpos;
+}
+
+static ssize_t
+wal_encode_entry(struct wal_writer *writer, struct journal_entry *entry)
+{
+	struct wal_buf_item *last;
+	last = (struct wal_buf_item *)writer->wal_buf_index.wpos - 1;
+	int buf_no = last->buf_no;
+	struct ibuf *mem_buf = writer->wal_buf + buf_no;
+
+	if (last->size > 16384) {
+		last = (struct wal_buf_item *)
+			ibuf_alloc(&writer->wal_buf_index, sizeof(struct wal_buf_item));
+		if (last == NULL)
+			return -1;
+		last->size = 0;
+		last->buf_no = buf_no;
+		last->pos = ibuf_used(mem_buf);
+		vclock_copy(&last->vclock, &writer->req_vclock);
+	}
+
+	wal_assign_lsn(writer, entry->rows, entry->rows + entry->n_rows);
+	entry->res = vclock_sum(&writer->req_vclock);
+
+	struct xrow_header **row = entry->rows;
+	int64_t txn = entry->rows[0]->lsn;
+	for (; row < entry->rows + entry->n_rows; row++) {
+		(*row)->tm = ev_now(loop());
+		if (row < entry->rows + entry->n_rows - 1)
+			(*row)->txn = txn;
+		else
+			(*row)->txn = 0;
+	}
+
+	uint64_t old_size = last->size;
+
+	row = entry->rows;
+	while (row < entry->rows + entry->n_rows) {
+		struct iovec iov[XROW_IOVMAX];
+		int iovcnt = xrow_to_iovec(*row, iov);
+		if (iovcnt < 0)
+			goto error;
+		uint64_t xrow_size = 0;
+		for (int i = 0; i < iovcnt; ++i)
+			xrow_size += iov[i].iov_len;
+		if (ibuf_reserve(mem_buf, xrow_size) == NULL)
+			goto error;
+
+		for (int i = 0; i < iovcnt; ++i) {
+			memcpy(ibuf_alloc(mem_buf, iov[i].iov_len),
+			       iov[i].iov_base, iov[i].iov_len);
+			last->size += iov[i].iov_len;
+		}
+		++row;
+	}
+	return last->size - old_size;
+
+error:
+	last->size = old_size;
+	mem_buf->wpos = mem_buf->buf + last->pos + last->size;
+	return -1;
+}
+
 static void
 wal_write_to_disk(struct cmsg *msg)
 {
@@ -780,23 +955,32 @@ wal_write_to_disk(struct cmsg *msg)
 	/*
 	 * Iterate over requests (transactions)
 	 */
+
+	char *dirty_pos = wal_mem_prepare(writer);
+
 	struct stailq_entry *last_committed = NULL;
 	stailq_foreach_entry(entry, &wal_msg->commit, fifo) {
-//		if (entry->n_rows > 1)
-//			++entry->n_rows;
-		wal_assign_lsn(writer, entry->rows, entry->rows + entry->n_rows);
-		entry->res = vclock_sum(&writer->req_vclock);
-		int rc = xlog_write_entry(l, entry);
+		int rc = wal_encode_entry(writer, entry);
 		if (rc < 0)
 			goto done;
-		if (rc > 0)
-			last_committed = &entry->fifo;
+		rc = xlog_write_entry(l, entry);
+		if (rc < 0)
+			goto done;
+
 		/* rc == 0: the write is buffered in xlog_tx */
+		if (rc == 0)
+			continue;
+
+		last_committed = &entry->fifo;
+		vclock_copy(&writer->wal_vclock, &writer->req_vclock);
+		dirty_pos = wal_relay_broadcast(writer, dirty_pos);
 	}
 	if (xlog_flush(l) < 0)
 		goto done;
 
 	last_committed = stailq_last(&wal_msg->commit);
+	vclock_copy(&writer->wal_vclock, &writer->req_vclock);
+	dirty_pos = wal_relay_broadcast(writer, dirty_pos);
 
 done:
 	error = diag_last_error(diag_get());
@@ -815,15 +999,6 @@ done:
 	struct stailq rollback;
 	stailq_cut_tail(&wal_msg->commit, last_committed, &rollback);
 
-	if (stailq_empty(&rollback))
-		vclock_copy(&writer->wal_vclock, &writer->req_vclock);
-	else
-		stailq_foreach_entry(entry, &wal_msg->commit, fifo) {
-			struct xrow_header **row;
-			for (row = entry->rows; row < entry->rows + entry->n_rows;
-			     ++row)
-				vclock_follow_xrow(&writer->wal_vclock, *row);
-		}
 	vclock_copy(&wal_msg->wal_vclock, &writer->wal_vclock);
 
 	if (!stailq_empty(&rollback)) {
@@ -844,6 +1019,7 @@ static int
 wal_thread_f(va_list ap)
 {
 	(void) ap;
+	struct wal_writer *writer = &wal_writer_singleton;
 
 	/** Initialize eio in this thread */
 	coio_enable();
@@ -857,9 +1033,22 @@ wal_thread_f(va_list ap)
 	 */
 	cpipe_create(&wal_thread.tx_prio_pipe, "tx_prio");
 
+	writer->buf_ver = 0;
+	ibuf_create(&writer->wal_buf_index, &cord()->slabc, 8192);
+	struct wal_buf_item *ind;
+	ind = ibuf_alloc(&writer->wal_buf_index, sizeof(struct wal_buf_item));
+	fiber_cond_create(&writer->update_cond);
+	vclock_copy(&ind->vclock, &writer->wal_vclock);
+	ind->pos = 0;
+	ind->size = 0;
+	ind->buf_no = 0;
+	ibuf_create(&writer->wal_buf[0], &cord()->slabc, 65536);
+	ibuf_create(&writer->wal_buf[1], &cord()->slabc, 65536);
+	rlist_create(&writer->relay);
+
+
 	cbus_loop(&endpoint);
 
-	struct wal_writer *writer = &wal_writer_singleton;
 
 	/*
 	 * Create a new empty WAL on shutdown so that we don't
@@ -1193,3 +1382,307 @@ wal_atfork()
 	if (xlog_is_open(&vy_log_writer.xlog))
 		xlog_atfork(&vy_log_writer.xlog);
 }
+
+struct wal_relay_msg {
+	struct cmsg base;
+	struct replica *replica;
+	struct vclock vclock;
+	struct ev_io *io;
+	uint64_t sync;
+};
+
+static void
+wal_relay_start(struct cmsg *msg);
+
+void
+wal_relay(struct replica *replica, struct ev_io *io, uint64_t sync, struct vclock *vclock)
+{
+	static struct cmsg_hop wal_relay_start_route[1] = {
+		{wal_relay_start, NULL}
+	};
+
+	struct wal_relay_msg *msg;
+	msg = (struct wal_relay_msg *)malloc(sizeof(struct wal_relay_msg));
+
+	msg->replica = replica;
+	vclock_copy(&msg->vclock, vclock);
+	msg->io = io;
+	msg->sync = sync;
+	cmsg_init(&msg->base, wal_relay_start_route);
+	cpipe_push(&wal_thread.wal_pipe, &msg->base);
+	fiber_yield();
+}
+
+static int
+wal_relay_status_f(va_list ap)
+{
+	struct wal_writer *writer = &wal_writer_singleton;
+	struct wal_relay *relay = va_arg(ap, struct wal_relay *);
+
+	struct ibuf ibuf;
+	ibuf_create(&ibuf, &cord()->slabc, 1024);
+	while (!fiber_is_cancelled()) {
+		struct xrow_header xrow;
+		coio_read_xrow_timeout_xc(&relay->io, &ibuf, &xrow,
+				       replication_disconnect_timeout());
+		/* vclock is followed while decoding, zeroing it. */
+		vclock_create(&relay->recv_vclock);
+		xrow_decode_vclock(&xrow, &relay->recv_vclock);
+		fiber_cond_signal(&writer->update_cond);
+	}
+	return 0;
+}
+
+static int
+wal_relay_send_heartbeat(struct wal_relay *relay)
+{
+	struct xrow_header row;
+	xrow_encode_timestamp(&row, instance_id, ev_now(loop()));
+	coio_write_xrow(&relay->io, &row);
+	return 0;
+}
+
+struct relay_stream {
+	struct xstream xstream;
+	struct ibuf send_buf;
+	struct wal_relay *wal_relay;
+};
+
+/** Send a single row to the client. */
+static void
+relay_send_row(struct xstream *stream, struct xrow_header *packet)
+{
+	struct relay_stream *relay_stream = container_of(stream,
+							 struct relay_stream,
+							 xstream);
+	struct ibuf *send_buf = &relay_stream->send_buf;
+	struct wal_relay *wal_relay = relay_stream->wal_relay;
+	/*
+	 * Transform replica local requests to IPROTO_NOP so as to
+	 * promote vclock on the replica without actually modifying
+	 * any data.
+	 */
+	//FIXME: client side transform
+/*	if (packet->group_id == GROUP_LOCAL) {
+		packet->type = IPROTO_NOP;
+		packet->group_id = GROUP_DEFAULT;
+		packet->bodycnt = 0;
+	}*/
+	/*
+	 * We're feeding a WAL, thus responding to FINAL JOIN or SUBSCRIBE
+	 * request. If this is FINAL JOIN (i.e. relay->replica is NULL),
+	 * we must relay all rows, even those originating from the replica
+	 * itself (there may be such rows if this is rebootstrap). If this
+	 * SUBSCRIBE, only send a row if it is not from the same replica
+	 * (i.e. don't send replica's own rows back) or if this row is
+	 * missing on the other side (i.e. in case of sudden power-loss,
+	 * data was not written to WAL, so remote master can't recover
+	 * it). In the latter case packet's LSN is less than or equal to
+	 * local master's LSN at the moment it received 'SUBSCRIBE' request.
+	 */
+	if (true) {
+		struct errinj *inj = errinj(ERRINJ_RELAY_BREAK_LSN,
+					    ERRINJ_INT);
+		if (inj != NULL && packet->lsn == inj->iparam) {
+			packet->lsn = inj->iparam - 1;
+			say_warn("injected broken lsn: %lld",
+				 (long long) packet->lsn);
+		}
+	//	packet->sync = relay->sync;
+	//	relay->last_row_tm = ev_monotonic_now(loop());
+		struct iovec iov[XROW_IOVMAX];
+		int iovcnt = xrow_to_iovec(packet, iov);
+		int i;
+		for (i = 0; i < iovcnt; ++i) {
+			void *p = ibuf_alloc(send_buf, iov[i].iov_len);
+			memcpy(p, iov[i].iov_base, iov[i].iov_len);
+		}
+		if (packet->txn == 0 && ibuf_used(send_buf) >= 64 * 1024) {
+			write(wal_relay->io.fd, send_buf->rpos,
+				   ibuf_used(send_buf));
+			ibuf_reset(send_buf);
+		}
+
+	}
+}
+
+static int
+relay_recovery_file(va_list ap)
+{
+	struct wal_relay *relay = va_arg(ap, struct wal_relay *);
+
+	struct recovery *recovery;
+	recovery = recovery_new(cfg_gets("wal_dir"),
+			        cfg_geti("force_recovery"),
+			        &relay->send_vclock);
+	if (recovery == NULL)
+		return -1;
+
+
+	struct relay_stream relay_stream;
+	xstream_create(&relay_stream.xstream, relay_send_row);
+	ibuf_create(&relay_stream.send_buf, &cord()->slabc, 256 * 1024);
+	relay_stream.wal_relay = relay;
+
+	recover_remaining_wals(recovery, &relay_stream.xstream, NULL, true);
+	write(relay->io.fd, relay_stream.send_buf.rpos,
+	      ibuf_used(&relay_stream.send_buf));
+
+	vclock_copy(&relay->send_vclock, &recovery->vclock);
+
+	recovery_delete(recovery);
+	return 0;
+}
+
+static int
+relay_f(va_list ap)
+{
+	struct wal_writer *writer = &wal_writer_singleton;
+
+	struct wal_relay_msg *msg = va_arg(ap, struct wal_relay_msg *);
+	struct wal_relay relay;
+
+	relay.replica = msg->replica;
+	vclock_copy(&relay.send_vclock, &msg->vclock);
+	vclock_copy(&relay.recv_vclock, &msg->vclock);
+	//coio_create is a c++
+	relay.io.data = fiber();
+	ev_init(&relay.io, (ev_io_cb) fiber_schedule_cb);
+	relay.io.fd = msg->io->fd;
+
+	relay.state = WAL_RELAY_FILE;
+	fiber_cond_create(&relay.online);
+	relay.send_buf = NULL;
+	relay.to_send = 0;
+	relay.fiber = fiber();
+
+	rlist_add(&writer->relay, &relay.item);
+
+	char name[FIBER_NAME_MAX];
+	snprintf(name, sizeof(name), "%s:%s", fiber()->name, "reader");
+	struct fiber *reader = fiber_new(name, wal_relay_status_f);
+	fiber_set_joinable(reader, true);
+	fiber_start(reader, &relay);
+
+	while (!fiber_is_cancelled() && relay.state != WAL_RELAY_ERROR) {
+		struct wal_buf_item *first;
+		first = (struct wal_buf_item *)writer->wal_buf_index.rpos;
+		int cmp = vclock_compare(&relay.send_vclock, &first->vclock);
+		if (cmp != 1 && cmp != 0) {
+			relay.state = WAL_RELAY_FILE;
+			struct cord cord;
+			cord_costart(&cord, "file follow",
+				     relay_recovery_file, &relay);
+			cord_cojoin(&cord);
+			continue;
+		}
+		relay.state = WAL_RELAY_MEM;
+		struct wal_buf_item *last;
+		last = (struct wal_buf_item *)writer->wal_buf_index.wpos - 1;
+		struct wal_buf_item *mid = first;
+		while (last - first > 1) {
+			mid = first + (last - first) / 2;
+			if (vclock_compare(&relay.send_vclock, &mid->vclock) != 1)
+				mid = last;
+			else
+				mid = first;
+		}
+		last = (struct wal_buf_item *)writer->wal_buf_index.wpos - 1;
+		while (mid <= last) {
+			ssize_t written;
+			struct ibuf *mem_buf = writer->wal_buf + mid->buf_no;
+			written = write(relay.io.fd, mem_buf->buf + mid->pos,
+					mid->size);
+			if (written < 0) {
+				if (errno == EAGAIN || errno == EWOULDBLOCK)
+					break;
+				relay.state = WAL_RELAY_ERROR;
+				break;
+			}
+			if (mid < last)
+				vclock_copy(&relay.send_vclock,
+					    &(mid + 1)->vclock);
+			else
+				vclock_copy(&relay.send_vclock,
+					    &writer->wal_vclock);
+
+			if (written < (ssize_t)mid->size) {
+				relay.to_send = mid->size - written;
+				relay.send_buf = region_alloc(&fiber()->gc,
+							      relay.to_send);
+				if (relay.send_buf == NULL) {
+					relay.state = WAL_RELAY_ERROR;
+					break;
+				}
+				memcpy(relay.send_buf,
+				       writer->wal_buf[mid->buf_no].rpos + written,
+				       relay.to_send);
+				break;
+			}
+			++mid;
+		}
+		if (mid > last)
+			relay.state = WAL_RELAY_ONLINE;
+		while (relay.state == WAL_RELAY_ONLINE) {
+			double timeout = replication_timeout;
+			struct errinj *inj = errinj(ERRINJ_RELAY_REPORT_INTERVAL,
+						    ERRINJ_DOUBLE);
+			if (inj != NULL && inj->dparam != 0)
+				timeout = inj->dparam;
+			//FIXME do not send from wal if sending
+			if (fiber_cond_wait_timeout(&relay.online, timeout) < 0)
+				wal_relay_send_heartbeat(&relay);
+		}
+		if (relay.state == WAL_RELAY_ERROR)
+			break;
+		while (coio_wait(relay.io.fd, COIO_WRITE, TIMEOUT_INFINITY) > 0 &&
+		       relay.to_send > 0) {
+			ssize_t written = write(relay.io.fd, relay.send_buf,
+						relay.to_send);
+			if (written < 0) {
+				if (errno == EAGAIN || errno == EWOULDBLOCK) {
+					relay.state = WAL_RELAY_ERROR;
+					break;
+				}
+			}
+			relay.to_send -= written;
+			relay.send_buf += written;
+			if (relay.to_send == 0)
+				break;
+		}
+		fiber_gc();
+
+	}
+	rlist_del(&relay.item);
+	return 0;
+}
+
+
+static void
+wal_relay_start(struct cmsg *base)
+{
+	struct wal_writer *wal_writer = &wal_writer_singleton;
+	struct wal_relay_msg *msg;
+	msg = container_of(base, struct wal_relay_msg, base);
+
+	/*
+	 * Send a response to SUBSCRIBE request, tell
+	 * the replica how many rows we have in stock for it,
+	 * and identify ourselves with our own replica id.
+	 */
+	struct xrow_header row;
+	xrow_encode_vclock(&row, &wal_writer->wal_vclock);
+	/*
+	 * Identify the message with the replica id of this
+	 * instance, this is the only way for a replica to find
+	 * out the id of the instance it has connected to.
+	 */
+	row.replica_id = instance_id;
+	row.sync = msg->sync;
+	coio_write_xrow(msg->io, &row);
+
+	struct fiber *relay = fiber_new("relay", relay_f);
+	fiber_start(relay, msg);
+	free(msg);
+}
+

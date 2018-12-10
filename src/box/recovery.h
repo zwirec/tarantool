@@ -86,10 +86,6 @@ recovery_stop_local(struct recovery *r);
 void
 recovery_finalize(struct recovery *r);
 
-#if defined(__cplusplus)
-} /* extern "C" */
-#endif /* defined(__cplusplus) */
-
 /**
  * Find out if there are new .xlog files since the current
  * vclock, and read them all up.
@@ -103,5 +99,9 @@ recovery_finalize(struct recovery *r);
 void
 recover_remaining_wals(struct recovery *r, struct xstream *stream,
 		       const struct vclock *stop_vclock, bool scan_dir);
+
+#if defined(__cplusplus)
+} /* extern "C" */
+#endif /* defined(__cplusplus) */
 
 #endif /* TARANTOOL_RECOVERY_H_INCLUDED */
