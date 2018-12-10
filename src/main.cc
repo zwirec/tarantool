@@ -535,6 +535,24 @@ load_cfg()
 }
 
 void
+tarantool_atexit(void)
+{
+	box_shutdown_wal();
+
+	/* tarantool_lua_free() was formerly reponsible for terminal reset,
+	 * but it is no longer called
+	 */
+	if (isatty(STDIN_FILENO)) {
+		/*
+		 * Restore terminal state. Doesn't hurt if exiting not
+		 * due to a signal.
+		 */
+		rl_cleanup_after_signal();
+	}
+
+}
+
+void
 tarantool_free(void)
 {
 	/*
@@ -568,16 +586,6 @@ tarantool_free(void)
 #ifdef ENABLE_GCOV
 	__gcov_flush();
 #endif
-	/* tarantool_lua_free() was formerly reponsible for terminal reset,
-	 * but it is no longer called
-	 */
-	if (isatty(STDIN_FILENO)) {
-		/*
-		 * Restore terminal state. Doesn't hurt if exiting not
-		 * due to a signal.
-		 */
-		rl_cleanup_after_signal();
-	}
 	cbus_free();
 #if 0
 	/*
@@ -752,8 +760,7 @@ main(int argc, char **argv)
 		box_init();
 		box_lua_init(tarantool_L);
 
-		/* main core cleanup routine */
-		atexit(tarantool_free);
+		atexit(tarantool_atexit);
 
 		if (!loop())
 			panic("%s", "can't init event loop");
@@ -793,5 +800,6 @@ main(int argc, char **argv)
 	if (start_loop)
 		say_crit("exiting the event loop");
 	/* freeing resources */
+	tarantool_free();
 	return 0;
 }
