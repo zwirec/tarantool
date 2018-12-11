@@ -1140,7 +1140,7 @@ vdbe_emit_create_index(struct Parse *parse, struct space_def *def,
 	if (index_parts == NULL)
 		goto error;
 	char *raw = sqlite3DbMallocRaw(parse->db,
-				       index_opts_sz +index_parts_sz);
+				       index_opts_sz + index_parts_sz + 1);
 	if (raw == NULL)
 		return;
 	memcpy(raw, index_opts, index_opts_sz);
@@ -1148,6 +1148,7 @@ vdbe_emit_create_index(struct Parse *parse, struct space_def *def,
 	raw += index_opts_sz;
 	memcpy(raw, index_parts, index_parts_sz);
 	index_parts = raw;
+	index_parts[index_parts_sz] = '\0';
 
 	if (parse->pNewTable != NULL) {
 		sqlite3VdbeAddOp2(v, OP_SCopy, space_id_reg, entry_reg);
@@ -1209,8 +1210,18 @@ createSpace(Parse * pParse, int iSpaceId, char *zStmt)
 	char *table_stmt = sql_encode_table(region, table, &table_stmt_sz);
 	if (table_stmt == NULL)
 		goto error;
+	/*
+	 * If we are executing EXPLAIN query or vdbe_debug mode
+	 * is enabled, we should terminate string with \0:
+	 * in internals it is copied to be displayed.
+	 * In turn, to copy string strlen() is called:
+	 * see handling of P4 in sqlite3VdbeList().
+	 * Without null termination call of strlen() may lead to
+	 * buffer-overflow. This bug was detected by ASAN.
+	 */
+
 	char *raw = sqlite3DbMallocRaw(pParse->db,
-				       table_stmt_sz + table_opts_stmt_sz);
+				       table_stmt_sz + table_opts_stmt_sz + 1);
 	if (raw == NULL)
 		return;
 
@@ -1219,6 +1230,7 @@ createSpace(Parse * pParse, int iSpaceId, char *zStmt)
 	raw += table_opts_stmt_sz;
 	memcpy(raw, table_stmt, table_stmt_sz);
 	table_stmt = raw;
+	table_stmt[table_stmt_sz] = '\0';
 
 	sqlite3VdbeAddOp2(v, OP_SCopy, iSpaceId, iFirstCol /* spaceId */ );
 	sqlite3VdbeAddOp2(v, OP_Integer, effective_user()->uid,
@@ -1397,7 +1409,7 @@ vdbe_emit_fkey_create(struct Parse *parse_context, const struct fkey_def *fk)
 	 * as dynamic and releases memory.
 	 */
 	char *raw = sqlite3DbMallocRaw(parse_context->db,
-				       parent_links_size + child_links_size);
+				       parent_links_size + child_links_size + 1);
 	if (raw == NULL)
 		return;
 	memcpy(raw, parent_links, parent_links_size);
@@ -1405,6 +1417,7 @@ vdbe_emit_fkey_create(struct Parse *parse_context, const struct fkey_def *fk)
 	raw += parent_links_size;
 	memcpy(raw, child_links, child_links_size);
 	child_links = raw;
+	child_links[child_links_size] = '\0';
 
 	sqlite3VdbeAddOp4(vdbe, OP_Blob, child_links_size, constr_tuple_reg + 7,
 			  SQL_SUBTYPE_MSGPACK, child_links, P4_STATIC);

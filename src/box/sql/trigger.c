@@ -213,11 +213,11 @@ sql_trigger_finish(struct Parse *parse, struct TriggerStep *step_list,
 			parse->rc = SQL_TARANTOOL_ERROR;
 			goto cleanup;
 		}
-		char *opts_buff = sqlite3DbMallocRaw(db, opts_buff_sz);
+		char *opts_buff = sqlite3DbMallocRaw(db, opts_buff_sz + 1);
 		if (opts_buff == NULL)
 			goto cleanup;
 		memcpy(opts_buff, data, opts_buff_sz);
-
+		opts_buff[opts_buff_sz] = '\0';
 		trigger_name = sqlite3DbStrDup(db, trigger_name);
 		if (trigger_name == NULL) {
 			sqlite3DbFree(db, opts_buff);
