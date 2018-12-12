@@ -1413,6 +1413,19 @@ wal_relay(struct replica *replica, struct ev_io *io, uint64_t sync, struct vcloc
 	fiber_yield();
 }
 
+/**
+ * Cbus message to send status updates from relay to tx thread.
+ */
+struct relay_status_msg {
+	/** Parent */
+	struct cmsg msg;
+	/** Relay instance */
+	struct wal_relay *relay;
+	/** Replica vclock. */
+	struct vclock vclock;
+};
+
+
 static int
 wal_relay_status_f(va_list ap)
 {
@@ -1428,6 +1441,7 @@ wal_relay_status_f(va_list ap)
 		/* vclock is followed while decoding, zeroing it. */
 		vclock_create(&relay->recv_vclock);
 		xrow_decode_vclock(&xrow, &relay->recv_vclock);
+
 		fiber_cond_signal(&writer->update_cond);
 	}
 	return 0;
@@ -1509,11 +1523,12 @@ relay_send_row(struct xstream *stream, struct xrow_header *packet)
 static int
 relay_recovery_file(va_list ap)
 {
+	struct wal_writer *writer = &wal_writer_singleton;
 	struct wal_relay *relay = va_arg(ap, struct wal_relay *);
 
 	struct recovery *recovery;
-	recovery = recovery_new(cfg_gets("wal_dir"),
-			        cfg_geti("force_recovery"),
+	recovery = recovery_new(writer->wal_dir.dirname,
+			        writer->wal_dir.force_recovery,
 			        &relay->send_vclock);
 	if (recovery == NULL)
 		return -1;
@@ -1653,7 +1668,11 @@ relay_f(va_list ap)
 		fiber_gc();
 
 	}
+error:
+
 	rlist_del(&relay.item);
+	fiber_cancel(reader);
+	fiber_join(reader);
 	return 0;
 }
 

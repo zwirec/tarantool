@@ -251,7 +251,7 @@ struct replica {
 	uint32_t id;
 	/** Applier fiber. */
 	struct applier *applier;
-	/** Relay thread. */
+	/** Relay. */
 	struct relay *relay;
 	/** Garbage collection state associated with the replica. */
 	struct gc_consumer *gc;
