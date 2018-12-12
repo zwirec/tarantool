@@ -1295,22 +1295,6 @@ extern const int sqlite3one;
 #endif
 
 /*
- * SELECTTRACE_ENABLED will be either 1 or 0 depending on whether or not
- * the Select query generator tracing logic is turned on.
- */
-#if defined(SQLITE_DEBUG) || defined(SQLITE_ENABLE_SELECTTRACE)
-#define SELECTTRACE_ENABLED
-#else
-#undef SELECTTRACE_ENABLED
-#endif
-
-#if defined(SQLITE_DEBUG) || defined(SQLITE_ENABLE_WHERETRACE)
-#define WHERETRACE_ENABLED
-#else
-#undef WHERETRACE_ENABLED
-#endif
-
-/*
  * An instance of the following structure is used to store the busy-handler
  * callback for a given sqlite handle.
  *
@@ -3898,7 +3882,7 @@ Expr *sqlite3ExprDup(sqlite3 *, Expr *, int);
 SrcList *sqlite3SrcListDup(sqlite3 *, SrcList *, int);
 IdList *sqlite3IdListDup(sqlite3 *, IdList *);
 Select *sqlite3SelectDup(sqlite3 *, Select *, int);
-#ifdef SELECTTRACE_ENABLED
+#ifdef SQLITE_DEBUG
 void sqlite3SelectSetName(Select *, const char *);
 #else
 #define sqlite3SelectSetName(A,B)

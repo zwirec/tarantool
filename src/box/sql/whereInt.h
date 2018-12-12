@@ -39,7 +39,7 @@
 /*
  * Trace output macros
  */
-#ifdef WHERETRACE_ENABLED
+#ifdef SQLITE_DEBUG
 /***/ extern int sqlite3WhereTrace;
 #define WHERETRACE(K,X)  if(sqlite3WhereTrace&(K)) sqlite3DebugPrintf X
 #else
@@ -443,7 +443,7 @@ struct WhereInfo {
  * where.c:
  */
 Bitmask sqlite3WhereGetMask(WhereMaskSet *, int);
-#ifdef WHERETRACE_ENABLED
+#ifdef SQLITE_DEBUG
 void sqlite3WhereClausePrint(WhereClause * pWC);
 #endif
 WhereTerm *sqlite3WhereFindTerm(WhereClause * pWC,	/* The WHERE clause to be searched */
