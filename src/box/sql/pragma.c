@@ -168,48 +168,28 @@ pragmaLocate(const char *zName)
 	return lwr > upr ? 0 : &aPragmaName[mid];
 }
 
-#ifdef PRINT_PRAGMA
-#undef PRINT_PRAGMA
-#endif
-#define PRINT_PRAGMA(pragma_name, pragma_flag) do {			       \
-	int nCoolSpaces = 30 - strlen(pragma_name);			       \
-	if (user_session->sql_flags & (pragma_flag)) {			       \
-		printf("%s %*c --  [true] \n", pragma_name, nCoolSpaces, ' '); \
-	} else {							       \
-		printf("%s %*c --  [false] \n", pragma_name, nCoolSpaces, ' ');\
-	}								       \
-} while (0)
-
-#define PRINT_STR_PRAGMA(pragma_name, str_value) do {			       \
-	int nCoolSpaces = 30 - strlen(pragma_name);			       \
-	printf("%s %*c --  '%s' \n", pragma_name, nCoolSpaces, ' ', str_value);\
-} while (0)
-
 static void
-printActivePragmas(struct session *user_session)
+vdbe_emit_pragma_status(struct Parse *parse)
 {
-	int i;
-	for (i = 0; i < ArraySize(aPragmaName); ++i) {
-		switch (aPragmaName[i].ePragTyp) {
-			case PragTyp_FLAG:
-				PRINT_PRAGMA(aPragmaName[i].zName, aPragmaName[i].iArg);
-				break;
-			case PragTyp_DEFAULT_ENGINE: {
-				const char *engine_name =
-					sql_storage_engine_strs[
-						current_session()->
-							sql_default_engine];
-				PRINT_STR_PRAGMA(aPragmaName[i].zName,
-						 engine_name);
-				break;
-			}
-		}
-	}
+	struct Vdbe *v = sqlite3GetVdbe(parse);
+	struct session *user_session = current_session();
 
-	printf("Other available pragmas: \n");
-	for (i = 0; i < ArraySize(aPragmaName); ++i) {
+	sqlite3VdbeSetNumCols(v, 2);
+	sqlite3VdbeSetColName(v, 0, COLNAME_NAME, "pragma_name", SQLITE_STATIC);
+	sqlite3VdbeSetColName(v, 0, COLNAME_DECLTYPE, "TEXT", SQLITE_STATIC);
+	sqlite3VdbeSetColName(v, 1, COLNAME_NAME, "pragma_value",
+			      SQLITE_STATIC);
+	sqlite3VdbeSetColName(v, 1, COLNAME_DECLTYPE, "INTEGER", SQLITE_STATIC);
+
+	parse->nMem = 2;
+	for (int i = 0; i < ArraySize(aPragmaName); ++i) {
 		if (aPragmaName[i].ePragTyp != PragTyp_FLAG)
-			printf("-- %s \n", aPragmaName[i].zName);
+			continue;
+		sqlite3VdbeAddOp4(v, OP_String8, 0, 1, 0, aPragmaName[i].zName,
+				  0);
+		int val = (user_session->sql_flags & aPragmaName[i].iArg) != 0;
+		sqlite3VdbeAddOp2(v, OP_Integer, val, 2);
+		sqlite3VdbeAddOp2(v, OP_ResultRow, 1, 2);
 	}
 }
 
@@ -438,7 +418,7 @@ sqlite3Pragma(Parse * pParse, Token * pId,	/* First part of [schema.]id field */
 
 	zLeft = sqlite3NameFromToken(db, pId);
 	if (!zLeft) {
-		printActivePragmas(user_session);
+		vdbe_emit_pragma_status(pParse);
 		return;
 	}
 

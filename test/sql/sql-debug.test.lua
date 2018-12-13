@@ -12,3 +12,8 @@ result = box.sql.execute('PRAGMA parser_trace')
 box.sql.execute('PRAGMA parser_trace = 1')
 box.sql.execute('PRAGMA parser_trace')
 box.sql.execute('PRAGMA parser_trace = '.. result[1][1])
+
+--
+-- Make PRAGMA command return the result in YAML format.
+--
+box.sql.execute('PRAGMA')
