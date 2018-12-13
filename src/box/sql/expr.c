@@ -3960,7 +3960,9 @@ sqlite3ExprCodeTarget(Parse * pParse, Expr * pExpr, int target)
 						"misuse of aggregate: %s()",
 						pExpr->u.zToken);
 			} else {
-				pExpr->affinity = pInfo->aFunc->pFunc->ret_type;
+				enum field_type t =
+					pInfo->aFunc->pFunc->ret_type;
+				pExpr->affinity = sql_field_type_to_affinity(t);
 				return pInfo->aFunc[pExpr->iAgg].iMem;
 			}
 			break;
@@ -3998,7 +4000,8 @@ sqlite3ExprCodeTarget(Parse * pParse, Expr * pExpr, int target)
 			}
 
 			if (pDef->ret_type != AFFINITY_UNDEFINED) {
-				pExpr->affinity = pDef->ret_type;
+				pExpr->affinity =
+					sql_field_type_to_affinity(pDef->ret_type);
 			} else {
 				/*
 				 * Otherwise, use first arg as
