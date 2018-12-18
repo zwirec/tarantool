@@ -317,6 +317,7 @@ c.close()
 
 admin("space:drop()")
 admin("space2:drop()")
+admin("box.space._cluster:delete(2)")
 
 #
 # gh-1280 Segmentation fault on space.select(tuple()) or space.select([2])
