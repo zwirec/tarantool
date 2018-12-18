@@ -9,8 +9,6 @@ cluster_uuid = yaml.load(server.admin('box.space._schema:get("cluster")',
 sys.stdout.push_filter(cluster_uuid, '<cluster uuid>')
 
 server.admin('box.internal.bootstrap()')
-server.restart()
-
 server.admin('box.space._schema:select{}')
 server.admin('box.space._cluster:select{}')
 server.admin('box.space._space:select{}')
@@ -20,4 +18,4 @@ server.admin('box.space._func:select{}')
 server.admin('box.space._priv:select{}')
 
 # Cleanup
-sys.stdout.pop_filter()
+sys.stdout.clear_all_filters()
