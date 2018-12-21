@@ -187,11 +187,13 @@ struct replicaset {
 	 * to connect and those that failed to connect.
 	 */
 	struct rlist anon;
-	/**
-	 * TX thread local vclock reflecting the state
-	 * of the cluster as maintained by appliers.
-	 */
+	/** vclock of the last commited row. */
 	struct vclock vclock;
+	/** vclock of the last writen row. */
+	struct vclock wal_vclock;
+	/** Applier shared vclock with transaction started to processing. */
+	struct vclock applier_vclock;
+
 	/** Applier state. */
 	struct {
 		/**
@@ -227,6 +229,7 @@ struct replicaset {
 		 * struct replica object).
 		 */
 		struct latch order_latch;
+
 	} applier;
 	/** Map of all known replica_id's to correspponding replica's. */
 	struct replica **replica_by_id;

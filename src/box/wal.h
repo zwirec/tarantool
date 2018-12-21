@@ -41,6 +41,7 @@ struct fiber;
 struct wal_writer;
 struct tt_uuid;
 struct replica;
+struct trigger;
 
 enum wal_mode { WAL_NONE = 0, WAL_WRITE, WAL_FSYNC, WAL_MODE_MAX };
 
@@ -203,6 +204,10 @@ wal_rotate_vy_log();
 void
 wal_relay(struct replica *replica, struct ev_io *io, uint64_t sync,
 	  struct vclock *vclock);
+
+
+void
+on_wal_status(struct trigger *trigger);
 
 #if defined(__cplusplus)
 } /* extern "C" */
