@@ -44,6 +44,7 @@
 #include "uri.h"
 
 #include "xrow.h"
+#include "latch.h"
 
 struct xstream;
 
@@ -120,7 +121,13 @@ struct applier {
 	struct xstream *join_stream;
 	/** xstream to process rows during final JOIN and SUBSCRIBE */
 	struct xstream *subscribe_stream;
-	struct ibuf row_buf;
+
+	/** Applier's worker count. */
+	uint32_t worker_count;
+	/** The condition is signaled when worker exists. */
+	struct fiber_cond worker_cond;
+	/** Latch used to order workers. */
+	struct latch worker_latch;
 };
 
 /**

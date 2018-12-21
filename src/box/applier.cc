@@ -140,8 +140,10 @@ applier_writer_f(va_list ap)
 			continue;
 		try {
 			struct xrow_header xrow;
-			xrow_encode_vclock(&xrow, &replicaset.vclock);
+			xrow_encode_vclock(&xrow, &replicaset.wal_vclock);
 			coio_write_xrow(&io, &xrow);
+
+			say_error("send vclock %i", vclock_sum(&replicaset.wal_vclock));
 		} catch (SocketError *e) {
 			/*
 			 * There is no point trying to send ACKs if
@@ -379,6 +381,183 @@ applier_join(struct applier *applier)
 	applier_set_state(applier, APPLIER_READY);
 }
 
+static void
+applier_update_status(struct trigger *trigger, void *event)
+{
+	(void) event;
+	struct applier *applier = (struct applier *)trigger->data;
+	if (applier->state == APPLIER_SYNC ||
+	    applier->state == APPLIER_FOLLOW) {
+		fiber_cond_signal(&applier->writer_cond);
+	}
+}
+
+static int64_t
+applier_read_tx(struct applier *applier, struct ibuf *row_buf,
+		struct obuf *data_buf)
+{
+	struct xrow_header *row;
+	struct ev_io *coio = &applier->io;
+	struct ibuf *ibuf = &applier->ibuf;
+
+	while (fiber_is_cancelled()) {
+		row = (struct xrow_header *)ibuf_alloc(row_buf,
+						       sizeof(struct xrow_header));
+		if (row == NULL) {
+			diag_set(OutOfMemory, sizeof(struct xrow_header),
+				 "slab", "struct xrow_header");
+			goto error;
+		}
+
+		double timeout = replication_disconnect_timeout();
+		try {
+			coio_read_xrow_timeout_xc(coio, ibuf, row, timeout);
+		} catch (...) {
+			goto error;
+		}
+
+		if (iproto_type_is_error(row->type)) {
+			xrow_decode_error(row);  /* error */
+			goto error;
+		}
+
+		/* Replication request. */
+		if (row->replica_id == REPLICA_ID_NIL ||
+		    row->replica_id >= VCLOCK_MAX) {
+			/*
+			 * A safety net, this can only occur
+			 * if we're fed a strangely broken xlog.
+			 */
+			diag_set(ClientError, ER_UNKNOWN_REPLICA,
+				 int2str(row->replica_id),
+				 tt_uuid_str(&REPLICASET_UUID));
+			goto error;
+		}
+
+		applier->lag = ev_now(loop()) - row->tm;
+		applier->last_row_time = ev_monotonic_now(loop());
+
+		if (row->body->iov_base != NULL) {
+			void *new_base = obuf_alloc(data_buf, row->body->iov_len);
+			if (new_base == NULL) {
+				diag_set(OutOfMemory, row->body->iov_len,
+					 "slab", "xrow_data");
+				goto error;
+			}
+			memcpy(new_base, row->body->iov_base, row->body->iov_len);
+			row->body->iov_base = new_base;
+		}
+
+		if (row->txn == 0)
+			break;
+	}
+	return 0;
+error:
+	ibuf_reset(row_buf);
+	obuf_reset(data_buf);
+	return -1;
+}
+
+static int
+applier_worker_f(va_list ap)
+{
+	struct applier *applier = va_arg(ap, struct applier *);
+	++applier->worker_count;
+
+	struct ibuf row_buf;
+	ibuf_create(&row_buf, &cord()->slabc, 8 * sizeof(struct xrow_header));
+	struct obuf data_buf;
+	obuf_create(&data_buf, &cord()->slabc, 65535);
+
+	latch_lock(&applier->worker_latch);
+	while (fiber_is_cancelled()) {
+		if (applier_read_tx(applier, &row_buf, &data_buf) != 0)
+			goto error;
+
+		struct xrow_header *first_row, *last_row;
+		first_row = (struct xrow_header *)row_buf.rpos;
+		last_row = (struct xrow_header *)row_buf.wpos - 1;
+		/*
+		 * Stay 'orphan' until appliers catch up with
+		 * the remote vclock at the time of SUBSCRIBE
+		 * and the lag is less than configured.
+		 */
+		if (applier->state == APPLIER_SYNC /*&&
+		    applier->lag <= replication_sync_lag &&
+		    vclock_compare(&remote_vclock_at_subscribe,
+				   &replicaset.vclock) <= 0*/) {
+			/* Applier is synced, switch to "follow". */
+			applier_set_state(applier, APPLIER_FOLLOW);
+		}
+
+		applier->lag = ev_now(loop()) - last_row->tm;
+		applier->last_row_time = ev_monotonic_now(loop());
+
+		struct replica *replica = replica_by_id(first_row->replica_id);
+		struct latch *latch;
+		latch = (replica ? &replica->order_latch :
+			 &replicaset.applier.order_latch);
+		latch_lock(latch);
+
+		/*
+		 * In a full mesh topology, the same set
+		 * of changes may arrive via two
+		 * concurrently running appliers. Thanks
+		 * to vclock_follow() above, the first row
+		 * in the set will be skipped - but the
+		 * remaining may execute out of order,
+		 * when the following xstream_write()
+		 * yields on WAL. Hence we need a latch to
+		 * strictly order all changes which belong
+		 * to the same server id.
+		 */
+		if (vclock_get(&replicaset.applier_vclock,
+			       first_row->replica_id) >=
+		    first_row->lsn) {
+			ibuf_reset(&row_buf);
+			obuf_reset(&data_buf);
+			latch_unlock(latch);
+			continue;
+		}
+
+		struct txn *txn = NULL;
+		//DDL workaround
+		if (first_row != last_row)
+			txn = txn_begin(false);
+
+		struct xrow_header *row = first_row;
+		while (row <= last_row) {
+			if (xstream_write(applier->subscribe_stream, row) != 0) {
+				//FIXME: skip conflict check
+				if (txn != NULL)
+					txn_rollback();
+				latch_unlock(latch);
+				goto error;
+			}
+			++row;
+		}
+		vclock_follow(&replicaset.applier_vclock, first_row->replica_id,
+			      first_row->lsn);
+		// We are going to commit
+		latch_unlock(latch);
+		latch_unlock(&applier->worker_latch);
+		if (txn != NULL && txn_commit(txn) != 0)
+			goto error;
+
+		ibuf_reset(&row_buf);
+		obuf_reset(&data_buf);
+		latch_lock(&applier->worker_latch);
+	}
+error:
+//FIXME: rollback vclock
+	ibuf_reset(&row_buf);
+	obuf_reset(&data_buf);
+	--applier->worker_count;
+	latch_unlock(&applier->worker_latch);
+	fiber_cond_signal(&applier->worker_cond);
+	return 0;
+}
+
 /**
  * Execute and process SUBSCRIBE request (follow updates from a master).
  */
@@ -390,26 +569,23 @@ applier_subscribe(struct applier *applier)
 	/* Send SUBSCRIBE request */
 	struct ev_io *coio = &applier->io;
 	struct ibuf *ibuf = &applier->ibuf;
-	struct xrow_header *row;
+	struct xrow_header row;
 	struct vclock remote_vclock_at_subscribe;
 
-	ibuf_reset(&applier->row_buf);
-	row = (struct xrow_header *)ibuf_reserve(&applier->row_buf,
-						 sizeof(struct xrow_header));
-	if (row == NULL)
-		tnt_raise(OutOfMemory, sizeof(struct xrow_header), "slab",
-			  "struct xrow_header");
+	struct trigger wal_trigger;
+	trigger_create(&wal_trigger, applier_update_status, applier, NULL);
 
-	xrow_encode_subscribe_xc(row, &REPLICASET_UUID, &INSTANCE_UUID,
+
+	xrow_encode_subscribe_xc(&row, &REPLICASET_UUID, &INSTANCE_UUID,
 				 &replicaset.vclock);
-	coio_write_xrow(coio, row);
+	coio_write_xrow(coio, &row);
 
 	/* Read SUBSCRIBE response */
 	if (applier->version_id >= version_id(1, 6, 7)) {
-		coio_read_xrow(coio, ibuf, row);
-		if (iproto_type_is_error(row->type)) {
-			xrow_decode_error_xc(row);  /* error */
-		} else if (row->type != IPROTO_OK) {
+		coio_read_xrow(coio, ibuf, &row);
+		if (iproto_type_is_error(row.type)) {
+			xrow_decode_error_xc(&row);  /* error */
+		} else if (row.type != IPROTO_OK) {
 			tnt_raise(ClientError, ER_PROTOCOL,
 				  "Invalid response to SUBSCRIBE");
 		}
@@ -418,7 +594,7 @@ applier_subscribe(struct applier *applier)
 		 * responds with its current vclock.
 		 */
 		vclock_create(&remote_vclock_at_subscribe);
-		xrow_decode_vclock_xc(row, &remote_vclock_at_subscribe);
+		xrow_decode_vclock_xc(&row, &remote_vclock_at_subscribe);
 	}
 	/*
 	 * Tarantool < 1.6.7:
@@ -465,167 +641,26 @@ applier_subscribe(struct applier *applier)
 	}
 
 	applier->lag = TIMEOUT_INFINITY;
+	on_wal_status(&wal_trigger);
 
 	/*
 	 * Process a stream of rows from the binary log.
 	 */
-	struct obuf req_buf;
-	obuf_create(&req_buf, &cord()->slabc, 16384);
-struct latch *latch = NULL;
-try{
-	while (true) {
-		row = (struct xrow_header *)ibuf_alloc(&applier->row_buf,
-						       sizeof(struct xrow_header));
-		if (row == NULL)
-			tnt_raise(OutOfMemory, sizeof(struct xrow_header),
-				  "slab", "struct xrow_header");
-
-		if (applier->state == APPLIER_FINAL_JOIN &&
-		    instance_id != REPLICA_ID_NIL) {
-			say_info("final data received");
-			applier_set_state(applier, APPLIER_JOINED);
-			applier_set_state(applier, APPLIER_READY);
-			applier_set_state(applier, APPLIER_FOLLOW);
+	while (fiber_is_cancelled()) {
+		latch_lock(&applier->worker_latch);
+		latch_unlock(&applier->worker_latch);
+		if (latch_owner(&applier->worker_latch) == NULL) {
+			/* There is no active worker listening on socket. */
+			struct fiber *worker = fiber_new("worker", applier_worker_f);
+			fiber_start(worker, applier);
+			fiber_reschedule();
 		}
-
-		/*
-		 * Stay 'orphan' until appliers catch up with
-		 * the remote vclock at the time of SUBSCRIBE
-		 * and the lag is less than configured.
-		 */
-		if (applier->state == APPLIER_SYNC &&
-		    applier->lag <= replication_sync_lag &&
-		    vclock_compare(&remote_vclock_at_subscribe,
-				   &replicaset.vclock) <= 0) {
-			/* Applier is synced, switch to "follow". */
-			applier_set_state(applier, APPLIER_FOLLOW);
-		}
-
-		/*
-		 * Tarantool < 1.7.7 does not send periodic heartbeat
-		 * messages so we can't assume that if we haven't heard
-		 * from the master for quite a while the connection is
-		 * broken - the master might just be idle.
-		 */
-		if (applier->version_id < version_id(1, 7, 7)) {
-			coio_read_xrow(coio, ibuf, row);
-		} else {
-			double timeout = replication_disconnect_timeout();
-			coio_read_xrow_timeout_xc(coio, ibuf, row, timeout);
-		}
-		if (iproto_type_is_error(row->type))
-			xrow_decode_error_xc(row);  /* error */
-		/* Replication request. */
-		if (row->replica_id == REPLICA_ID_NIL ||
-		    row->replica_id >= VCLOCK_MAX) {
-			/*
-			 * A safety net, this can only occur
-			 * if we're fed a strangely broken xlog.
-			 */
-			tnt_raise(ClientError, ER_UNKNOWN_REPLICA,
-				  int2str(row->replica_id),
-				  tt_uuid_str(&REPLICASET_UUID));
-		}
-
-
-		applier->lag = ev_now(loop()) - row->tm;
-		applier->last_row_time = ev_monotonic_now(loop());
-
-		struct replica *replica = replica_by_id(row->replica_id);
-
-		if (row->body->iov_base != NULL) {
-			void *new_base = obuf_alloc(&req_buf, row->body->iov_len);
-			memcpy(new_base, row->body->iov_base, row->body->iov_len);
-			row->body->iov_base = new_base;
-		}
-		// latch server for first row in transaction
-		if (ibuf_used(&applier->row_buf) == sizeof(struct xrow_header)) {
-			latch = (replica ? &replica->order_latch :
-				       &replicaset.applier.order_latch);
-			latch_lock(latch);
-		}
-		struct txn *txn = NULL;
-		int res = 0;
-		if (vclock_get(&replicaset.vclock, row->replica_id) >= row->lsn) {
-			ibuf_reset(&applier->row_buf);
-			obuf_reset(&req_buf);
-			latch_unlock(latch);
-			latch = NULL;
-			goto sig;
-			continue;
-		}
-
-		/*
-		 * In a full mesh topology, the same set
-		 * of changes may arrive via two
-		 * concurrently running appliers. Thanks
-		 * to vclock_follow() above, the first row
-		 * in the set will be skipped - but the
-		 * remaining may execute out of order,
-		 * when the following xstream_write()
-		 * yields on WAL. Hence we need a latch to
-		 * strictly order all changes which belong
-		 * to the same server id.
-		 */
-
-		// Transaction is not finished
-		if (row->txn != 0)
-			goto sig;
-
-		struct xrow_header *rrow;
-		rrow = (struct xrow_header *)applier->row_buf.rpos;
-
-		if (rrow != row)
-			txn = txn_begin(false);
-		while (rrow <= row) {
-			res = xstream_write(applier->subscribe_stream, rrow);
-			if (res != 0) {
-				break;
-			}
-			++rrow;
-		}
-		if (res != 0) {
-			if (txn != NULL) {
-				txn_rollback();
-				txn = NULL;
-			}
-			obuf_reset(&req_buf);
-			ibuf_reset(&applier->row_buf);
-			struct error *e = diag_last_error(diag_get());
-			/**
-			 * Silently skip ER_TUPLE_FOUND error if such
-			 * option is set in config.
-			 */
-			if (e->type == &type_ClientError &&
-			    box_error_code(e) == ER_TUPLE_FOUND &&
-			    replication_skip_conflict)
-				diag_clear(diag_get());
-			else
-				diag_raise();
-		}
-
-		if (res == 0 && txn != NULL)
-			res = txn_commit(txn);
-		latch_unlock(latch);
-		latch = NULL;
-		obuf_reset(&req_buf);
-		ibuf_reset(&applier->row_buf);
-		if (txn != NULL && res != 0)
-			diag_raise();
-sig:
-		if (applier->state == APPLIER_SYNC ||
-		    applier->state == APPLIER_FOLLOW) {
-			fiber_cond_signal(&applier->writer_cond);
-		}
-		if (ibuf_used(ibuf) == 0)
-			ibuf_reset(ibuf);
-		fiber_gc();
 	}
-} catch(...) {
-	if (latch != NULL)
-		latch_unlock(latch);
-	throw;
-}
+
+	while (applier->worker_count > 0)
+		fiber_cond_wait(&applier->worker_cond);
+
+	trigger_clear(&wal_trigger);
 }
 
 static inline void
@@ -795,7 +830,9 @@ applier_new(const char *uri, struct xstream *join_stream,
 	fiber_cond_create(&applier->resume_cond);
 	fiber_cond_create(&applier->writer_cond);
 
-	ibuf_create(&applier->row_buf, &cord()->slabc, 8 * sizeof(struct xrow_header));
+	applier->worker_count = 0;
+	fiber_cond_create(&applier->worker_cond);
+	latch_create(&applier->worker_latch);
 
 	return applier;
 }
@@ -809,7 +846,9 @@ applier_delete(struct applier *applier)
 	trigger_destroy(&applier->on_state);
 	fiber_cond_destroy(&applier->resume_cond);
 	fiber_cond_destroy(&applier->writer_cond);
-	ibuf_destroy(&applier->row_buf);
+
+	fiber_cond_destroy(&applier->worker_cond);
+	latch_destroy(&applier->worker_latch);
 	free(applier);
 }
 
