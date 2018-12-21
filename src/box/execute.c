@@ -83,6 +83,93 @@ struct sql_bind {
 };
 
 /**
+ * Port implementation that is used to store SQL responses and
+ * output them to obuf or Lua. This port implementation is
+ * inherited from the port_tuple structure. This allows us to use
+ * this structure in the port_tuple methods instead of port_tuple
+ * itself.
+ *
+ * The methods of port_tuple are called via explicit access to
+ * port_tuple_vtab just like C++ does with BaseClass::method, when
+ * it is called in a child method.
+ */
+struct port_sql {
+	/* port_tuple to inherit from. */
+	struct port_tuple port_tuple;
+	/* Prepared SQL statement. */
+	struct sqlite3_stmt *stmt;
+};
+
+static_assert(sizeof(struct port_sql) <= sizeof(struct port),
+	      "sizeof(struct port_sql) must be <= sizeof(struct port)");
+
+/**
+ * Dump data from port to buffer. Data in port contains tuples,
+ * metadata, or information obtained from an executed SQL query.
+ * The port is destroyed.
+ *
+ * Dumped msgpack structure:
+ * +----------------------------------------------+
+ * | IPROTO_BODY: {                               |
+ * |     IPROTO_METADATA: [                       |
+ * |         {IPROTO_FIELD_NAME: column name1},   |
+ * |         {IPROTO_FIELD_NAME: column name2},   |
+ * |         ...                                  |
+ * |     ],                                       |
+ * |                                              |
+ * |     IPROTO_DATA: [                           |
+ * |         tuple, tuple, tuple, ...             |
+ * |     ]                                        |
+ * | }                                            |
+ * +-------------------- OR ----------------------+
+ * | IPROTO_BODY: {                               |
+ * |     IPROTO_SQL_INFO: {                       |
+ * |         SQL_INFO_ROW_COUNT: number           |
+ * |         SQL_INFO_AUTOINCREMENT_IDS: [        |
+ * |             id, id, id, ...                  |
+ * |         ]                                    |
+ * |     }                                        |
+ * | }                                            |
+ * +-------------------- OR ----------------------+
+ * | IPROTO_BODY: {                               |
+ * |     IPROTO_SQL_INFO: {                       |
+ * |         SQL_INFO_ROW_COUNT: number           |
+ * |     }                                        |
+ * | }                                            |
+ * +----------------------------------------------+
+ * @param port Port that contains SQL response.
+ * @param[out] out Output buffer.
+ *
+ * @retval  0 Success.
+ * @retval -1 Memory error.
+ */
+static int
+port_sql_dump_msgpack(struct port *port, struct obuf *out);
+
+static void
+port_sql_destroy(struct port *base)
+{
+	port_tuple_vtab.destroy(base);
+	sqlite3_finalize(((struct port_sql *)base)->stmt);
+}
+
+static const struct port_vtab port_sql_vtab = {
+	/* .dump_msgpack = */ port_sql_dump_msgpack,
+	/* .dump_msgpack_16 = */ NULL,
+	/* .dump_lua = */ NULL,
+	/* .dump_plain = */ NULL,
+	/* .destroy = */ port_sql_destroy,
+};
+
+static void
+port_sql_create(struct port *port, struct sqlite3_stmt *stmt)
+{
+	port_tuple_create(port);
+	((struct port_sql *)port)->stmt = stmt;
+	port->vtab = &port_sql_vtab;
+}
+
+/**
  * Return a string name of a parameter marker.
  * @param Bind to get name.
  * @retval Zero terminated name.
@@ -487,6 +574,7 @@ sql_get_description(struct sqlite3_stmt *stmt, struct obuf *out,
 		 * column_name simply returns them.
 		 */
 		assert(name != NULL);
+		assert(type != NULL);
 		size += mp_sizeof_str(strlen(name));
 		size += mp_sizeof_str(strlen(type));
 		char *pos = (char *) obuf_alloc(out, size);
@@ -503,63 +591,12 @@ sql_get_description(struct sqlite3_stmt *stmt, struct obuf *out,
 	return 0;
 }
 
-static inline int
-sql_execute(sqlite3 *db, struct sqlite3_stmt *stmt, struct port *port,
-	    struct region *region)
+static int
+port_sql_dump_msgpack(struct port *port, struct obuf *out)
 {
-	int rc, column_count = sqlite3_column_count(stmt);
-	if (column_count > 0) {
-		/* Either ROW or DONE or ERROR. */
-		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-			if (sql_row_to_port(stmt, column_count, region,
-					    port) != 0)
-				return -1;
-		}
-		assert(rc == SQLITE_DONE || rc != SQLITE_OK);
-	} else {
-		/* No rows. Either DONE or ERROR. */
-		rc = sqlite3_step(stmt);
-		assert(rc != SQLITE_ROW && rc != SQLITE_OK);
-	}
-	if (rc != SQLITE_DONE) {
-		diag_set(ClientError, ER_SQL_EXECUTE, sqlite3_errmsg(db));
-		return -1;
-	}
-	return 0;
-}
-
-int
-sql_prepare_and_execute(const char *sql, int len, const struct sql_bind *bind,
-			uint32_t bind_count, struct sql_response *response,
-			struct region *region)
-{
-	struct sqlite3_stmt *stmt;
+	assert(port->vtab == &port_sql_vtab);
 	sqlite3 *db = sql_get();
-	if (db == NULL) {
-		diag_set(ClientError, ER_LOADING);
-		return -1;
-	}
-	if (sqlite3_prepare_v2(db, sql, len, &stmt, NULL) != SQLITE_OK) {
-		diag_set(ClientError, ER_SQL_EXECUTE, sqlite3_errmsg(db));
-		return -1;
-	}
-	assert(stmt != NULL);
-	port_tuple_create(&response->port);
-	response->prep_stmt = stmt;
-	if (sql_bind(stmt, bind, bind_count) == 0 &&
-	    sql_execute(db, stmt, &response->port, region) == 0)
-		return 0;
-	port_destroy(&response->port);
-	sqlite3_finalize(stmt);
-	return -1;
-}
-
-int
-sql_response_dump(struct sql_response *response, struct obuf *out)
-{
-	sqlite3 *db = sql_get();
-	struct sqlite3_stmt *stmt = (struct sqlite3_stmt *) response->prep_stmt;
-	struct port_tuple *port_tuple = (struct port_tuple *) &response->port;
+	struct sqlite3_stmt *stmt = ((struct port_sql *)port)->stmt;
 	int rc = 0, column_count = sqlite3_column_count(stmt);
 	if (column_count > 0) {
 		int keys = 2;
@@ -575,26 +612,18 @@ err:
 			rc = -1;
 			goto finish;
 		}
-		size = mp_sizeof_uint(IPROTO_DATA) +
-		       mp_sizeof_array(port_tuple->size);
+		size = mp_sizeof_uint(IPROTO_DATA);
 		pos = (char *) obuf_alloc(out, size);
 		if (pos == NULL) {
 			diag_set(OutOfMemory, size, "obuf_alloc", "pos");
 			goto err;
 		}
 		pos = mp_encode_uint(pos, IPROTO_DATA);
-		pos = mp_encode_array(pos, port_tuple->size);
-		/*
-		 * Just like SELECT, SQL uses output format compatible
-		 * with Tarantool 1.6
-		 */
-		if (port_dump_msgpack_16(&response->port, out) < 0) {
-			/* Failed port dump destroyes the port. */
+		if (port_tuple_vtab.dump_msgpack(port, out) < 0)
 			goto err;
-		}
 	} else {
 		int keys = 1;
-		assert(port_tuple->size == 0);
+		assert(((struct port_tuple *)port)->size == 0);
 		struct stailq *autoinc_id_list =
 			vdbe_autoinc_id_list((struct Vdbe *)stmt);
 		uint32_t map_size = stailq_empty(autoinc_id_list) ? 1 : 2;
@@ -643,7 +672,66 @@ err:
 		}
 	}
 finish:
-	port_destroy(&response->port);
-	sqlite3_finalize(stmt);
+	port_destroy(port);
 	return rc;
+}
+
+/**
+ * Execute prepared SQL statement.
+ *
+ * This function uses region to allocate memory for temporary
+ * objects. After this function, region will be in the same state
+ * in which it was before this function.
+ *
+ * @param db SQL handle.
+ * @param stmt Prepared statement.
+ * @param[out] port Port to store SQL response.
+ * @param region Region to allocate temporary objects.
+ *
+ * @retval  0 Success.
+ * @retval -1 Error.
+ */
+static inline int
+sql_execute(sqlite3 *db, struct sqlite3_stmt *stmt, struct port *port,
+	    struct region *region)
+{
+	int rc, column_count = sqlite3_column_count(stmt);
+	if (column_count > 0) {
+		/* Either ROW or DONE or ERROR. */
+		while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+			if (sql_row_to_port(stmt, column_count, region,
+					    port) != 0)
+				return -1;
+		}
+		assert(rc == SQLITE_DONE || rc != SQLITE_OK);
+	} else {
+		/* No rows. Either DONE or ERROR. */
+		rc = sqlite3_step(stmt);
+		assert(rc != SQLITE_ROW && rc != SQLITE_OK);
+	}
+	if (rc != SQLITE_DONE) {
+		diag_set(ClientError, ER_SQL_EXECUTE, sqlite3_errmsg(db));
+		return -1;
+	}
+	return 0;
+}
+
+int
+sql_prepare_and_execute(const char *sql, int len, const struct sql_bind *bind,
+			uint32_t bind_count, struct port *port,
+			struct region *region)
+{
+	struct sqlite3_stmt *stmt;
+	sqlite3 *db = sql_get();
+	if (sqlite3_prepare_v2(db, sql, len, &stmt, NULL) != SQLITE_OK) {
+		diag_set(ClientError, ER_SQL_EXECUTE, sqlite3_errmsg(db));
+		return -1;
+	}
+	assert(stmt != NULL);
+	port_sql_create(port, stmt);
+	if (sql_bind(stmt, bind, bind_count) == 0 &&
+	    sql_execute(db, stmt, port, region) == 0)
+		return 0;
+	port_destroy(port);
+	return -1;
 }
