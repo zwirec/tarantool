@@ -1793,12 +1793,6 @@ struct Savepoint {
 				 (X) == FIELD_TYPE_UNSIGNED)
 
 /*
- * The AFFINITY_MASK values masks off the significant bits of an
- * affinity value.
- */
-#define AFFINITY_MASK     0x47
-
-/*
  * Additional bit values that can be ORed with an affinity without
  * changing the affinity.
  *
@@ -1807,7 +1801,7 @@ struct Savepoint {
  * operator is NULL.  It is added to certain comparison operators to
  * prove that the operands are always NOT NULL.
  */
-#define SQLITE_KEEPNULL     0x08	/* Used by vector == or <> */
+#define SQLITE_KEEPNULL     0x40	/* Used by vector == or <> */
 #define SQLITE_JUMPIFNULL   0x10	/* jumps if either operand is NULL */
 #define SQLITE_STOREP2      0x20	/* Store result in reg[P2] rather than jump */
 #define SQLITE_NULLEQ       0x80	/* NULL=NULL */
@@ -2615,7 +2609,8 @@ struct Select {
  */
 struct SelectDest {
 	u8 eDest;		/* How to dispose of the results.  On of SRT_* above. */
-	char *zAffSdst;		/* Affinity used when eDest==SRT_Set */
+	/* Affinity used when eDest==SRT_Set */
+	enum field_type *zAffSdst;
 	int iSDParm;		/* A parameter used by the eDest disposal method */
 	/** Register containing ephemeral's space pointer. */
 	int reg_eph;
@@ -3432,19 +3427,6 @@ sql_create_view(struct Parse *parse_context, struct Token *begin,
 		struct Select *select, bool if_exists);
 
 /**
- * Helper to convert SQLite affinity to corresponding
- * Tarantool field type.
- **/
-enum field_type
-sql_affinity_to_field_type(enum affinity_type affinity);
-
-enum affinity_type
-sql_field_type_to_affinity(enum field_type field_type);
-
-enum field_type *
-sql_affinity_str_to_field_type_str(const char *affinity_str);
-
-/**
  * Compile view, i.e. create struct Select from
  * 'CREATE VIEW...' string, and assign cursors to each table from
  * 'FROM' clause.
@@ -4225,33 +4207,6 @@ int sqlite3VarintLen(u64 v);
 #define getVarint    sqlite3GetVarint
 #define putVarint    sqlite3PutVarint
 
-/**
- * Return a pointer to the column affinity string associated with
- * given index. A column affinity string has one character for
- * each column in the table, according to the affinity of the
- * column:
- *
- *  Character      Column affinity
- *  ------------------------------
- *  'A'            BLOB
- *  'B'            TEXT
- *  'C'            NUMERIC
- *  'D'            INTEGER
- *  'F'            REAL
- *
- * Memory for the buffer containing the column index affinity string
- * is allocated on heap.
- *
- * @param db Database handle.
- * @param space_def Definition of space index belongs to.
- * @param idx_def Definition of index from which affinity
- *                to be extracted.
- * @retval Allocated affinity string, or NULL on OOM.
- */
-char *
-sql_space_index_affinity_str(struct sqlite3 *db, struct space_def *space_def,
-			     struct index_def *idx_def);
-
 /** Return string consisting of fields types of given index. */
 enum field_type *
 sql_index_type_str(struct sqlite3 *db, const struct index_def *idx_def);
@@ -4292,6 +4247,13 @@ sql_expr_cmp_type_is_compatible(struct Expr *expr, enum field_type idx_type);
 enum field_type
 sql_expr_type(Expr *pExpr);
 
+/**
+ * This function duplicates first @len entries of types array
+ * and terminates new array with field_type_MAX member.
+ */
+enum field_type *
+field_type_sequence_dup(struct Parse *parse, enum field_type *types,
+			uint32_t len);
 
 /**
  * Convert z to a 64-bit signed integer.  z must be decimal. This
@@ -4640,19 +4602,6 @@ void sqlite3Stat4ProbeFree(UnpackedRecord *);
 int
 sql_stat4_column(struct sqlite3 *db, const char *record, uint32_t col_num,
 		 sqlite3_value **res);
-
-/**
- * Return the affinity for a single column of an index.
- *
- * @param def Definition of space @idx belongs to.
- * @param idx Index to be investigated.
- * @param partno Affinity of this part to be returned.
- *
- * @retval Affinity of @partno index part.
- */
-enum affinity_type
-sql_space_index_part_affinity(struct space_def *def, struct index_def *idx,
-			      uint32_t partno);
 
 /*
  * The interface to the LEMON-generated parser

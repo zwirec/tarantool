@@ -2022,14 +2022,6 @@ case OP_Cast: {                  /* in1 */
  * jump to address P2.  Or if the SQLITE_STOREP2 flag is set in P5, then
  * store the result of comparison in register P2.
  *
- * The AFFINITY_MASK portion of P5 must be an affinity character -
- * AFFINITY_TEXT, AFFINITY_INTEGER, and so forth. An attempt is made
- * to coerce both inputs according to this affinity before the
- * comparison is made. If the AFFINITY_MASK is 0x00, then numeric
- * affinity is used. Note that the affinity conversions are stored
- * back into the input registers P1 and P3.  So this opcode can cause
- * persistent changes to registers P1 and P3.
- *
  * Once any conversions have taken place, and neither value is NULL,
  * the values are compared. If both values are blobs then memcmp() is
  * used to determine the results of the comparison.  If both values
@@ -2045,6 +2037,10 @@ case OP_Cast: {                  /* in1 */
  * of comparison is true.  If either operand is NULL then the result is false.
  * If neither operand is NULL the result is the same as it would be if
  * the SQLITE_NULLEQ flag were omitted from P5.
+ * P5 also can contain type to be applied to operands. Note that
+ * the type conversions are stored back into the input registers
+ * P1 and P3.  So this opcode can cause persistent changes to
+ * registers P1 and P3.
  *
  * If both SQLITE_STOREP2 and SQLITE_KEEPNULL flags are set then the
  * content of r[P2] is only changed if the new value is NULL or 0 (false).
@@ -2071,14 +2067,6 @@ case OP_Cast: {                  /* in1 */
  * If the SQLITE_JUMPIFNULL bit of P5 is set and either reg(P1) or
  * reg(P3) is NULL then the take the jump.  If the SQLITE_JUMPIFNULL
  * bit is clear then fall through if either operand is NULL.
- *
- * The AFFINITY_MASK portion of P5 must be an affinity character -
- * AFFINITY_TEXT, AFFINITY_INTEGER, and so forth. An attempt is made
- * to coerce both inputs according to this affinity before the
- * comparison is made. If the AFFINITY_MASK is 0x00, then numeric
- * affinity is used. Note that the affinity conversions are stored
- * back into the input registers P1 and P3.  So this opcode can cause
- * persistent changes to registers P1 and P3.
  *
  * Once any conversions have taken place, and neither value is NULL,
  * the values are compared. If both values are blobs then memcmp() is
@@ -2163,9 +2151,16 @@ case OP_Ge: {             /* same as TK_GE, jump, in1, in3 */
 			break;
 		}
 	} else {
-		/* Neither operand is NULL.  Do a comparison. */
-		affinity = pOp->p5 & AFFINITY_MASK;
-		if (affinity>=AFFINITY_INTEGER) {
+		/*
+		 * Neither operand is NULL. Do a comparison.
+		 * 15 is 1111 in a binary form.
+		 * Since all existing types can be fitted in 4 bits
+		 * (field_type_MAX == 10), it is enough to 'and'
+		 * p5 with this constant. Node that all other flags
+		 * that can be stored in p5 are >= 16.
+		 */
+		affinity = pOp->p5 & 15;
+		if (sql_type_is_numeric(affinity)) {
 			if ((flags1 | flags3)&MEM_Str) {
 				if ((flags1 & (MEM_Int|MEM_Real|MEM_Str))==MEM_Str) {
 					applyNumericAffinity(pIn1,0);
@@ -2193,7 +2188,7 @@ case OP_Ge: {             /* same as TK_GE, jump, in1, in3 */
 				res = 0;
 				goto compare_op;
 			}
-		} else if (affinity==AFFINITY_TEXT) {
+		} else if (affinity == FIELD_TYPE_STRING) {
 			if ((flags1 & MEM_Str)==0 && (flags1 & (MEM_Int|MEM_Real))!=0) {
 				testcase( pIn1->flags & MEM_Int);
 				testcase( pIn1->flags & MEM_Real);

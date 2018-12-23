@@ -367,15 +367,15 @@ disableTerm(WhereLevel * pLevel, WhereTerm * pTerm)
  * Code an OP_ApplyType opcode to apply the column type string types
  * to the n registers starting at base.
  *
- * As an optimization, AFFINITY_BLOB entries (which are no-ops) at the
+ * As an optimization, SCALAR entries (which are no-ops) at the
  * beginning and end of zAff are ignored.  If all entries in zAff are
- * AFFINITY_BLOB, then no code gets generated.
+ * SCALAR, then no code gets generated.
  *
  * This routine makes its own copy of zAff so that the caller is free
  * to modify zAff after this routine returns.
  */
 static void
-codeApplyAffinity(Parse * pParse, int base, int n, char *zAff)
+codeApplyAffinity(Parse * pParse, int base, int n, enum field_type *zAff)
 {
 	Vdbe *v = pParse->pVdbe;
 	if (zAff == 0) {
@@ -384,23 +384,23 @@ codeApplyAffinity(Parse * pParse, int base, int n, char *zAff)
 	}
 	assert(v != 0);
 
-	/* Adjust base and n to skip over AFFINITY_BLOB entries at the beginning
-	 * and end of the affinity string.
+	/*
+	 * Adjust base and n to skip over SCALAR entries at the
+	 * beginning and end of the type sequence.
 	 */
-	while (n > 0 && zAff[0] == AFFINITY_BLOB) {
+	while (n > 0 && zAff[0] == FIELD_TYPE_SCALAR) {
 		n--;
 		base++;
 		zAff++;
 	}
-	while (n > 1 && zAff[n - 1] == AFFINITY_BLOB) {
+	while (n > 1 && zAff[n - 1] == FIELD_TYPE_SCALAR) {
 		n--;
 	}
 
 	if (n > 0) {
-		enum field_type *types =
-			sql_affinity_str_to_field_type_str(zAff);
-		types[n] = field_type_MAX;
-		sqlite3VdbeAddOp4(v, OP_ApplyType, base, n, 0, (char *)types,
+		enum field_type *types = field_type_sequence_dup(pParse, zAff,
+								 n);
+		sqlite3VdbeAddOp4(v, OP_ApplyType, base, n, 0, (char *) types,
 				  P4_DYNAMIC);
 		sqlite3ExprCacheAffinityChange(pParse, base, n);
 	}
@@ -410,8 +410,8 @@ codeApplyAffinity(Parse * pParse, int base, int n, char *zAff)
  * Expression pRight, which is the RHS of a comparison operation, is
  * either a vector of n elements or, if n==1, a scalar expression.
  * Before the comparison operation, affinity zAff is to be applied
- * to the pRight values. This function modifies characters within the
- * affinity string to AFFINITY_BLOB if either:
+ * to the pRight values. This function modifies entries within the
+ * field sequence to SCALAR if either:
  *
  *   * the comparison will be performed with no affinity, or
  *   * the affinity change in zAff is guaranteed not to change the value.
@@ -419,16 +419,15 @@ codeApplyAffinity(Parse * pParse, int base, int n, char *zAff)
 static void
 updateRangeAffinityStr(Expr * pRight,	/* RHS of comparison */
 		       int n,		/* Number of vector elements in comparison */
-		       char *zAff)	/* Affinity string to modify */
+		       enum field_type *zAff)	/* Affinity string to modify */
 {
 	int i;
 	for (i = 0; i < n; i++) {
-		enum field_type type = sql_affinity_to_field_type(zAff[i]);
 		Expr *p = sqlite3VectorFieldSubexpr(pRight, i);
 		enum field_type expr_type = sql_expr_type(p);
-		if (sql_type_result(expr_type, type) == FIELD_TYPE_SCALAR ||
-			sql_expr_needs_no_type_change(p, type)) {
-			zAff[i] = AFFINITY_BLOB;
+		if (sql_type_result(expr_type, zAff[i]) == FIELD_TYPE_SCALAR ||
+		    sql_expr_needs_no_type_change(p, zAff[i])) {
+			zAff[i] = FIELD_TYPE_SCALAR;
 		}
 	}
 }
@@ -671,7 +670,7 @@ codeEqualityTerm(Parse * pParse,	/* The parsing context */
  * copy of the column affinity string of the index allocated using
  * sqlite3DbMalloc(). Except, entries in the copy of the string associated
  * with equality constraints that use BLOB or NONE affinity are set to
- * AFFINITY_BLOB. This is to deal with SQL such as the following:
+ * SCALAR. This is to deal with SQL such as the following:
  *
  *   CREATE TABLE t1(a TEXT PRIMARY KEY, b);
  *   SELECT ... FROM t1 AS t2, t1 WHERE t1.a = t2.b;
@@ -680,14 +679,14 @@ codeEqualityTerm(Parse * pParse,	/* The parsing context */
  * the right hand side of the equality constraint (t2.b) has BLOB/NONE affinity,
  * no conversion should be attempted before using a t2.b value as part of
  * a key to search the index. Hence the first byte in the returned affinity
- * string in this example would be set to AFFINITY_BLOB.
+ * string in this example would be set to SCALAR.
  */
 static int
 codeAllEqualityTerms(Parse * pParse,	/* Parsing context */
 		     WhereLevel * pLevel,	/* Which nested loop of the FROM we are coding */
 		     int bRev,		/* Reverse the order of IN operators */
 		     int nExtraReg,	/* Number of extra registers to allocate */
-		     char **pzAff)	/* OUT: Set to point to affinity string */
+		     enum field_type **pzAff)	/* OUT: Set to point to affinity string */
 {
 	u16 nEq;		/* The number of == or IN constraints to code */
 	u16 nSkip;		/* Number of left-most columns to skip */
@@ -711,11 +710,7 @@ codeAllEqualityTerms(Parse * pParse,	/* Parsing context */
 	nReg = pLoop->nEq + nExtraReg;
 	pParse->nMem += nReg;
 
-
-	struct space *space = space_by_id(idx_def->space_id);
-	assert(space != NULL);
-	char *zAff = sql_space_index_affinity_str(pParse->db, space->def,
-						  idx_def);
+	enum field_type *zAff = sql_index_type_str(pParse->db, idx_def);
 	assert(zAff != 0 || pParse->db->mallocFailed);
 
 	if (nSkip) {
@@ -741,7 +736,6 @@ codeAllEqualityTerms(Parse * pParse,	/* Parsing context */
 
 	/* Evaluate the equality constraints
 	 */
-	assert(zAff == 0 || (int)strlen(zAff) >= nEq);
 	for (j = nSkip; j < nEq; j++) {
 		int r1;
 		pTerm = pLoop->aLTerm[j];
@@ -769,7 +763,7 @@ codeAllEqualityTerms(Parse * pParse,	/* Parsing context */
 				 * affinity of the comparison has been applied to the value.
 				 */
 				if (zAff)
-					zAff[j] = AFFINITY_BLOB;
+					zAff[j] = FIELD_TYPE_SCALAR;
 			}
 		} else if ((pTerm->eOperator & WO_ISNULL) == 0) {
 			Expr *pRight = pTerm->pExpr->pRight;
@@ -781,14 +775,13 @@ codeAllEqualityTerms(Parse * pParse,	/* Parsing context */
 			if (zAff) {
 				enum field_type type =
 					sql_expr_type(pRight);
-				enum field_type idx_type =
-					sql_affinity_to_field_type(zAff[j]);
+				enum field_type idx_type = zAff[j];
 				if (sql_type_result(type, idx_type) ==
 				    FIELD_TYPE_SCALAR) {
-					zAff[j] = AFFINITY_BLOB;
+					zAff[j] = FIELD_TYPE_SCALAR;
 				}
 				if (sql_expr_needs_no_type_change(pRight, idx_type))
-					zAff[j] = AFFINITY_BLOB;
+					zAff[j] = FIELD_TYPE_SCALAR;
 			}
 		}
 	}
@@ -1001,8 +994,8 @@ sqlite3WhereCodeOneLoopStart(WhereInfo * pWInfo,	/* Complete information about t
 		int iIdxCur;	/* The VDBE cursor for the index */
 		int nExtraReg = 0;	/* Number of extra registers needed */
 		int op;		/* Instruction opcode */
-		char *zStartAff;	/* Affinity for start of range constraint */
-		char *zEndAff = 0;	/* Affinity for end of range constraint */
+		enum field_type *zStartAff;	/* Affinity for start of range constraint */
+		enum field_type *zEndAff = NULL;	/* Affinity for end of range constraint */
 		u8 bSeekPastNull = 0;	/* True to seek past initial nulls */
 		u8 bStopAtNull = 0;	/* Add condition to terminate at NULLs */
 		int force_integer_reg = -1;  /* If non-negative: number of
@@ -1117,9 +1110,13 @@ sqlite3WhereCodeOneLoopStart(WhereInfo * pWInfo,	/* Complete information about t
 		regBase =
 		    codeAllEqualityTerms(pParse, pLevel, bRev, nExtraReg,
 					 &zStartAff);
-		assert(zStartAff == 0 || sqlite3Strlen30(zStartAff) >= nEq);
-		if (zStartAff && nTop) {
-			zEndAff = sqlite3DbStrDup(db, &zStartAff[nEq]);
+		if (zStartAff != NULL && nTop) {
+			uint32_t len = 0;
+			for (enum field_type *tmp = &zStartAff[nEq];
+			     *tmp != field_type_MAX; tmp++, len++);
+			uint32_t sz = len * sizeof(enum field_type);
+			zEndAff = sqlite3DbMallocRaw(db, sz);
+			memcpy(zEndAff, &zStartAff[nEq], sz);
 		}
 		addrNxt = pLevel->addrNxt;
 

@@ -107,6 +107,19 @@ sql_expr_type(struct Expr *pExpr)
 	return pExpr->type;
 }
 
+enum field_type *
+field_type_sequence_dup(struct Parse *parse, enum field_type *types,
+			uint32_t len)
+{
+	uint32_t sz = (len + 1) * sizeof(enum field_type);
+	enum field_type *ret_types = sqlite3DbMallocRaw(parse->db, sz);
+	if (ret_types == NULL)
+		return NULL;
+	memcpy(ret_types, types, sz);
+	ret_types[len] = field_type_MAX;
+	return ret_types;
+}
+
 /*
  * Set the collating sequence for expression pExpr to be the collating
  * sequence named by pToken.   Return a pointer to a new Expr node that
@@ -308,8 +321,7 @@ binaryCompareP5(Expr * pExpr1, Expr * pExpr2, int jumpIfNull)
 {
 	enum field_type lhs = sql_expr_type(pExpr2);
 	enum field_type rhs = sql_expr_type(pExpr1);
-	u8 type_mask = sql_field_type_to_affinity(sql_type_result(rhs, lhs)) |
-		       (u8) jumpIfNull;
+	u8 type_mask = sql_type_result(rhs, lhs) | (u8) jumpIfNull;
 	return type_mask;
 }
 
@@ -2574,16 +2586,16 @@ sqlite3FindInIndex(Parse * pParse,	/* Parsing context */
  * It is the responsibility of the caller to ensure that the returned
  * string is eventually freed using sqlite3DbFree().
  */
-static char *
+static enum field_type *
 exprINAffinity(Parse * pParse, Expr * pExpr)
 {
 	Expr *pLeft = pExpr->pLeft;
 	int nVal = sqlite3ExprVectorSize(pLeft);
 	Select *pSelect = (pExpr->flags & EP_xIsSelect) ? pExpr->x.pSelect : 0;
-	char *zRet;
 
 	assert(pExpr->op == TK_IN);
-	zRet = sqlite3DbMallocZero(pParse->db, nVal + 1);
+	uint32_t sz = (nVal + 1) * sizeof(enum field_type);
+	enum field_type *zRet = sqlite3DbMallocZero(pParse->db, sz);
 	if (zRet) {
 		int i;
 		for (i = 0; i < nVal; i++) {
@@ -2592,12 +2604,14 @@ exprINAffinity(Parse * pParse, Expr * pExpr)
 			if (pSelect) {
 				struct Expr *e = pSelect->pEList->a[i].pExpr;
 				enum field_type rhs = sql_expr_type(e);
-				zRet[i] = sql_field_type_to_affinity(sql_type_result(rhs, lhs));
+				zRet[i] = sql_type_result(rhs, lhs);
 			} else {
-				zRet[i] = sql_field_type_to_affinity(lhs);
+				if (lhs == FIELD_TYPE_ANY)
+					lhs = FIELD_TYPE_SCALAR;
+				zRet[i] = lhs;
 			}
 		}
-		zRet[nVal] = '\0';
+		zRet[nVal] = field_type_MAX;
 	}
 	return zRet;
 }
@@ -2969,7 +2983,6 @@ sqlite3ExprCodeIN(Parse * pParse,	/* Parsing and code generating context */
 	int rLhsOrig;		/* LHS values prior to reordering by aiMap[] */
 	Vdbe *v;		/* Statement under construction */
 	int *aiMap = 0;		/* Map from vector field to index column */
-	char *zAff = 0;		/* Affinity string for comparisons */
 	int nVector;		/* Size of vectors for this IN operator */
 	int iDummy;		/* Dummy parameter to exprCodeVector() */
 	Expr *pLeft;		/* The LHS of the IN operator */
@@ -2983,7 +2996,8 @@ sqlite3ExprCodeIN(Parse * pParse,	/* Parsing and code generating context */
 	pLeft = pExpr->pLeft;
 	if (sqlite3ExprCheckIN(pParse, pExpr))
 		return;
-	zAff = exprINAffinity(pParse, pExpr);
+	/* Type sequence for comparisons. */
+	enum field_type *zAff = exprINAffinity(pParse, pExpr);
 	nVector = sqlite3ExprVectorSize(pExpr->pLeft);
 	aiMap =
 	    (int *)sqlite3DbMallocZero(pParse->db,
@@ -3129,9 +3143,8 @@ sqlite3ExprCodeIN(Parse * pParse,	/* Parsing and code generating context */
 	 * of the RHS using the LHS as a probe.  If found, the result is
 	 * true.
 	 */
-	enum field_type *types = sql_affinity_str_to_field_type_str(zAff);
-	types[nVector] = field_type_MAX;
-	sqlite3VdbeAddOp4(v, OP_ApplyType, rLhs, nVector, 0, (char *)types,
+	zAff[nVector] = field_type_MAX;
+	sqlite3VdbeAddOp4(v, OP_ApplyType, rLhs, nVector, 0, (char*)zAff,
 			  P4_DYNAMIC);
 	if (destIfFalse == destIfNull) {
 		/* Combine Step 3 and Step 5 into a single opcode */
@@ -3213,7 +3226,9 @@ sqlite3ExprCodeIN(Parse * pParse,	/* Parsing and code generating context */
 	if (rLhs != rLhsOrig)
 		sqlite3ReleaseTempReg(pParse, rLhs);
 	sqlite3ExprCachePop(pParse);
+	sqlite3DbFree(pParse->db, aiMap);
 	VdbeComment((v, "end IN expr"));
+	return;
  sqlite3ExprCodeIN_oom_error:
 	sqlite3DbFree(pParse->db, aiMap);
 	sqlite3DbFree(pParse->db, zAff);

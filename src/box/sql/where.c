@@ -699,7 +699,6 @@ termCanDriveIndex(WhereTerm * pTerm,	/* WHERE clause term to check */
 		return 0;
 	if (pTerm->u.leftColumn < 0)
 		return 0;
-	aff = pSrc->pTab->aCol[pTerm->u.leftColumn].affinity;
 	if (!sql_expr_cmp_type_is_compatible(pTerm->pExpr, aff))
 		return 0;
 	return 1;
@@ -1135,15 +1134,6 @@ whereRangeAdjust(WhereTerm * pTerm, LogEst nNew)
 		}
 	}
 	return nRet;
-}
-
-enum affinity_type
-sql_space_index_part_affinity(struct space_def *def, struct index_def *idx,
-			      uint32_t partno)
-{
-	assert(partno < idx->key_def->part_count);
-	uint32_t fieldno = idx->key_def->parts[partno].fieldno;
-	return def->fields[fieldno].affinity;
 }
 
 /*

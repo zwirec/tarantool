@@ -1200,11 +1200,10 @@ selectInnerLoop(Parse * pParse,		/* The parser context */
 					       regOrig, nResultCol, nPrefixReg);
 			} else {
 				int r1 = sqlite3GetTempReg(pParse);
-				assert(sqlite3Strlen30(pDest->zAffSdst) ==
-				       (unsigned int)nResultCol);
 				enum field_type *types =
-					sql_affinity_str_to_field_type_str(
-						pDest->zAffSdst);
+					field_type_sequence_dup(pParse,
+								pDest->zAffSdst,
+								nResultCol);
 				sqlite3VdbeAddOp4(v, OP_MakeRecord, regResult,
 						  nResultCol, r1, (char *)types,
 						  P4_DYNAMIC);
@@ -1626,11 +1625,9 @@ generateSortTail(Parse * pParse,	/* Parsing context */
 			break;
 		}
 	case SRT_Set:{
-			assert((unsigned int)nColumn ==
-			       sqlite3Strlen30(pDest->zAffSdst));
-
 			enum field_type *types =
-				sql_affinity_str_to_field_type_str(pDest->zAffSdst);
+				field_type_sequence_dup(pParse, pDest->zAffSdst,
+							nColumn);
 			sqlite3VdbeAddOp4(v, OP_MakeRecord, regRow, nColumn,
 					  regTupleid, (char *)types,
 					  P4_DYNAMIC);
@@ -1975,7 +1972,6 @@ sqlite3SelectAddColumnTypeAndCollation(Parse * pParse,		/* Parsing contexts */
 		enum field_type type = sql_expr_type(p);
 		if (type == FIELD_TYPE_ANY)
 			type = FIELD_TYPE_SCALAR;
-		pTab->def->fields[i].affinity = sql_field_type_to_affinity(type);
 		pTab->def->fields[i].type = type;
 		bool is_found;
 		uint32_t coll_id;
@@ -3069,7 +3065,8 @@ generateOutputSubroutine(struct Parse *parse, struct Select *p,
 			testcase(in->nSdst > 1);
 			r1 = sqlite3GetTempReg(parse);
 			enum field_type *types =
-				sql_affinity_str_to_field_type_str(dest->zAffSdst);
+				field_type_sequence_dup(parse, dest->zAffSdst,
+							in->nSdst);
 			sqlite3VdbeAddOp4(v, OP_MakeRecord, in->iSdst,
 					  in->nSdst, r1, (char *)types,
 					  P4_DYNAMIC);
