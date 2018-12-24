@@ -901,16 +901,16 @@ wal_writer_begin_rollback(struct wal_writer *writer)
 }
 
 static void
-wal_assign_lsn(struct wal_writer *writer, struct xrow_header **row,
+wal_assign_lsn(struct vclock *vclock, struct xrow_header **row,
 	       struct xrow_header **end)
 {
 	/** Assign LSN to all local rows. */
 	for ( ; row < end; row++) {
 		if ((*row)->replica_id == 0) {
-			(*row)->lsn = vclock_inc(&writer->vclock, instance_id);
+			(*row)->lsn = vclock_inc(vclock, instance_id);
 			(*row)->replica_id = instance_id;
 		} else {
-			vclock_follow_xrow(&writer->vclock, *row);
+			vclock_follow_xrow(vclock, *row);
 		}
 	}
 }
@@ -921,6 +921,11 @@ wal_write_to_disk(struct cmsg *msg)
 	struct wal_writer *writer = &wal_writer_singleton;
 	struct wal_msg *wal_msg = (struct wal_msg *) msg;
 	struct error *error;
+
+	/* Local vclock copy. */
+	struct vclock vclock;
+	vclock_create(&vclock);
+	vclock_copy(&vclock, &writer->vclock);
 
 	struct errinj *inj = errinj(ERRINJ_WAL_DELAY, ERRINJ_BOOL);
 	while (inj != NULL && inj->bparam)
@@ -974,14 +979,15 @@ wal_write_to_disk(struct cmsg *msg)
 	struct journal_entry *entry;
 	struct stailq_entry *last_committed = NULL;
 	stailq_foreach_entry(entry, &wal_msg->commit, fifo) {
-		wal_assign_lsn(writer, entry->rows, entry->rows + entry->n_rows);
-		entry->res = vclock_sum(&writer->vclock);
+		wal_assign_lsn(&vclock, entry->rows, entry->rows + entry->n_rows);
+		entry->res = vclock_sum(&vclock);
 		rc = xlog_write_entry(l, entry);
 		if (rc < 0)
 			goto done;
 		if (rc > 0) {
 			writer->checkpoint_wal_size += rc;
 			last_committed = &entry->fifo;
+			vclock_copy(&writer->vclock, &vclock);
 		}
 		/* rc == 0: the write is buffered in xlog_tx */
 	}
@@ -991,6 +997,7 @@ wal_write_to_disk(struct cmsg *msg)
 
 	writer->checkpoint_wal_size += rc;
 	last_committed = stailq_last(&wal_msg->commit);
+	vclock_copy(&writer->vclock, &vclock);
 
 	/*
 	 * Notify TX if the checkpoint threshold has been exceeded.
@@ -1185,7 +1192,7 @@ wal_write_in_wal_mode_none(struct journal *journal,
 			   struct journal_entry *entry)
 {
 	struct wal_writer *writer = (struct wal_writer *) journal;
-	wal_assign_lsn(writer, entry->rows, entry->rows + entry->n_rows);
+	wal_assign_lsn(&writer->vclock, entry->rows, entry->rows + entry->n_rows);
 	int64_t old_lsn = vclock_get(&replicaset.vclock, instance_id);
 	int64_t new_lsn = vclock_get(&writer->vclock, instance_id);
 	if (new_lsn > old_lsn) {
