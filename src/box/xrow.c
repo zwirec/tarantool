@@ -136,11 +136,17 @@ error:
 		case IPROTO_TXN:
 			header->txn = mp_decode_uint(pos);
 			break;
+		case IPROTO_TXN_REPLICA_ID:
+			header->txn_replica_id = mp_decode_uint(pos);
+			break;
 		default:
 			/* unknown header */
 			mp_next(pos);
 		}
 	}
+	if (header->txn_replica_id == 0)
+		header->txn_replica_id = header->replica_id;
+
 	assert(*pos <= end);
 	/* Nop requests aren't supposed to have a body. */
 	if (*pos < end && header->type != IPROTO_NOP &&
@@ -230,6 +236,11 @@ xrow_header_encode(const struct xrow_header *header, uint64_t sync,
 	if (header->txn != 0) {
 		d = mp_encode_uint(d, IPROTO_TXN);
 		d = mp_encode_uint(d, header->txn);
+		map_size++;
+	}
+	if (header->txn_replica_id != header->replica_id) {
+		d = mp_encode_uint(d, IPROTO_TXN_REPLICA_ID);
+		d = mp_encode_uint(d, header->txn_replica_id);
 		map_size++;
 	}
 	assert(d <= data + XROW_HEADER_LEN_MAX);

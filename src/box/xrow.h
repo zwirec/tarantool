@@ -75,6 +75,7 @@ struct xrow_header {
 	int64_t lsn; /* LSN must be signed for correct comparison */
 	double tm;
 	int64_t txn;
+	uint32_t txn_replica_id;
 
 	int bodycnt;
 	uint32_t schema_version;

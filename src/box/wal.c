@@ -48,6 +48,7 @@
 #include "cfg.h"
 #include "xstream.h"
 #include "xrow_io.h"
+#include "iproto_constants.h"
 
 enum {
 	/**
@@ -362,6 +363,7 @@ wal_commit_f(va_list ap)
 	struct wal_writer *writer = &wal_writer_singleton;
 	while (!fiber_is_cancelled()) {
 		fiber_cond_wait(&writer->commit_cond);
+
 		struct wal_done_msg *msg = (struct wal_done_msg *)
 			malloc(sizeof(struct wal_done_msg));
 		stailq_create(&msg->queue);
@@ -370,13 +372,13 @@ wal_commit_f(va_list ap)
 			struct journal_entry *entry;
 			entry = stailq_first_entry(&writer->queue,
 						   struct journal_entry, fifo);
-			if (entry->lsn > vclock_get(&writer->commit_vclock,
-						    entry->instance_id))
+			int64_t txn = (*entry->rows)->txn;
+			uint32_t txn_replica_id = (*entry->rows)->txn_replica_id;
+			if (txn > vclock_get(&writer->commit_vclock,
+					     txn_replica_id))
 				break;
 			stailq_add(&msg->queue, stailq_shift(&writer->queue));
 		}
-
-//FIXME: write commit marker
 
 		vclock_copy(&msg->vclock, &writer->vclock);
 
@@ -965,7 +967,7 @@ wal_relay_broadcast(struct wal_writer *writer, int data_pos)
 
 static ssize_t
 wal_encode_entry(struct wal_writer *writer, struct journal_entry *entry,
-		 struct vclock *vclock)
+		 struct vclock *req_vclock)
 {
 	struct wal_buf_item *last;
 	last = (struct wal_buf_item *)writer->wal_buf_index.wpos - 1;
@@ -980,16 +982,16 @@ wal_encode_entry(struct wal_writer *writer, struct journal_entry *entry,
 		last->size = 0;
 		last->buf_no = buf_no;
 		last->pos = ibuf_used(mem_buf);
-		vclock_copy(&last->vclock, vclock);
+		vclock_copy(&last->vclock, req_vclock);
 	}
 
-	wal_assign_lsn(entry->rows, entry->rows + entry->n_rows, vclock);
-	entry->instance_id = (*entry->rows)->replica_id;
-	entry->lsn = (*entry->rows)->lsn;
+	wal_assign_lsn(entry->rows, entry->rows + entry->n_rows, req_vclock);
 
-	entry->res = vclock_sum(vclock);
+	entry->res = vclock_sum(req_vclock);
 
 	struct xrow_header **row = entry->rows;
+
+	if (entry->rows[0]->type == IPROTO_COMMIT) {
 	int64_t txn = entry->rows[0]->lsn;
 	for (; row < entry->rows + entry->n_rows; row++) {
 		(*row)->tm = ev_now(loop());
@@ -997,7 +999,7 @@ wal_encode_entry(struct wal_writer *writer, struct journal_entry *entry,
 			(*row)->txn = txn;
 		else
 			(*row)->txn = 0;
-	}
+	}}
 
 	uint64_t old_size = last->size;
 
@@ -1025,6 +1027,45 @@ wal_encode_entry(struct wal_writer *writer, struct journal_entry *entry,
 error:
 	last->size = old_size;
 	mem_buf->wpos = mem_buf->buf + last->pos + last->size;
+	return -1;
+}
+
+static int
+wal_promote(struct xrow_header *row)
+{
+	struct wal_writer *writer = &wal_writer_singleton;
+	struct vclock req_vclock;
+	vclock_create(&req_vclock);
+	vclock_copy(&req_vclock, &writer->vclock);
+	struct journal_entry *entry = malloc(sizeof(struct journal_entry) +
+					     sizeof(struct xrow_header *));
+
+	entry->rows[0] = row;
+	entry->n_rows = 1;
+	struct xlog *l = &writer->current_wal;
+
+	int dirty_pos = wal_mem_rotate(writer);
+	int rc = wal_encode_entry(writer, entry, &req_vclock);
+	if (rc < 0)
+		goto error;
+
+	rc = xlog_write_entry(l, entry);
+	if (rc < 0)
+		goto error;
+
+	if (xlog_flush(l) < 0)
+		goto error;
+	wal_relay_broadcast(writer, dirty_pos);
+
+	vclock_copy(&writer->vclock, &req_vclock);
+	vclock_follow(&writer->commit_vclock, row->txn_replica_id, row->txn);
+	fiber_cond_signal(&writer->commit_cond);
+
+	free(entry);
+	return row->lsn;
+
+error:
+	free(entry);
 	return -1;
 }
 
@@ -1081,8 +1122,9 @@ wal_write_to_disk(struct cmsg *msg)
 
 	int dirty_pos = wal_mem_rotate(writer);
 
-	struct stailq_entry *last_committed = NULL;
+	struct stailq_entry *last_written = NULL;
 	stailq_foreach_entry(entry, &wal_msg->commit, fifo) {
+	//FIXME: roolback memory if error
 		int rc = wal_encode_entry(writer, entry, &req_vclock);
 		if (rc < 0)
 			goto done;
@@ -1094,14 +1136,14 @@ wal_write_to_disk(struct cmsg *msg)
 		if (rc == 0)
 			continue;
 
-		last_committed = &entry->fifo;
+		last_written = &entry->fifo;
 		vclock_copy(&writer->vclock, &req_vclock);
 		dirty_pos = wal_relay_broadcast(writer, dirty_pos);
 	}
 	if (xlog_flush(l) < 0)
 		goto done;
 
-	last_committed = stailq_last(&wal_msg->commit);
+	last_written = stailq_last(&wal_msg->commit);
 	vclock_copy(&writer->vclock, &req_vclock);
 	dirty_pos = wal_relay_broadcast(writer, dirty_pos);
 
@@ -1112,6 +1154,11 @@ done:
 		error_log(error);
 		diag_clear(diag_get());
 	}
+	if (rlist_empty(&writer->relay) &&
+	    vclock_get(&writer->vclock, instance_id) >
+	    vclock_get(&writer->commit_vclock, instance_id))
+		vclock_follow(&writer->commit_vclock, instance_id,
+			      vclock_get(&writer->vclock, instance_id));
 	/*
 	 * We need to start rollback from the first request
 	 * following the last committed request. If
@@ -1120,7 +1167,7 @@ done:
 	 * request. Otherwise we rollback from the first request.
 	 */
 	struct stailq rollback;
-	stailq_cut_tail(&wal_msg->commit, last_committed, &rollback);
+	stailq_cut_tail(&wal_msg->commit, last_written, &rollback);
 
 	stailq_concat(&writer->queue, &wal_msg->commit);
 
@@ -1262,7 +1309,10 @@ wal_write(struct journal *journal, struct journal_entry *entry)
 	 */
 	bool cancellable = fiber_set_cancellable(false);
 
+	say_error("send wal");
+
 	fiber_yield(); /* Request was inserted. */
+	say_error("recv wal");
 	fiber_set_cancellable(cancellable);
 	if (entry->res < 0) {
 		while (stailq_first_entry(&writer->rollback,
@@ -1562,9 +1612,7 @@ wal_relay_status_f(va_list ap)
 	ibuf_create(&ibuf, &cord()->slabc, 1024);
 	while (!fiber_is_cancelled()) {
 		struct xrow_header xrow;
-		say_error("pre read");
 		coio_read_xrow_timeout_xc(&relay->io, &ibuf, &xrow, 3600);
-		say_error("post read");
 		/* vclock is followed while decoding, zeroing it. */
 		vclock_create(&relay->recv_vclock);
 		xrow_decode_vclock(&xrow, &relay->recv_vclock);
@@ -1586,10 +1634,15 @@ wal_relay_status_f(va_list ap)
 						item);
 		if (vclock_get(&first_relay->recv_vclock, instance_id) >
 		    vclock_get(&writer->commit_vclock, instance_id)) {
-			vclock_follow(&writer->commit_vclock,
-				      instance_id,
-				      vclock_get(&first_relay->recv_vclock,
-						 instance_id));
+			struct xrow_header row;
+			row.type = IPROTO_COMMIT;
+			row.lsn = 0;
+			row.replica_id = 0;
+			row.txn = vclock_get(&first_relay->recv_vclock, instance_id);
+			row.txn_replica_id = instance_id;
+			row.tm = ev_now(loop());
+			row.bodycnt = 0;
+			wal_promote(&row);
 		}
 		say_error("set commit %i", vclock_sum(&writer->commit_vclock));
 		fiber_cond_signal(&writer->commit_cond);
@@ -1862,5 +1915,43 @@ wal_relay_start(struct cmsg *base)
 	struct fiber *relay = fiber_new("relay", relay_f);
 	fiber_start(relay, msg);
 	free(msg);
+}
+
+struct wal_commit_msg {
+	struct cmsg m;
+	struct xrow_header *row;
+	int64_t lsn;
+	struct fiber_cond cond;
+};
+
+static void
+wal_commit_do(struct cmsg *m)
+{
+	struct wal_commit_msg *msg = container_of(m, struct wal_commit_msg, m);
+	msg->lsn = wal_promote(msg->row);
+}
+
+static void
+wal_commit_done(struct cmsg *m)
+{
+	struct wal_commit_msg *msg = container_of(m, struct wal_commit_msg, m);
+	fiber_cond_signal(&msg->cond);
+}
+
+struct cmsg_hop wal_commit_route[] = {
+	{wal_commit_do, &wal_thread.tx_prio_pipe},
+	{wal_commit_done, NULL}
+};
+
+int64_t
+wal_commit(struct xrow_header *row)
+{
+	struct wal_commit_msg msg;
+	msg.row = row;
+	fiber_cond_create(&msg.cond);
+	cmsg_init(&msg.m, wal_commit_route);
+	cpipe_push(&wal_thread.wal_pipe, &msg.m);
+	fiber_cond_wait(&msg.cond);
+	return msg.lsn;
 }
 

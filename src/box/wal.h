@@ -209,6 +209,9 @@ wal_relay(struct replica *replica, struct ev_io *io, uint64_t sync,
 void
 on_wal_status(struct trigger *trigger);
 
+int64_t
+wal_commit(struct xrow_header *row);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

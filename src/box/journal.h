@@ -54,9 +54,6 @@ struct journal_entry {
 	 * the committed transaction, on error is -1
 	 */
 	int64_t res;
-
-	int64_t instance_id;
-	int64_t lsn;
 	/**
 	 * The fiber issuing the request.
 	 */

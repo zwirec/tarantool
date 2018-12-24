@@ -61,6 +61,7 @@ enum iproto_key {
 	IPROTO_SERVER_VERSION = 0x06,
 	IPROTO_GROUP_ID = 0x07,
 	IPROTO_TXN = 0x08,
+	IPROTO_TXN_REPLICA_ID = 0x09,
 	/* Leave a gap for other keys in the header. */
 	IPROTO_SPACE_ID = 0x10,
 	IPROTO_INDEX_ID = 0x11,
@@ -199,7 +200,7 @@ enum iproto_type {
 	/** Commit request. */
 	IPROTO_COMMIT = 13,
 	/** Rollback request. */
-	IPROTO_ROLLBACK,
+	IPROTO_ROLLBACK = 14,
 	/** The maximum typecode used for box.stat() */
 	IPROTO_TYPE_STAT_MAX,
 

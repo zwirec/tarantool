@@ -400,7 +400,7 @@ applier_read_tx(struct applier *applier, struct ibuf *row_buf,
 	struct ev_io *coio = &applier->io;
 	struct ibuf *ibuf = &applier->ibuf;
 
-	while (fiber_is_cancelled()) {
+	while (!fiber_is_cancelled()) {
 		row = (struct xrow_header *)ibuf_alloc(row_buf,
 						       sizeof(struct xrow_header));
 		if (row == NULL) {
@@ -470,7 +470,7 @@ applier_worker_f(va_list ap)
 	obuf_create(&data_buf, &cord()->slabc, 65535);
 
 	latch_lock(&applier->worker_latch);
-	while (fiber_is_cancelled()) {
+	while (!fiber_is_cancelled()) {
 		if (applier_read_tx(applier, &row_buf, &data_buf) != 0)
 			goto error;
 
@@ -525,6 +525,10 @@ applier_worker_f(va_list ap)
 		if (first_row != last_row)
 			txn = txn_begin(false);
 
+		if (first_row == last_row && first_row->type == IPROTO_COMMIT) {
+			wal_commit(first_row);
+		} else {
+
 		struct xrow_header *row = first_row;
 		while (row <= last_row) {
 			if (xstream_write(applier->subscribe_stream, row) != 0) {
@@ -535,6 +539,7 @@ applier_worker_f(va_list ap)
 				goto error;
 			}
 			++row;
+		}
 		}
 		vclock_follow(&replicaset.applier_vclock, first_row->replica_id,
 			      first_row->lsn);
@@ -646,7 +651,7 @@ applier_subscribe(struct applier *applier)
 	/*
 	 * Process a stream of rows from the binary log.
 	 */
-	while (fiber_is_cancelled()) {
+	while (!fiber_is_cancelled()) {
 		latch_lock(&applier->worker_latch);
 		latch_unlock(&applier->worker_latch);
 		if (latch_owner(&applier->worker_latch) == NULL) {

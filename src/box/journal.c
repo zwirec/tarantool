@@ -70,11 +70,6 @@ journal_entry_new(size_t n_rows)
 		diag_set(OutOfMemory, size, "region", "struct journal_entry");
 		return NULL;
 	}
-	if (n_rows > 1) {
-		memset(entry->rows + n_rows + 1, 0, sizeof(entry->rows[0][0]));
-		entry->rows[n_rows] = (struct xrow_header *)(entry->rows + n_rows + 1);
-		entry->rows[n_rows]->type = IPROTO_COMMIT;
-	}
 
 	entry->approx_len = 0;
 	entry->n_rows = n_rows;
