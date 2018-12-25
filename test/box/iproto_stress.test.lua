@@ -42,7 +42,7 @@ fiber.sleep(0.1)
 box.error.injection.set("ERRINJ_WAL_DELAY", false)
 
 attempt = 0
-while n_workers > 0 and attempt < 100 do fiber.sleep(0.1) attempt = attempt + 1 end
+while n_workers > 0 and attempt < 1000 do fiber.sleep(0.1) attempt = attempt + 1 end
 n_workers -- 0
 n_errors -- 0
 
