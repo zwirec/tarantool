@@ -533,23 +533,26 @@ applier_subscribe(struct applier *applier)
 						     row.replica_id);
 			vclock_follow_xrow(&replicaset.applier.vclock, &row);
 			int res = xstream_write(applier->subscribe_stream, &row);
-			if (res != 0) {
-				struct error *e = diag_last_error(diag_get());
+			struct error *e = diag_last_error(diag_get());
+			if (res != 0 && e->type == &type_ClientError &&
+			    box_error_code(e) == ER_TUPLE_FOUND &&
+			    replication_skip_conflict) {
 				/**
 				 * Silently skip ER_TUPLE_FOUND error if such
 				 * option is set in config.
 				 */
-				if (e->type == &type_ClientError &&
-				    box_error_code(e) == ER_TUPLE_FOUND &&
-				    replication_skip_conflict)
-					diag_clear(diag_get());
-				else {
-					/* Rollback lsn to have a chance for a retry. */
-					vclock_set(&replicaset.applier.vclock,
-						   row.replica_id, old_lsn);
-					latch_unlock(latch);
-					diag_raise();
-				}
+				diag_clear(diag_get());
+				row.type = IPROTO_NOP;
+				row.bodycnt = 0;
+				res = xstream_write(applier->subscribe_stream,
+						    &row);
+			}
+			if (res != 0) {
+				/* Rollback lsn to have a chance for a retry. */
+				vclock_set(&replicaset.applier.vclock,
+					   row.replica_id, old_lsn);
+				latch_unlock(latch);
+				diag_raise();
 			}
 		}
 done:
