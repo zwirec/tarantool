@@ -504,30 +504,29 @@ applier_subscribe(struct applier *applier)
 
 		applier->lag = ev_now(loop()) - row.tm;
 		applier->last_row_time = ev_monotonic_now(loop());
+		struct replica *replica = replica_by_id(row.replica_id);
+		struct latch *latch = (replica ? &replica->order_latch :
+				       &replicaset.applier.order_latch);
+		/*
+		 * In a full mesh topology, the same set
+		 * of changes may arrive via two
+		 * concurrently running appliers. Thanks
+		 * to vclock_follow() above, the first row
+		 * in the set will be skipped - but the
+		 * remaining may execute out of order,
+		 * when the following xstream_write()
+		 * yields on WAL. Hence we need a latch to
+		 * strictly order all changes which belong
+		 * to the same server id.
+		 */
+		latch_lock(latch);
 		if (vclock_get(&replicaset.applier.vclock,
 			       row.replica_id) < row.lsn) {
 			/* Preserve old lsn value. */
 			int64_t old_lsn = vclock_get(&replicaset.applier.vclock,
 						     row.replica_id);
 			vclock_follow_xrow(&replicaset.applier.vclock, &row);
-			struct replica *replica = replica_by_id(row.replica_id);
-			struct latch *latch = (replica ? &replica->order_latch :
-					       &replicaset.applier.order_latch);
-			/*
-			 * In a full mesh topology, the same set
-			 * of changes may arrive via two
-			 * concurrently running appliers. Thanks
-			 * to vclock_follow() above, the first row
-			 * in the set will be skipped - but the
-			 * remaining may execute out of order,
-			 * when the following xstream_write()
-			 * yields on WAL. Hence we need a latch to
-			 * strictly order all changes which belong
-			 * to the same server id.
-			 */
-			latch_lock(latch);
 			int res = xstream_write(applier->subscribe_stream, &row);
-			latch_unlock(latch);
 			if (res != 0) {
 				struct error *e = diag_last_error(diag_get());
 				/**
@@ -542,10 +541,12 @@ applier_subscribe(struct applier *applier)
 					/* Rollback lsn to have a chance for a retry. */
 					vclock_set(&replicaset.applier.vclock,
 						   row.replica_id, old_lsn);
+					latch_unlock(latch);
 					diag_raise();
 				}
 			}
 		}
+		latch_unlock(latch);
 		/*
 		 * Stay 'orphan' until appliers catch up with
 		 * the remote vclock at the time of SUBSCRIBE
