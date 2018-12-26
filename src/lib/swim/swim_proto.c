@@ -103,6 +103,7 @@ swim_process_member_key(enum swim_member_key key, const char **pos,
 			struct swim_member_def *def)
 {
 	uint64_t tmp;
+	uint32_t len;
 	switch (key) {
 	case SWIM_MEMBER_STATUS:
 		if (mp_typeof(**pos) != MP_UINT ||
@@ -135,6 +136,21 @@ swim_process_member_key(enum swim_member_key key, const char **pos,
 			return -1;
 		}
 		def->incarnation = mp_decode_uint(pos);
+		break;
+	case SWIM_MEMBER_PAYLOAD:
+		if (mp_typeof(**pos) != MP_BIN ||
+		    mp_check_binl(*pos, end) > 0) {
+			say_error("%s member payload should be bin", msg_pref);
+			return -1;
+		}
+		def->payload = mp_decode_bin(pos, &len);
+		if (len > MAX_PAYLOAD_SIZE) {
+			say_error("%s member payload size should be <= %d",
+				  msg_pref, MAX_PAYLOAD_SIZE);
+			return -1;
+		}
+		def->payload_size = (int) len;
+		return 0;
 		break;
 	default:
 		unreachable();
@@ -256,18 +272,20 @@ swim_anti_entropy_header_bin_create(struct swim_anti_entropy_header_bin *header,
 void
 swim_member_bin_fill(struct swim_member_bin *header,
 		     enum swim_member_status status,
-		     const struct sockaddr_in *addr, uint64_t incarnation)
+		     const struct sockaddr_in *addr, uint64_t incarnation,
+		     uint16_t payload_size)
 {
 	header->v_status = status;
 	header->v_addr = mp_bswap_u32(addr->sin_addr.s_addr);
 	header->v_port = mp_bswap_u16(addr->sin_port);
 	header->v_incarnation = mp_bswap_u64(incarnation);
+	header->v_payload_size = mp_bswap_u16(payload_size);
 }
 
 void
 swim_member_bin_create(struct swim_member_bin *header)
 {
-	header->m_header = 0x84;
+	header->m_header = 0x85;
 	header->k_status = SWIM_MEMBER_STATUS;
 	header->k_addr = SWIM_MEMBER_ADDRESS;
 	header->m_addr = 0xce;
@@ -275,6 +293,8 @@ swim_member_bin_create(struct swim_member_bin *header)
 	header->m_port = 0xcd;
 	header->k_incarnation = SWIM_MEMBER_INCARNATION;
 	header->m_incarnation = 0xcf;
+	header->k_payload = SWIM_MEMBER_PAYLOAD;
+	header->m_payload_size = 0xc5;
 }
 
 void
@@ -301,8 +321,10 @@ swim_event_bin_create(struct swim_event_bin *header)
 void
 swim_event_bin_fill(struct swim_event_bin *header,
 		    enum swim_member_status status,
-		    const struct sockaddr_in *addr, uint64_t incarnation)
+		    const struct sockaddr_in *addr, uint64_t incarnation,
+		    int payload_ttl)
 {
+	header->m_header = 0x84 + payload_ttl > 0;
 	header->v_status = status;
 	header->v_addr = mp_bswap_u32(addr->sin_addr.s_addr);
 	header->v_port = mp_bswap_u16(addr->sin_port);

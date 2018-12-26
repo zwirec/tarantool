@@ -34,6 +34,11 @@
 #include <arpa/inet.h>
 #include <stdbool.h>
 
+enum {
+	/** Reserve 272 bytes for headers. */
+	MAX_PAYLOAD_SIZE = 1200,
+};
+
 /**
  * SWIM binary protocol structures and helpers.
  */
@@ -62,6 +67,8 @@ struct swim_member_def {
 	struct sockaddr_in addr;
 	uint64_t incarnation;
 	enum swim_member_status status;
+	const char *payload;
+	int payload_size;
 };
 
 void
@@ -158,6 +165,7 @@ enum swim_member_key {
 	SWIM_MEMBER_ADDRESS,
 	SWIM_MEMBER_PORT,
 	SWIM_MEMBER_INCARNATION,
+	SWIM_MEMBER_PAYLOAD,
 	swim_member_key_MAX,
 };
 
@@ -176,7 +184,7 @@ swim_anti_entropy_header_bin_create(struct swim_anti_entropy_header_bin *header,
 
 /** SWIM member MsgPack template. */
 struct PACKED swim_member_bin {
-	/** mp_encode_map(4) */
+	/** mp_encode_map(5) */
 	uint8_t m_header;
 
 	/** mp_encode_uint(SWIM_MEMBER_STATUS) */
@@ -201,12 +209,20 @@ struct PACKED swim_member_bin {
 	/** mp_encode_uint(64bit incarnation) */
 	uint8_t m_incarnation;
 	uint64_t v_incarnation;
+
+	/** mp_encode_uint(SWIM_MEMBER_PAYLOAD) */
+	uint8_t k_payload;
+	/** mp_encode_bin(16bit bin header) */
+	uint8_t m_payload_size;
+	uint16_t v_payload_size;
+	/** Payload data ... */
 };
 
 void
 swim_member_bin_fill(struct swim_member_bin *header,
 		     enum swim_member_status status,
-		     const struct sockaddr_in *addr, uint64_t incarnation);
+		     const struct sockaddr_in *addr, uint64_t incarnation,
+		     uint16_t payload_size);
 
 void
 swim_member_bin_create(struct swim_member_bin *header);
@@ -230,7 +246,7 @@ swim_diss_header_bin_create(struct swim_diss_header_bin *header,
 
 /** SWIM event MsgPack template. */
 struct PACKED swim_event_bin {
-	/** mp_encode_map(4) */
+	/** mp_encode_map(4 or 5) */
 	uint8_t m_header;
 
 	/** mp_encode_uint(SWIM_MEMBER_STATUS) */
@@ -263,7 +279,8 @@ swim_event_bin_create(struct swim_event_bin *header);
 void
 swim_event_bin_fill(struct swim_event_bin *header,
 		    enum swim_member_status status,
-		    const struct sockaddr_in *addr, uint64_t incarnation);
+		    const struct sockaddr_in *addr, uint64_t incarnation,
+		    int payload_ttl);
 
 /** }}}                 Dissemination component                 */
 
