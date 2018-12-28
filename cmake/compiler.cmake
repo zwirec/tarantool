@@ -333,6 +333,8 @@ if (NOT HAVE_BUILTIN_CTZ OR NOT HAVE_BUILTIN_CTZLL)
             HAVE_FFSL)
         check_c_source_compiles("#include <string.h>\n#include <strings.h>\nint main(void) { return ffsll(0UL); }"
             HAVE_FFSLL)
+        set(CMAKE_REQUIRED_FLAGS "")
+        set(CMAKE_REQUIRED_DEFINITIONS "")
     endif()
 endif()
 
@@ -342,4 +344,45 @@ if (CMAKE_CROSSCOMPILING)
 else()
     set(CMAKE_HOST_C_COMPILER ${CMAKE_C_COMPILER})
     set(CMAKE_HOST_CXX_COMPILER ${CMAKE_CXX_COMPILER})
+endif()
+
+# Check for broken __builtin_v?sn?printf() in gcc-7.2.
+# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83448
+
+# It is important for the test case to be compiled w/o any extra
+# flags and with -O2. Say, -Wformat allows the case be compiled
+# successfully on gcc-7.2.
+set(PREVIOUS_CMAKE_C_FLAGS ${CMAKE_C_FLAGS})
+set(CMAKE_C_FLAGS "")
+set(CMAKE_REQUIRED_DEFINITIONS "")
+set(CMAKE_REQUIRED_INCLUDES "")
+set(CMAKE_REQUIRED_LIBRARIES "")
+set(CMAKE_REQUIRED_FLAGS "-O2 -Wno-format")
+
+check_c_source_compiles("
+char *a;
+int b;
+
+int
+main(void)
+{
+    for (;;) {
+        if (b < 0)
+            main();
+        __builtin_snprintf(a, b, \"%*s\", b, \"\");
+    }
+    return 0;
+}" HAVE_BUILTIN_SNPRINTF)
+
+set(CMAKE_REQUIRED_FLAGS "")
+set(CMAKE_C_FLAGS ${PREVIOUS_CMAKE_C_FLAGS})
+
+# /usr/include/stdio.h (bits/stdio2.h to be exact) uses builtin
+# gcc v?sn?printf functions when fortify source is enabled.
+if (CMAKE_COMPILER_IS_GNUCC AND NOT HAVE_BUILTIN_SNPRINTF)
+    add_compile_flags("C;CXX" "-Wp,-U_FORTIFY_SOURCE")
+    add_compile_flags("C;CXX" "-fno-builtin-sprintf")
+    add_compile_flags("C;CXX" "-fno-builtin-snprintf")
+    add_compile_flags("C;CXX" "-fno-builtin-vsnprintf")
+    add_compile_flags("C;CXX" "-fno-builtin-vsprintf")
 endif()
