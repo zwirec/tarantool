@@ -186,6 +186,15 @@ struct tuple_format {
 	 */
 	struct tuple_dictionary *dict;
 	/**
+	 * The size of a minimal tuple conforming to the format
+	 * and filled with nils.
+	 */
+	uint32_t min_tuple_size;
+	/**
+	 * A maximum depth of format::fields subtree.
+	 */
+	uint32_t fields_depth;
+	/**
 	 * Fields comprising the format, organized in a tree.
 	 * First level nodes correspond to tuple fields.
 	 * Deeper levels define indexed JSON paths within
@@ -219,6 +228,23 @@ tuple_format_field(struct tuple_format *format, uint32_t fieldno)
 	token.num = fieldno;
 	return json_tree_lookup_entry(&format->fields, &format->fields.root,
 				      &token, struct tuple_field, token);
+}
+
+/**
+ * Return meta information of a tuple field given a format,
+ * field index and path.
+ */
+static inline struct tuple_field *
+tuple_format_field_by_path(struct tuple_format *format, uint32_t fieldno,
+			   const char *path, uint32_t path_len)
+{
+	struct tuple_field *root = tuple_format_field(format, fieldno);
+	assert(root != NULL);
+	if (path == NULL)
+		return root;
+	return json_tree_lookup_path_entry(&format->fields, &root->token,
+					   path, path_len, TUPLE_INDEX_BASE,
+					   struct tuple_field, token);
 }
 
 extern struct tuple_format **tuple_formats;
@@ -416,6 +442,22 @@ tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
 			const uint32_t *field_map, uint32_t fieldno,
 			const char *path, uint32_t path_len)
 {
+	if (likely(path != NULL && fieldno < format->index_field_count)) {
+		/* Indexed field */
+		struct tuple_field *field =
+			tuple_format_field_by_path(format, fieldno,
+						   path, path_len);
+		if (field == NULL)
+			goto parse;
+		assert(field != NULL);
+		if (field->offset_slot != TUPLE_OFFSET_SLOT_NIL) {
+			assert(-field->offset_slot * sizeof(uint32_t) <=
+			       format->field_map_size);
+			return field_map[field->offset_slot] == 0 ?
+			       NULL : tuple + field_map[field->offset_slot];
+		}
+	}
+parse:
 	tuple = tuple_field_raw(format, tuple, field_map, fieldno);
 	if (path == NULL)
 		return tuple;
@@ -454,7 +496,8 @@ static inline const char *
 tuple_field_by_part_raw(struct tuple_format *format, const char *data,
 			const uint32_t *field_map, struct key_part *part)
 {
-	return tuple_field_raw(format, data, field_map, part->fieldno);
+	return tuple_field_raw_by_path(format, data, field_map, part->fieldno,
+				       part->path, part->path_len);
 }
 
 #if defined(__cplusplus)
