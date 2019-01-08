@@ -69,9 +69,86 @@ static const char *
 tuple_field_path(const struct tuple_field *field)
 {
 	assert(field->token.parent != NULL);
-	assert(field->token.parent->parent == NULL);
-	assert(field->token.type == JSON_TOKEN_NUM);
-	return int2str(field->token.num + TUPLE_INDEX_BASE);
+	if (field->token.parent->parent == NULL) {
+		/* Top-level field, no need to format the path. */
+		return int2str(field->token.num + TUPLE_INDEX_BASE);
+	}
+	char *path = tt_static_buf();
+	json_tree_snprint_path(path, TT_STATIC_BUF_LEN, &field->token,
+			       TUPLE_INDEX_BASE);
+	return path;
+}
+
+/**
+ * Given a field number and a path, add the corresponding tuple
+ * field to the tuple format, allocating intermediate fields if
+ * necessary.
+ * Return a pointer to the leaf field on success, NULL on memory
+ * allocation error or type/nullability mistmatch error, diag
+ * message is set.
+ */
+static struct tuple_field *
+tuple_format_add_field(struct tuple_format *format, uint32_t fieldno,
+		       const char *path, uint32_t path_len)
+{
+	struct tuple_field *field = NULL;
+	struct tuple_field *parent = tuple_format_field(format, fieldno);
+	if (path_len == 0)
+		goto end;
+	field = tuple_field_new();
+	if (field == NULL)
+		goto fail;
+
+	int rc = 0;
+	uint32_t token_count = 0;
+	struct json_tree *tree = &format->fields;
+	struct json_lexer lexer;
+	json_lexer_create(&lexer, path, path_len, TUPLE_INDEX_BASE);
+	while ((rc = json_lexer_next_token(&lexer, &field->token)) == 0 &&
+	       field->token.type != JSON_TOKEN_END) {
+		enum field_type expected_type =
+			field->token.type == JSON_TOKEN_STR ?
+			FIELD_TYPE_MAP : FIELD_TYPE_ARRAY;
+		if (field_type1_contains_type2(parent->type, expected_type)) {
+			parent->type = expected_type;
+		} else {
+			diag_set(ClientError, ER_INDEX_PART_TYPE_MISMATCH,
+				 tuple_field_path(parent),
+				 field_type_strs[parent->type],
+				 field_type_strs[expected_type]);
+			goto fail;
+		}
+		struct tuple_field *next =
+			json_tree_lookup_entry(tree, &parent->token,
+					       &field->token,
+					       struct tuple_field, token);
+		if (next == NULL) {
+			field->id = format->total_field_count++;
+			rc = json_tree_add(tree, &parent->token, &field->token);
+			if (rc != 0) {
+				diag_set(OutOfMemory, sizeof(struct json_token),
+					 "json_tree_add", "tree");
+				goto fail;
+			}
+			next = field;
+			field = tuple_field_new();
+			if (field == NULL)
+				goto fail;
+		}
+		parent = next;
+		token_count++;
+	}
+	/* Path has been verified by key_def_decode_parts. */
+	assert(rc == 0 && field->token.type == JSON_TOKEN_END);
+	assert(parent != NULL);
+	/* Update tree depth information. */
+	format->fields_depth = MAX(format->fields_depth, token_count + 1);
+end:
+	tuple_field_delete(field);
+	return parent;
+fail:
+	parent = NULL;
+	goto end;
 }
 
 /**
@@ -95,15 +172,26 @@ tuple_format_field_by_id(struct tuple_format *format, uint32_t id)
 static int
 tuple_format_use_key_part(struct tuple_format *format, uint32_t field_count,
 			  const struct key_part *part, bool is_sequential,
-			  int *current_slot)
+			  int *current_slot, char **path_pool)
 {
 	assert(part->fieldno < tuple_format_field_count(format));
-	struct tuple_field *field = tuple_format_field(format, part->fieldno);
+	const char *path = *path_pool;
+	if (part->path != NULL) {
+		/**
+		 * Copy JSON path data to reserved area at the
+		 * end of format allocation.
+		 */
+		memcpy(*path_pool, part->path, part->path_len);
+		*path_pool += part->path_len;
+	}
+	struct tuple_field *field = tuple_format_add_field(format, part->fieldno,
+							   path, part->path_len);
+	if (field == NULL)
+		return -1;
 	/*
-		* If a field is not present in the space format,
-		* inherit nullable action of the first key part
-		* referencing it.
-		*/
+	 * If a field is not present in the space format, inherit
+	 * nullable action of the first key part referencing it.
+	 */
 	if (part->fieldno >= field_count && !field->is_key_part)
 		field->nullable_action = part->nullable_action;
 	/*
@@ -158,7 +246,8 @@ tuple_format_use_key_part(struct tuple_format *format, uint32_t field_count,
 	 * simply accessible, so we don't store an offset for it.
 	 */
 	if (field->offset_slot == TUPLE_OFFSET_SLOT_NIL &&
-	    is_sequential == false && part->fieldno > 0) {
+	    is_sequential == false &&
+	    (part->fieldno > 0 || part->path != NULL)) {
 		*current_slot = *current_slot - 1;
 		field->offset_slot = *current_slot;
 	}
@@ -203,6 +292,11 @@ tuple_format_create(struct tuple_format *format, struct key_def * const *keys,
 
 	int current_slot = 0;
 
+	/*
+	 * Set pointer to reserved area in the format chunk
+	 * allocated with tuple_format_alloc call.
+	 */
+	char *path_pool = (char *)format + sizeof(struct tuple_format);
 	/* extract field type info */
 	for (uint16_t key_no = 0; key_no < key_count; ++key_no) {
 		const struct key_def *key_def = keys[key_no];
@@ -213,7 +307,8 @@ tuple_format_create(struct tuple_format *format, struct key_def * const *keys,
 		for (; part < parts_end; part++) {
 			if (tuple_format_use_key_part(format, field_count, part,
 						      is_sequential,
-						      &current_slot) != 0)
+						      &current_slot,
+						      &path_pool) != 0)
 				return -1;
 		}
 	}
@@ -236,6 +331,8 @@ tuple_format_create(struct tuple_format *format, struct key_def * const *keys,
 			 "malloc", "required field bitmap");
 		return -1;
 	}
+	format->min_tuple_size =
+		mp_sizeof_array(tuple_format_field_count(format));
 	struct tuple_field *field;
 	json_tree_foreach_entry_preorder(field, &format->fields.root,
 					 struct tuple_field, token) {
@@ -247,6 +344,34 @@ tuple_format_create(struct tuple_format *format, struct key_def * const *keys,
 		if (json_token_is_leaf(&field->token) &&
 		    !tuple_field_is_nullable(field))
 			bit_set(format->required_fields, field->id);
+
+		/* Update format::min_tuple_size by field. */
+		if (field->token.type == JSON_TOKEN_NUM) {
+			/*
+			 * Account a gap between omitted array
+			 * items.
+			 */
+			struct json_token **neighbors =
+				field->token.parent->children;
+			for (int i = field->token.num - 1;
+			     i > 0 && neighbors[i] == NULL; i--)
+				format->min_tuple_size += mp_sizeof_nil();
+		} else {
+			/* Account a key string for map member. */
+			assert(field->token.type == JSON_TOKEN_STR);
+			format->min_tuple_size +=
+				mp_sizeof_str(field->token.len);
+		}
+		int max_child_idx = field->token.max_child_idx;
+		if (json_token_is_leaf(&field->token)) {
+			format->min_tuple_size += mp_sizeof_nil();
+		} else if (field->type == FIELD_TYPE_ARRAY) {
+			format->min_tuple_size +=
+				mp_sizeof_array(max_child_idx + 1);
+		} else if (field->type == FIELD_TYPE_MAP) {
+			format->min_tuple_size +=
+				mp_sizeof_map(max_child_idx + 1);
+		}
 	}
 	return 0;
 }
@@ -317,6 +442,8 @@ static struct tuple_format *
 tuple_format_alloc(struct key_def * const *keys, uint16_t key_count,
 		   uint32_t space_field_count, struct tuple_dictionary *dict)
 {
+	/* Size of area to store JSON paths data. */
+	uint32_t path_pool_size = 0;
 	uint32_t index_field_count = 0;
 	/* find max max field no */
 	for (uint16_t key_no = 0; key_no < key_count; ++key_no) {
@@ -326,13 +453,15 @@ tuple_format_alloc(struct key_def * const *keys, uint16_t key_count,
 		for (; part < pend; part++) {
 			index_field_count = MAX(index_field_count,
 						part->fieldno + 1);
+			path_pool_size += part->path_len;
 		}
 	}
 	uint32_t field_count = MAX(space_field_count, index_field_count);
 
-	struct tuple_format *format = malloc(sizeof(struct tuple_format));
+	uint32_t allocation_size = sizeof(struct tuple_format) + path_pool_size;
+	struct tuple_format *format = malloc(allocation_size);
 	if (format == NULL) {
-		diag_set(OutOfMemory, sizeof(struct tuple_format), "malloc",
+		diag_set(OutOfMemory, allocation_size, "malloc",
 			 "tuple format");
 		return NULL;
 	}
@@ -368,6 +497,8 @@ tuple_format_alloc(struct key_def * const *keys, uint16_t key_count,
 	}
 	format->total_field_count = field_count;
 	format->required_fields = NULL;
+	format->fields_depth = 1;
+	format->min_tuple_size = 0;
 	format->refs = 0;
 	format->id = FORMAT_ID_NIL;
 	format->index_field_count = index_field_count;
@@ -428,15 +559,29 @@ tuple_format1_can_store_format2_tuples(struct tuple_format *format1,
 {
 	if (format1->exact_field_count != format2->exact_field_count)
 		return false;
-	uint32_t format1_field_count = tuple_format_field_count(format1);
-	uint32_t format2_field_count = tuple_format_field_count(format2);
-	for (uint32_t i = 0; i < format1_field_count; ++i) {
-		struct tuple_field *field1 = tuple_format_field(format1, i);
+	struct region *region = &fiber()->gc;
+	size_t region_svp = region_used(region);
+	bool ret = false;
+	struct tuple_field *field1;
+	json_tree_foreach_entry_preorder(field1, &format1->fields.root,
+					 struct tuple_field, token) {
+		region_truncate(region, region_svp);
+		uint32_t path_len = json_tree_snprint_path(NULL, 0,
+					&field1->token, TUPLE_INDEX_BASE);
+		char *path = region_alloc(region, path_len + 1);
+		if (path == NULL)
+			panic("Can not allocate memory for path");
+		json_tree_snprint_path(path, path_len + 1, &field1->token,
+				       TUPLE_INDEX_BASE);
+		struct tuple_field *field2 =
+			json_tree_lookup_path_entry(&format2->fields,
+				&format2->fields.root, path, path_len,
+				TUPLE_INDEX_BASE, struct tuple_field, token);
 		/*
 		 * The field has a data type in format1, but has
 		 * no data type in format2.
 		 */
-		if (i >= format2_field_count) {
+		if (field2 == NULL) {
 			/*
 			 * The field can get a name added
 			 * for it, and this doesn't require a data
@@ -450,20 +595,22 @@ tuple_format1_can_store_format2_tuples(struct tuple_format *format1,
 			    tuple_field_is_nullable(field1))
 				continue;
 			else
-				return false;
+				goto out;
 		}
-		struct tuple_field *field2 = tuple_format_field(format2, i);
 		if (! field_type1_contains_type2(field1->type, field2->type))
-			return false;
+			goto out;
 		/*
 		 * Do not allow transition from nullable to non-nullable:
 		 * it would require a check of all data in the space.
 		 */
 		if (tuple_field_is_nullable(field2) &&
 		    !tuple_field_is_nullable(field1))
-			return false;
+			goto out;
 	}
-	return true;
+	ret = true;
+out:
+	region_truncate(region, region_svp);
+	return ret;
 }
 
 /** @sa declaration for details. */
@@ -512,49 +659,79 @@ tuple_init_field_map(struct tuple_format *format, uint32_t *field_map,
 		/* Empty tuple, nothing to do. */
 		goto skip;
 	}
-	/* first field is simply accessible, so we do not store offset to it */
-	struct tuple_field *field = tuple_format_field(format, 0);
-	if (validate &&
-	    !field_mp_type_is_compatible(field->type, mp_typeof(*pos),
-					 tuple_field_is_nullable(field))) {
-		diag_set(ClientError, ER_FIELD_TYPE, tuple_field_path(field),
-			 field_type_strs[field->type]);
-		goto error;
-	}
-	if (required_fields != NULL)
-		bit_clear(required_fields, field->id);
-	mp_next(&pos);
-	/* other fields...*/
-	uint32_t i = 1;
 	uint32_t defined_field_count = MIN(field_count, validate ?
 					   tuple_format_field_count(format) :
 					   format->index_field_count);
-	if (field_count < format->index_field_count) {
-		/*
-		 * Nullify field map to be able to detect by 0,
-		 * which key fields are absent in tuple_field().
-		 */
-		memset((char *)field_map - format->field_map_size, 0,
-		       format->field_map_size);
+	/*
+	 * Nullify field map to be able to detect by 0,
+	 * which key fields are absent in tuple_field().
+	 */
+	memset((char *)field_map - format->field_map_size, 0,
+		format->field_map_size);
+	uint32_t mp_frames_sz = format->fields_depth * sizeof(struct mp_frame);
+	struct mp_frame *mp_frames = region_alloc(region, mp_frames_sz);
+	if (mp_frames == NULL) {
+		diag_set(OutOfMemory, mp_frames_sz, "region", "frames");
+		goto error;
 	}
-	for (; i < defined_field_count; ++i) {
-		field = tuple_format_field(format, i);
-		if (validate &&
-		    !field_mp_type_is_compatible(field->type, mp_typeof(*pos),
-						 tuple_field_is_nullable(field))) {
-			diag_set(ClientError, ER_FIELD_TYPE,
-				 tuple_field_path(field),
-				 field_type_strs[field->type]);
-			goto error;
+	struct mp_stack mp_stack;
+	mp_stack_init(&mp_stack, format->fields_depth, mp_frames);
+	mp_stack_push(&mp_stack, MP_ARRAY, defined_field_count);
+	struct tuple_field *field;
+	struct json_token *parent = &format->fields.root;
+	while (1) {
+		while (mp_stack_advance(&mp_stack)) {
+			mp_stack_pop(&mp_stack);
+			if (mp_stack_is_empty(&mp_stack))
+				goto skip;
+			parent = parent->parent;
 		}
-		if (field->offset_slot != TUPLE_OFFSET_SLOT_NIL) {
-			field_map[field->offset_slot] =
-				(uint32_t) (pos - tuple);
+		struct json_token token;
+		token.type = mp_stack_top(&mp_stack)->type == MP_ARRAY ?
+			     JSON_TOKEN_NUM : JSON_TOKEN_STR;
+		if (token.type == JSON_TOKEN_NUM) {
+			token.num = mp_stack_top(&mp_stack)->curr - 1;
+		} else if (token.type == JSON_TOKEN_STR) {
+			if (mp_typeof(*pos) != MP_STR) {
+				/* Skip key. */
+				mp_next(&pos);
+				mp_next(&pos);
+				continue;
+			}
+			token.str = mp_decode_str(&pos, (uint32_t *)&token.len);
+		} else {
+			unreachable();
 		}
-		if (required_fields != NULL)
-			bit_clear(required_fields, field->id);
-		mp_next(&pos);
-	}
+		enum mp_type type = mp_typeof(*pos);
+		assert(parent != NULL);
+		field = json_tree_lookup_entry(&format->fields, parent, &token,
+					       struct tuple_field, token);
+		if (field != NULL) {
+			bool is_nullable = tuple_field_is_nullable(field);
+			if (validate &&
+			    !field_mp_type_is_compatible(field->type, type,
+							 is_nullable) != 0) {
+				diag_set(ClientError, ER_FIELD_TYPE,
+					 tuple_field_path(field),
+					 field_type_strs[field->type]);
+				goto error;
+			}
+			if (field->offset_slot != TUPLE_OFFSET_SLOT_NIL)
+				field_map[field->offset_slot] = pos - tuple;
+			if (required_fields != NULL)
+				bit_clear(required_fields, field->id);
+		}
+		if ((type == MP_ARRAY || type == MP_MAP) &&
+		    !mp_stack_is_full(&mp_stack) && field != NULL) {
+			uint32_t size = type == MP_ARRAY ?
+					mp_decode_array(&pos) :
+					mp_decode_map(&pos);
+			mp_stack_push(&mp_stack, type, size);
+			parent = &field->token;
+		} else {
+			mp_next(&pos);
+		}
+	};
 skip:
 	/*
 	 * Check the required field bitmap for missing fields.
