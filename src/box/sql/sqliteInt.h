@@ -2728,7 +2728,6 @@ struct Parse {
 	int nLabel;		/* Number of labels used */
 	int *aLabel;		/* Space to hold the labels */
 	ExprList *pConstExpr;	/* Constant expressions */
-	Token constraintName;	/* Name of the constraint currently being parsed */
 	int nMaxArg;		/* Max args passed to user function by sub-program */
 	int nSelect;		/* Number of SELECT statements seen */
 	int nSelectIndent;	/* How far to indent SELECTTRACE() output */
@@ -2781,6 +2780,12 @@ struct Parse {
 	TriggerPrg *pTriggerPrg;	/* Linked list of coded triggers */
 	With *pWith;		/* Current WITH clause, or NULL */
 	With *pWithToFree;	/* Free this WITH object at the end of the parse */
+	/**
+	 * One of parse_def structures which are used to
+	 * assemble and carry arguments of DDL routines
+	 * from parse.y
+	 */
+	void *alter_entity_def;
 	/**
 	 * Number of FK constraints declared within
 	 * CREATE TABLE statement.
@@ -3459,7 +3464,7 @@ void
 sql_store_select(struct Parse *parse_context, struct Select *select);
 
 void
-sql_drop_table(struct Parse *, struct SrcList *, bool, bool);
+sql_drop_table(struct Parse *, bool);
 void sqlite3DeleteTable(sqlite3 *, Table *);
 void sqlite3Insert(Parse *, SrcList *, Select *, IdList *,
 		   enum on_conflict_action);
@@ -3488,36 +3493,19 @@ void sqlite3IdListDelete(sqlite3 *, IdList *);
  * parse->pNewTable is a table that is currently being
  * constructed by a CREATE TABLE statement.
  *
- * col_list is a list of columns to be indexed.  col_list will be
- * NULL if this is a primary key or unique-constraint on the most
- * recent column added to the table currently under construction.
- *
  * @param parse All information about this parse.
- * @param token Index name. May be NULL.
- * @param tbl_name Table to index. Use pParse->pNewTable ifNULL.
- * @param col_list A list of columns to be indexed.
- * @param start The CREATE token that begins this statement.
- * @param sort_order Sort order of primary key when pList==NULL.
- * @param if_not_exist Omit error if index already exists.
- * @param idx_type The index type.
  */
 void
-sql_create_index(struct Parse *parse, struct Token *token,
-		 struct SrcList *tbl_name, struct ExprList *col_list,
-		 struct Token *start, enum sort_order sort_order,
-		 bool if_not_exist, enum sql_index_type idx_type);
+sql_create_index(struct Parse *parse);
 
 /**
  * This routine will drop an existing named index.  This routine
  * implements the DROP INDEX statement.
  *
  * @param parse_context Current parsing context.
- * @param index_name_list List containing index name.
- * @param table_token Token representing table name.
- * @param if_exists True, if statement contains 'IF EXISTS' clause.
  */
 void
-sql_drop_index(struct Parse *, struct SrcList *, struct Token *, bool);
+sql_drop_index(struct Parse *parse_context);
 
 int sqlite3Select(Parse *, Select *, SelectDest *);
 Select *sqlite3SelectNew(Parse *, ExprList *, SrcList *, Expr *, ExprList *,
@@ -3919,20 +3907,9 @@ sql_materialize_view(struct Parse *parse, const char *name, struct Expr *where,
  * After the trigger actions have been parsed, the
  * sql_trigger_finish() function is called to complete the trigger
  * construction process.
- *
- * @param parse The parse context of the CREATE TRIGGER statement.
- * @param name The name of the trigger.
- * @param tr_tm One of TK_BEFORE, TK_AFTER, TK_INSTEAD.
- * @param op One of TK_INSERT, TK_UPDATE, TK_DELETE.
- * @param columns column list if this is an UPDATE OF trigger.
- * @param table The name of the table/view the trigger applies to.
- * @param when  WHEN clause.
- * @param no_err Suppress errors if the trigger already exists.
  */
 void
-sql_trigger_begin(struct Parse *parse, struct Token *name, int tr_tm,
-		  int op, struct IdList *columns, struct SrcList *table,
-		  struct Expr *when, int no_err);
+sql_trigger_begin(struct Parse *parse);
 
 /**
  * This routine is called after all of the trigger actions have
@@ -3952,11 +3929,9 @@ sql_trigger_finish(struct Parse *parse, struct TriggerStep *step_list,
  * VDBE code.
  *
  * @param parser Parser context.
- * @param name The name of trigger to drop.
- * @param no_err Suppress errors if the trigger already exists.
  */
 void
-sql_drop_trigger(struct Parse *parser, struct SrcList *name, bool no_err);
+sql_drop_trigger(struct Parse *parser);
 
 /**
  * Drop a trigger given a pointer to that trigger.
@@ -4136,14 +4111,6 @@ fkey_change_defer_mode(struct Parse *parse_context, bool is_deferred);
  * OR to handle <CREATE TABLE ...>
  *
  * @param parse_context Parsing context.
- * @param child Name of table to be altered. NULL on CREATE TABLE
- *              statement processing.
- * @param constraint Name of the constraint to be created. May be
- *                   NULL on CREATE TABLE statement processing.
- *                   Then, auto-generated name is used.
- * @param child_cols Columns of child table involved in FK.
- *                   May be NULL on CREATE TABLE statement processing.
- *                   If so, the last column added is used.
  * @param parent Name of referenced table.
  * @param parent_cols List of referenced columns. If NULL, columns
  *                    which make up PK of referenced table are used.
@@ -4152,22 +4119,16 @@ fkey_change_defer_mode(struct Parse *parse_context, bool is_deferred);
  *                algorithms (e.g. CASCADE, RESTRICT etc).
  */
 void
-sql_create_foreign_key(struct Parse *parse_context, struct SrcList *child,
-		       struct Token *constraint, struct ExprList *child_cols,
-		       struct Token *parent, struct ExprList *parent_cols,
-		       bool is_deferred, int actions);
+sql_create_foreign_key(struct Parse *parse_context);
 
 /**
  * Function called from parser to handle
  * <ALTER TABLE table DROP CONSTRAINT constraint> SQL statement.
  *
  * @param parse_context Parsing context.
- * @param table Table to be altered.
- * @param constraint Name of constraint to be dropped.
  */
 void
-sql_drop_foreign_key(struct Parse *parse_context, struct SrcList *table,
-		     struct Token *constraint);
+sql_drop_foreign_key(struct Parse *parse_context);
 
 void sqlite3Detach(Parse *, Expr *);
 int sqlite3AtoF(const char *z, double *, int);
@@ -4385,12 +4346,9 @@ extern int sqlite3PendingByte;
  * command.
  *
  * @param parse Current parsing context.
- * @param src_tab The table to rename.
- * @param new_name_tk Token containing new name of the table.
  */
 void
-sql_alter_table_rename(struct Parse *parse, struct SrcList *src_tab,
-		       struct Token *new_name_tk);
+sql_alter_table_rename(struct Parse *parse);
 
 /**
  * Return the length (in bytes) of the token that begins at z[0].

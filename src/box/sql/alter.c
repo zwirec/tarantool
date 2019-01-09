@@ -33,17 +33,19 @@
  * This file contains C code routines that used to generate VDBE code
  * that implements the ALTER TABLE command.
  */
-#include "sqliteInt.h"
+#include "parse_def.h"
 #include "box/box.h"
 #include "box/schema.h"
 
 void
-sql_alter_table_rename(struct Parse *parse, struct SrcList *src_tab,
-		       struct Token *new_name_tk)
+sql_alter_table_rename(struct Parse *parse)
 {
+	struct rename_entity_def *rename_def =
+		(struct rename_entity_def *) parse->alter_entity_def;
+	struct SrcList *src_tab = rename_def->base->entity_name;
 	assert(src_tab->nSrc == 1);
 	struct sqlite3 *db = parse->db;
-	char *new_name = sqlite3NameFromToken(db, new_name_tk);
+	char *new_name = sqlite3NameFromToken(db, &rename_def->new_name);
 	if (new_name == NULL)
 		goto exit_rename_table;
 	/* Check that new name isn't occupied by another table. */
