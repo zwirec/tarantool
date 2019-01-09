@@ -365,17 +365,8 @@ tcons ::= UNIQUE LP sortlist(X) RP. {
 }
 tcons ::= CHECK LP expr(E) RP onconf.
                                  {sql_add_check_constraint(pParse,&E);}
-tcons ::= FOREIGN KEY LP eidlist(FA) RP
-          REFERENCES nm(T) eidlist_opt(TA) refargs(R) defer_subclause_opt(D). {
-  struct create_constraint_def *constr_def = pParse->alter_entity_def;
-  constr_def->is_deferred = D;
-  struct create_fk_def *fk_def =
-    create_fk_def_new(pParse, constr_def, FA, &T, TA, R);
-  if (fk_def == NULL)
-    break;
-  pParse->alter_entity_def = (void *) fk_def;
-  sql_create_foreign_key(pParse);
-}
+tcons ::= foreign_key_def.
+
 %type defer_subclause_opt {int}
 defer_subclause_opt(A) ::= .                    {A = 0;}
 defer_subclause_opt(A) ::= defer_subclause(A).
@@ -1551,18 +1542,33 @@ cmd ::= ANALYZE.                {sqlite3Analyze(pParse, 0);}
 cmd ::= ANALYZE nm(X).          {sqlite3Analyze(pParse, &X);}
 
 //////////////////////// ALTER TABLE table ... ////////////////////////////////
-cmd ::= ALTER TABLE fullname(X) RENAME TO nm(Z). {
-  struct alter_entity_def *alter_def =
-    alter_entity_def_new(pParse, X);
-  /*
-   * After code preprocessing, this code snippet will get to
-   * one of "switch" cases. Hence, break is enough to gently
-   * terminate it. No clean-ups are required since all structs
-   * are allocated on region. OOM error is set inside def
-   * constructors.
-   */
+cmd ::= alter_table_start alter_table_action .
+
+/**
+ * We should get name of the table before processing
+ * any other rules. So, we've put this routine at
+ * the separate rule.
+ */
+alter_table_start ::= ALTER TABLE fullname(Z) . {
+  struct alter_entity_def *alter_def = alter_entity_def_new(pParse, Z);
+   /*
+    * After code preprocessing, this code snippet will get to
+    * one of "switch" cases. Hence, break is enough to gently
+    * terminate it. No clean-ups are required since all structs
+    * are allocated on region. OOM error is set inside def
+    * constructors.
+    */
   if (alter_def == NULL)
     break;
+  pParse->alter_entity_def = (void *) alter_def;
+}
+
+alter_table_action ::= add_constraint_def.
+alter_table_action ::= drop_constraint_def.
+alter_table_action ::= rename.
+
+rename ::= RENAME TO nm(Z). {
+  struct alter_entity_def *alter_def = pParse->alter_entity_def;
   struct rename_entity_def *rename_def =
     rename_entity_def_new(pParse, alter_def, Z);
   if (rename_def == NULL)
@@ -1571,21 +1577,27 @@ cmd ::= ALTER TABLE fullname(X) RENAME TO nm(Z). {
   sql_alter_table_rename(pParse);
 }
 
-cmd ::= ALTER TABLE fullname(X) ADD CONSTRAINT nm(Z) FOREIGN KEY
-        LP eidlist(FA) RP REFERENCES nm(T) eidlist_opt(TA) refargs(R)
-        defer_subclause_opt(D). {
-  struct alter_entity_def *alter_def =
-    alter_entity_def_new(pParse, X);
-  if (alter_def == NULL)
-    break;
+add_constraint_def ::= add_constraint_start constraint_def.
+
+add_constraint_start ::= ADD CONSTRAINT nm(Z). {
+  struct alter_entity_def *alter_def = pParse->alter_entity_def;
   struct create_entity_def *create_def =
     create_entity_def_new(pParse, alter_def, Z, false);
   if (create_def == NULL)
     break;
   struct create_constraint_def *constraint_def =
-    create_constraint_def_new(pParse, create_def, D);
+    create_constraint_def_new(pParse, create_def, false);
   if (constraint_def == NULL)
     break;
+  pParse->alter_entity_def = (void *) constraint_def;
+}
+
+constraint_def ::= foreign_key_def.
+
+foreign_key_def ::= FOREIGN KEY LP eidlist(FA) RP REFERENCES nm(T)
+                    eidlist_opt(TA) refargs(R) defer_subclause_opt(D). {
+  struct create_constraint_def *constraint_def = pParse->alter_entity_def;
+  constraint_def->is_deferred = D;
   struct create_fk_def *fk_def =
     create_fk_def_new(pParse, constraint_def, FA, &T, TA, R);
   if (fk_def == NULL)
@@ -1594,11 +1606,8 @@ cmd ::= ALTER TABLE fullname(X) ADD CONSTRAINT nm(Z) FOREIGN KEY
   sql_create_foreign_key(pParse);
 }
 
-cmd ::= ALTER TABLE fullname(X) DROP CONSTRAINT nm(Z). {
-  struct alter_entity_def *alter_def =
-    alter_entity_def_new(pParse, X);
-  if (alter_def == NULL)
-    break;
+drop_constraint_def ::= DROP CONSTRAINT nm(Z). {
+  struct alter_entity_def *alter_def = pParse->alter_entity_def;
   struct drop_entity_def *drop_def =
     drop_entity_def_new(pParse, alter_def, Z, false);
   if (drop_def == NULL)
