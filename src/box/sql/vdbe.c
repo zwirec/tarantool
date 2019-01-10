@@ -992,7 +992,7 @@ case OP_HaltIfNull: {      /* in3 */
  * automatically.
  *
  * P1 is the result code returned by sqlite3_exec(),
- * sqlite3_reset(), or sqlite3_finalize().  For a normal halt,
+ * sql_stmt_reset(), or sqlite3_finalize().  For a normal halt,
  * this should be SQLITE_OK (0).
  * For errors, it can be some other value.  If P1!=0 then P2 will
  * determine whether or not to rollback the current transaction.

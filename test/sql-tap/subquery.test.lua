@@ -651,7 +651,7 @@ test:do_execsql_test(
 --------------------------------------------------------------------
 -- These tests - subquery-4.* - use the TCL statement cache to try 
 -- and expose bugs to do with re-using statements that have been 
--- passed to sqlite3_reset().
+-- passed to sql_stmt_reset().
 --
 -- One problem was that VDBE memory cells were not being initialized
 -- to NULL on the second and subsequent executions.

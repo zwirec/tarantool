@@ -132,23 +132,15 @@ sqlite3_finalize(sqlite3_stmt * pStmt)
 	return rc;
 }
 
-/*
- * Terminate the current execution of an SQL statement and reset it
- * back to its starting state so that it can be reused. A success code from
- * the prior execution is returned.
- *
- * This routine sets the error code and string returned by
- * sqlite3_errcode(), sqlite3_errmsg() and sqlite3_errmsg16().
- */
 int
-sqlite3_reset(sqlite3_stmt * pStmt)
+sql_stmt_reset(struct sqlite3_stmt *stmt)
 {
 	int rc;
-	if (pStmt == 0) {
+	if (stmt == NULL) {
 		rc = SQLITE_OK;
 	} else {
-		Vdbe *v = (Vdbe *) pStmt;
-		sqlite3 *db = v->db;
+		struct Vdbe *v = (struct Vdbe *)stmt;
+		struct sqlite3 *db = v->db;
 		checkProfileCallback(db, v);
 		rc = sqlite3VdbeReset(v);
 		sqlite3VdbeRewind(v);
@@ -509,30 +501,19 @@ sqlite3Step(Vdbe * p)
 
 	assert(p);
 	if (p->magic != VDBE_MAGIC_RUN) {
-		/* We used to require that sqlite3_reset() be called before retrying
-		 * sqlite3_step() after any error or after SQLITE_DONE.  But beginning
-		 * with version 3.7.0, we changed this so that sqlite3_reset() would
-		 * be called automatically instead of throwing the SQLITE_MISUSE error.
-		 * This "automatic-reset" change is not technically an incompatibility,
-		 * since any application that receives an SQLITE_MISUSE is broken by
-		 * definition.
-		 *
-		 * Nevertheless, some published applications that were originally written
-		 * for version 3.6.23 or earlier do in fact depend on SQLITE_MISUSE
-		 * returns, and those were broken by the automatic-reset change.  As a
-		 * a work-around, the SQLITE_OMIT_AUTORESET compile-time restores the
-		 * legacy behavior of returning SQLITE_MISUSE for cases where the
-		 * previous sqlite3_step() returned something other than a SQLITE_LOCKED
-		 * or SQLITE_BUSY error.
+		/*
+		 * The sql_stmt_reset() routine would be called
+		 * automatically instead of throwing the
+		 * SQLITE_MISUSE error.
 		 */
 #ifdef SQLITE_OMIT_AUTORESET
 		if ((rc = p->rc & 0xff) == SQLITE_BUSY || rc == SQLITE_LOCKED) {
-			sqlite3_reset((sqlite3_stmt *) p);
+			sql_stmt_reset((sqlite3_stmt *) p);
 		} else {
 			return SQLITE_MISUSE_BKPT;
 		}
 #else
-		sqlite3_reset((sqlite3_stmt *) p);
+		sql_stmt_reset((sqlite3_stmt *) p);
 #endif
 	}
 
@@ -632,7 +613,7 @@ sqlite3_step(sqlite3_stmt * pStmt)
 		rc2 = rc = sqlite3Reprepare(v);
 		if (rc != SQLITE_OK)
 			break;
-		sqlite3_reset(pStmt);
+		sql_stmt_reset(pStmt);
 		if (savedPc >= 0)
 			v->doingRerun = 1;
 		assert(v->expired == 0);
