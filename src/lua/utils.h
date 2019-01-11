@@ -304,8 +304,11 @@ struct luaL_field {
  * @param cfg configuration
  * @param index stack index
  * @param field conversion result
+ *
+ * @retval  0 Success.
+ * @retval -1 Error.
  */
-void
+int
 luaL_tofield(struct lua_State *L, struct luaL_serializer *cfg, int index,
 	     struct luaL_field *field);
 
@@ -345,7 +348,8 @@ static inline void
 luaL_checkfield(struct lua_State *L, struct luaL_serializer *cfg, int idx,
 		struct luaL_field *field)
 {
-	luaL_tofield(L, cfg, idx, field);
+	if (luaL_tofield(L, cfg, idx, field) < 0)
+		luaT_error(L);
 	if (field->type != MP_EXT)
 		return;
 	luaL_convertfield(L, cfg, idx, field);
