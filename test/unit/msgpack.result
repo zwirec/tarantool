@@ -1,4 +1,4 @@
-1..20
+1..21
     1..135
     # *** test_uints ***
     # uint 0U
@@ -1824,3 +1824,17 @@ ok 19 - subtests
     ok 4 - mp_check bin overflow
     # *** test_overflow: done ***
 ok 20 - subtests
+    1..10
+    # *** test_mpstack ***
+    ok 1 - Stack is empty
+    ok 2 - Stack is not empty
+    ok 3 - correct path A[1]
+    ok 4 - correct path A[2]
+    ok 5 - correct path A[2]M[1]
+    ok 6 - correct path A[2]M[2]
+    ok 7 - correct path A[3]
+    ok 8 - correct path A[3]A[1]
+    ok 9 - correct paths built: 6/6
+    ok 10 - Stack is empty
+    # *** test_mpstack: done ***
+ok 21 - subtests
