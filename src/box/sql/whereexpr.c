@@ -37,6 +37,7 @@
  * readability and editabiliity.  This file contains utility routines for
  * analyzing Expr objects in the WHERE clause.
  */
+#include "box/coll_id_cache.h"
 #include "coll.h"
 #include "sqliteInt.h"
 #include "whereInt.h"
@@ -167,7 +168,8 @@ exprCommute(Parse * pParse, Expr * pExpr)
 		} else {
 			bool is_found;
 			uint32_t id;
-			sql_expr_coll(pParse, pExpr->pLeft, &is_found, &id);
+			(void) sql_expr_coll(pParse, pExpr->pLeft, &is_found,
+					     &id);
 			if (id != COLL_NONE) {
 				/*
 				 * Neither X nor Y have COLLATE
@@ -851,17 +853,18 @@ termIsEquivalence(Parse * pParse, Expr * pExpr)
 	    ) {
 		return 0;
 	}
-	uint32_t unused;
-	struct coll *coll1 =
-	    sql_binary_compare_coll_seq(pParse, pExpr->pLeft, pExpr->pRight,
-					&unused);
-	if (coll1 == NULL)
+	uint32_t id = sql_binary_compare_coll_seq(pParse, pExpr->pLeft,
+						  pExpr->pRight);
+	if (id == COLL_NONE)
 		return 1;
 	bool unused1;
-	coll1 = sql_expr_coll(pParse, pExpr->pLeft, &unused1, &unused);
-	struct coll *coll2 = sql_expr_coll(pParse, pExpr->pRight, &unused1,
-					   &unused);
-	return coll1 != NULL && coll1 == coll2;
+	uint32_t lhs_id;
+	uint32_t rhs_id;
+	if (sql_expr_coll(pParse, pExpr->pLeft, &unused1, &lhs_id) != 0)
+		return 0;
+	if (sql_expr_coll(pParse, pExpr->pRight, &unused1, &rhs_id) != 0)
+		return 0;
+	return lhs_id != COLL_NONE && lhs_id == rhs_id;
 }
 
 /*

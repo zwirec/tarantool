@@ -4337,10 +4337,10 @@ const char *sqlite3ErrStr(int);
  *             clause is used.
  * @param[out] coll_id Collation identifier.
  *
- * @retval Pointer to collation.
+ * @retval Return code: < 0 in case of error, 0 on success.
  */
-struct coll *
-sql_expr_coll(Parse * pParse, Expr * pExpr, bool *is_explicit_coll,
+int
+sql_expr_coll(Parse *parse, Expr *p, bool *is_explicit_coll,
 	      uint32_t *coll_id);
 
 Expr *sqlite3ExprAddCollateToken(Parse * pParse, Expr *, const Token *, int);
@@ -4684,13 +4684,11 @@ collations_check_compatibility(uint32_t lhs_id, bool is_lhs_forced,
  * @param parser Parser.
  * @param left Left expression.
  * @param right Right expression. Can be NULL.
- * @param[out] coll_id Collation identifier.
  *
- * @retval Collation object.
+ * @retval Id of collation object.
  */
-struct coll *
-sql_binary_compare_coll_seq(Parse *parser, Expr *left, Expr *right,
-			    uint32_t *coll_id);
+uint32_t
+sql_binary_compare_coll_seq(Parse *parser, Expr *left, Expr *right);
 int sqlite3TempInMemory(const sqlite3 *);
 #ifndef SQLITE_OMIT_CTE
 With *sqlite3WithAdd(Parse *, With *, Token *, ExprList *, Select *);

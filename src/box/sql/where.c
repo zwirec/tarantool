@@ -304,11 +304,14 @@ whereScanNext(WhereScan * pScan)
 								Parse *pParse =
 									pWC->pWInfo->pParse;
 								assert(pX->pLeft);
-								uint32_t unused;
-								struct coll *coll =
+								uint32_t id =
 									sql_binary_compare_coll_seq(
 										pParse, pX->pLeft,
-										pX->pRight, &unused);
+										pX->pRight);
+								struct coll *coll =
+									id != COLL_NONE ?
+									coll_by_id(id)->coll :
+									NULL;
 								if (coll != pScan->coll)
 									continue;
 							}
@@ -556,10 +559,10 @@ findIndexCol(Parse * pParse,	/* Parse context */
 		    p->iColumn == (int) part_to_match->fieldno) {
 			bool is_found;
 			uint32_t id;
-			struct coll *coll = sql_expr_coll(pParse,
-							  pList->a[i].pExpr,
-							  &is_found, &id);
-			if (coll == part_to_match->coll)
+			if (sql_expr_coll(pParse, pList->a[i].pExpr,
+					  &is_found, &id) != 0)
+				return -1;
+			if (id == part_to_match->coll_id)
 				return i;
 		}
 	}
@@ -2263,7 +2266,6 @@ whereRangeVectorLen(Parse * pParse,	/* Parsing context */
 		 */
 		char aff;	/* Comparison affinity */
 		char idxaff = 0;	/* Indexed columns affinity */
-		struct coll *pColl;	/* Comparison collation sequence */
 		Expr *pLhs = pTerm->pExpr->pLeft->x.pList->a[i].pExpr;
 		Expr *pRhs = pTerm->pExpr->pRight;
 		if (pRhs->flags & EP_xIsSelect) {
@@ -2288,11 +2290,10 @@ whereRangeVectorLen(Parse * pParse,	/* Parsing context */
 		    sqlite3TableColumnAffinity(space->def, pLhs->iColumn);
 		if (aff != idxaff)
 			break;
-		uint32_t unused;
-		pColl = sql_binary_compare_coll_seq(pParse, pLhs, pRhs, &unused);
-		if (pColl == 0)
+		uint32_t id = sql_binary_compare_coll_seq(pParse, pLhs, pRhs);
+		if (id == COLL_NONE)
 			break;
-		if (idx_def->key_def->parts[i + nEq].coll != pColl)
+		if (idx_def->key_def->parts[i + nEq].coll_id != id)
 			break;
 	}
 	return i;
@@ -3269,16 +3270,18 @@ wherePathSatisfiesOrderBy(WhereInfo * pWInfo,	/* The WHERE clause */
 			}
 			if ((pTerm->eOperator & WO_EQ) != 0
 			    && pOBExpr->iColumn >= 0) {
-				struct coll *coll1, *coll2;
 				bool unused;
-				uint32_t id;
-				coll1 = sql_expr_coll(pWInfo->pParse,
-						      pOrderBy->a[i].pExpr,
-						      &unused, &id);
-				coll2 = sql_expr_coll(pWInfo->pParse,
-						      pTerm->pExpr,
-						      &unused, &id);
-				if (coll1 != coll2)
+				uint32_t lhs_id;
+				uint32_t rhs_id;
+				if (sql_expr_coll(pWInfo->pParse,
+						  pOrderBy->a[i].pExpr, &unused,
+						  &lhs_id) != 0)
+					return 0;
+				if (sql_expr_coll(pWInfo->pParse,
+						  pTerm->pExpr, &unused,
+						  &rhs_id) != 0)
+					return 0;
+				if (lhs_id != rhs_id)
 					continue;
 			}
 			obSat |= MASKBIT(i);
@@ -3401,13 +3404,10 @@ wherePathSatisfiesOrderBy(WhereInfo * pWInfo,	/* The WHERE clause */
 					if (iColumn >= 0) {
 						bool is_found;
 						uint32_t id;
-						struct coll *coll =
-							sql_expr_coll(pWInfo->pParse,
-								      pOrderBy->a[i].pExpr,
-								      &is_found, &id);
-						struct coll *idx_coll =
-							idx_def->key_def->parts[j].coll;
-						if (coll != idx_coll)
+						sql_expr_coll(pWInfo->pParse,
+							      pOrderBy->a[i].pExpr,
+							      &is_found, &id);
+						if (idx_def->key_def->parts[j].coll_id != id)
 							continue;
 					}
 					isMatch = 1;
