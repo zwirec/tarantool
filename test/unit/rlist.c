@@ -1,10 +1,12 @@
 #include "small/rlist.h"
 #include <stdio.h>
 #include <stdarg.h>
+#include <limits.h>
+#include <time.h>
 #include "unit.h"
 
 
-#define PLAN		87
+#define PLAN		91
 
 #define ITEMS		7
 
@@ -19,9 +21,16 @@ static struct test items[ITEMS];
 static RLIST_HEAD(head);
 static RLIST_HEAD(head2);
 
+static inline int
+cmp(struct test *a, struct test *b)
+{
+	return a->no - b->no;
+}
+
 int
 main(void)
 {
+	srand(time(NULL));
 	int i;
 	struct test *it;
 	struct rlist *rlist;
@@ -132,6 +141,35 @@ main(void)
 	rlist_add_entry(&head, &items[0], list);
 	ok(rlist_prev_entry_safe(&items[0], &head, list) == NULL,
 	   "prev is null");
+
+	rlist_insert_after_entry(&items[0], &items[2], list);
+	it = rlist_first_entry(&head, struct test, list);
+	is(it, &items[0], "inserted after first, first is ok");
+	it = rlist_next_entry(it, list);
+	is(it, &items[2], "inserted after first, second is ok");
+
+	rlist_insert_after_entry(&items[0], &items[1], list);
+	int is_sorted = 1;
+	i = 0;
+	rlist_foreach_entry(it, &head, list)
+		is_sorted = is_sorted && it == &items[i++];
+	rlist_foreach_entry_reverse(it, &head, list)
+		is_sorted = is_sorted && it == &items[--i];
+	ok(is_sorted, "after insertion into the middle the list is ok");
+
+	rlist_create(&head);
+	for (int i = 0; i < ITEMS; ++i) {
+		items[i].no = rand() % ITEMS;
+		rlist_add_tail_entry_sorted(&head, it, &items[i], list, cmp);
+	}
+	int prev = INT_MIN;
+	is_sorted = 1;
+	rlist_foreach_entry(it, &head, list) {
+		is_sorted = is_sorted && prev <= it->no;
+		prev = it->no;
+	}
+	ok(is_sorted, "the list is sorted");
+
 	return check_plan();
 }
 

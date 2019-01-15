@@ -1,4 +1,4 @@
-1..87
+1..91
 ok 1 - list is empty
 ok 2 - rlist_nil is empty
 ok 3 - head2 is empty
@@ -86,3 +86,7 @@ ok 84 - element (foreach_entry) 2
 ok 85 - element (foreach_entry) 1
 ok 86 - element (foreach_entry) 0
 ok 87 - prev is null
+ok 88 - inserted after first, first is ok
+ok 89 - inserted after first, second is ok
+ok 90 - after insertion into the middle the list is ok
+ok 91 - the list is sorted
