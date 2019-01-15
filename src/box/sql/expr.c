@@ -221,6 +221,45 @@ sql_expr_coll(Parse *parse, Expr *p, bool *is_explicit_coll, uint32_t *coll_id)
 			}
 			break;
 		}
+		if (op == TK_CONCAT) {
+			/*
+			 * Despite the fact that procedure below
+			 * is very similar to collation_check_compatability(),
+			 * it is slightly different: when both
+			 * operands have different implicit collations,
+			 * derived collation should be "none",
+			 * i.e. no collation is used at all
+			 * (instead of raising error).
+			 */
+			bool is_lhs_forced;
+			uint32_t lhs_coll_id;
+			if (sql_expr_coll(parse, p->pLeft, &is_lhs_forced,
+					  &lhs_coll_id) != 0)
+				return -1;
+			bool is_rhs_forced;
+			uint32_t rhs_coll_id;
+			if (sql_expr_coll(parse, p->pRight, &is_rhs_forced,
+					  &rhs_coll_id) != 0)
+				return -1;
+			if (is_lhs_forced && is_rhs_forced) {
+				if (lhs_coll_id != rhs_coll_id)
+					return -1;
+			}
+			if (is_lhs_forced) {
+				*coll_id = lhs_coll_id;
+				*is_explicit_coll = true;
+				return 0;
+			}
+			if (is_rhs_forced) {
+				*coll_id = rhs_coll_id;
+				*is_explicit_coll = true;
+				return 0;
+			}
+			if (rhs_coll_id != lhs_coll_id)
+				return 0;
+			*coll_id = lhs_coll_id;
+			return 0;
+		}
 		if (p->flags & EP_Collate) {
 			if (p->pLeft && (p->pLeft->flags & EP_Collate) != 0) {
 				p = p->pLeft;
@@ -384,10 +423,14 @@ sql_binary_compare_coll_seq(Parse *parser, Expr *left, Expr *right)
 	bool is_rhs_forced;
 	uint32_t lhs_coll_id;
 	uint32_t rhs_coll_id;
-	if (sql_expr_coll(parser, left, &is_lhs_forced, &lhs_coll_id) != 0)
+	if (sql_expr_coll(parser, left, &is_lhs_forced, &lhs_coll_id) != 0) {
+		diag_set(ClientError, ER_ILLEGAL_COLLATION_MIX);
 		goto err;
-	if (sql_expr_coll(parser, right, &is_rhs_forced, &rhs_coll_id) != 0)
+	}
+	if (sql_expr_coll(parser, right, &is_rhs_forced, &rhs_coll_id) != 0) {
+		diag_set(ClientError, ER_ILLEGAL_COLLATION_MIX);
 		goto err;
+	}
 	uint32_t coll_id;
 	if (collations_check_compatibility(lhs_coll_id, is_lhs_forced,
 					   rhs_coll_id, is_rhs_forced,
