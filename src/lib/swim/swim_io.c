@@ -100,6 +100,19 @@ const struct swim_transport_vtab swim_udp_transport_vtab = {
 	/* .destroy = */ swim_udp_transport_destroy,
 };
 
+struct swim_task *
+swim_task_new(swim_task_f complete, void *ctx)
+{
+	struct swim_task *task = (struct swim_task *) malloc(sizeof(*task));
+	if (task == NULL) {
+		diag_set(OutOfMemory, sizeof(*task), "malloc", "task");
+		return NULL;
+	}
+	swim_task_create(task, complete, ctx);
+	task->is_static = false;
+	return task;
+}
+
 void
 swim_task_create(struct swim_task *task, swim_task_f complete, void *ctx)
 {
@@ -112,6 +125,7 @@ swim_task_create(struct swim_task *task, swim_task_f complete, void *ctx)
 	assert(tmp != NULL);
 	(void) tmp;
 	rlist_create(&task->in_queue_output);
+	task->is_static = true;
 }
 
 void
@@ -158,6 +172,12 @@ swim_scheduler_bind(struct swim_scheduler *scheduler, struct sockaddr_in *addr)
 void
 swim_scheduler_destroy(struct swim_scheduler *scheduler)
 {
+	struct swim_task *task, *tmp;
+	rlist_foreach_entry_safe(task, &scheduler->queue_output,
+				 in_queue_output, tmp) {
+		if (! task->is_static)
+			swim_task_delete(task);
+	}
 	swim_transport_destroy(&scheduler->transport);
 	ev_io_stop(loop(), &scheduler->output);
 	ev_io_stop(loop(), &scheduler->input);
@@ -190,6 +210,8 @@ swim_scheduler_on_output(struct ev_loop *loop, struct ev_io *io, int events)
 		diag_log();
 	if (task->complete != NULL)
 		task->complete(task, rc);
+	if (! task->is_static)
+		swim_task_delete(task);
 }
 
 static void

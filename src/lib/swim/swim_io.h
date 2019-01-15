@@ -174,6 +174,11 @@ struct swim_task {
 	struct sockaddr_in dst;
 	/** Place in a queue of tasks. */
 	struct rlist in_queue_output;
+	/**
+	 * True if the task is on a static memory and should not
+	 * be deleted on completion or the scheduler destruction.
+	 */
+	bool is_static;
 };
 
 void
@@ -182,6 +187,9 @@ swim_task_schedule(struct swim_task *task, const struct sockaddr_in *dst,
 
 void
 swim_task_create(struct swim_task *task, swim_task_f complete, void *ctx);
+
+struct swim_task *
+swim_task_new(swim_task_f complete, void *ctx);
 
 static inline bool
 swim_task_is_active(struct swim_task *task)
@@ -193,6 +201,14 @@ static inline void
 swim_task_destroy(struct swim_task *task)
 {
 	rlist_del_entry(task, in_queue_output);
+}
+
+static inline void
+swim_task_delete(struct swim_task *task)
+{
+	assert(! task->is_static);
+	swim_task_destroy(task);
+	free(task);
 }
 
 #if defined(__cplusplus)
