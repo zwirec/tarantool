@@ -137,6 +137,12 @@ tuple_field_is_nullable(struct tuple_field *tuple_field)
  * Tuple format describes how tuple is stored and information about its fields
  */
 struct tuple_format {
+	/**
+	 * Counter that grows incrementally on space rebuild
+	 * used for caching offset slot in key_part, for more
+	 * details see key_part::offset_slot_cache.
+	 */
+	uint64_t epoch;
 	/** Virtual function table */
 	struct tuple_format_vtab vtab;
 	/** Pointer to engine-specific data. */
@@ -436,12 +442,17 @@ tuple_field_go_to_path(const char **data, const char *path, uint32_t path_len);
 /**
  * Get a field at the specific position in this MessagePack
  * array by fieldno and path.
+ * The offset_slot[out] may be specified to save it on use,
+ * set NULL otherwise.
  */
 static inline const char *
 tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
 			const uint32_t *field_map, uint32_t fieldno,
-			const char *path, uint32_t path_len)
+			const char *path, uint32_t path_len,
+			int32_t *offset_slot)
 {
+	if (offset_slot != NULL)
+		*offset_slot = TUPLE_OFFSET_SLOT_NIL;
 	if (likely(path != NULL && fieldno < format->index_field_count)) {
 		/* Indexed field */
 		struct tuple_field *field =
@@ -450,6 +461,8 @@ tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
 		if (field == NULL)
 			goto parse;
 		assert(field != NULL);
+		if (offset_slot != NULL)
+			*offset_slot = field->offset_slot;
 		if (field->offset_slot != TUPLE_OFFSET_SLOT_NIL) {
 			assert(-field->offset_slot * sizeof(uint32_t) <=
 			       format->field_map_size);
@@ -496,8 +509,25 @@ static inline const char *
 tuple_field_by_part_raw(struct tuple_format *format, const char *data,
 			const uint32_t *field_map, struct key_part *part)
 {
-	return tuple_field_raw_by_path(format, data, field_map, part->fieldno,
-				       part->path, part->path_len);
+	if (likely(part->format_epoch == format->epoch)) {
+		int32_t offset_slot = part->offset_slot_cache;
+		assert(-offset_slot * sizeof(uint32_t) <=
+		       format->field_map_size);
+		return field_map[offset_slot] != 0 ?
+		       data + field_map[offset_slot] : NULL;
+	} else {
+		assert(format->epoch != 0);
+		int32_t offset_slot;
+		const char *field =
+			tuple_field_raw_by_path(format, data, field_map,
+						part->fieldno, part->path,
+						part->path_len, &offset_slot);
+		if (offset_slot != TUPLE_OFFSET_SLOT_NIL) {
+			part->format_epoch = format->epoch;
+			part->offset_slot_cache = offset_slot;
+		}
+		return field;
+	}
 }
 
 #if defined(__cplusplus)

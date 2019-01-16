@@ -39,6 +39,7 @@ struct tuple_format **tuple_formats;
 static intptr_t recycled_format_ids = FORMAT_ID_NIL;
 
 static uint32_t formats_size = 0, formats_capacity = 0;
+static uint64_t formats_epoch = 0;
 
 static struct tuple_field *
 tuple_field_new(void)
@@ -540,6 +541,7 @@ tuple_format_new(struct tuple_format_vtab *vtab, struct key_def * const *keys,
 	format->vtab = *vtab;
 	format->engine = NULL;
 	format->is_temporary = false;
+	format->epoch = ++formats_epoch;
 	if (tuple_format_register(format) < 0) {
 		tuple_format_destroy(format);
 		free(format);
@@ -968,5 +970,5 @@ tuple_field_raw_by_full_path(struct tuple_format *format, const char *tuple,
 	}
 	return tuple_field_raw_by_path(format, tuple, field_map, fieldno,
 				       path + lexer.offset,
-				       path_len - lexer.offset);
+				       path_len - lexer.offset, NULL);
 }
