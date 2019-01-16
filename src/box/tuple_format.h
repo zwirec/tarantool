@@ -397,27 +397,33 @@ tuple_field_raw(struct tuple_format *format, const char *tuple,
 }
 
 /**
- * Get tuple field by its name.
- * @param format Tuple format.
- * @param tuple MessagePack tuple's body.
- * @param field_map Tuple field map.
- * @param name Field name.
- * @param name_len Length of @a name.
- * @param name_hash Hash of @a name.
- *
- * @retval not NULL MessagePack field.
- * @retval     NULL No field with @a name.
+ * Retrieve msgpack data by JSON path.
+ * @param data Pointer to msgpack with data.
+ * @param path The path to process.
+ * @param path_len The length of the @path.
+ * @retval 0 On success.
+ * @retval >0 On path parsing error, invalid character position.
+ */
+int
+tuple_field_go_to_path(const char **data, const char *path, uint32_t path_len);
+
+/**
+ * Get a field at the specific position in this MessagePack
+ * array by fieldno and path.
  */
 static inline const char *
-tuple_field_raw_by_name(struct tuple_format *format, const char *tuple,
-			const uint32_t *field_map, const char *name,
-			uint32_t name_len, uint32_t name_hash)
+tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
+			const uint32_t *field_map, uint32_t fieldno,
+			const char *path, uint32_t path_len)
 {
-	uint32_t fieldno;
-	if (tuple_fieldno_by_name(format->dict, name, name_len, name_hash,
-				  &fieldno) != 0)
+	tuple = tuple_field_raw(format, tuple, field_map, fieldno);
+	if (path == NULL)
+		return tuple;
+	if (unlikely(tuple == NULL))
 		return NULL;
-	return tuple_field_raw(format, tuple, field_map, fieldno);
+	if (unlikely(tuple_field_go_to_path(&tuple, path, path_len) != 0))
+		return NULL;
+	return tuple;
 }
 
 /**
@@ -428,16 +434,13 @@ tuple_field_raw_by_name(struct tuple_format *format, const char *tuple,
  * @param path Field path.
  * @param path_len Length of @a path.
  * @param path_hash Hash of @a path.
- * @param[out] field Found field, or NULL, if not found.
  *
- * @retval  0 Success.
- * @retval -1 Error in JSON path.
+ * @retval field data if field exists or NULL
  */
-int
-tuple_field_raw_by_path(struct tuple_format *format, const char *tuple,
-                        const uint32_t *field_map, const char *path,
-                        uint32_t path_len, uint32_t path_hash,
-                        const char **field);
+const char *
+tuple_field_raw_by_full_path(struct tuple_format *format, const char *tuple,
+			     const uint32_t *field_map, const char *path,
+			     uint32_t path_len, uint32_t path_hash);
 
 /**
  * Get a tuple field pointed to by an index part.
