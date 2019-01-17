@@ -149,7 +149,6 @@ port_sql_dump_msgpack(struct port *port, struct obuf *out);
 /**
  * Dump data from port to Lua stack. Data in port contains tuples,
  * metadata, or information obtained from an executed SQL query.
- * The port is destroyed.
  *
  * @param port Port that contains SQL response.
  * @param L Lua stack.
@@ -750,7 +749,6 @@ port_sql_dump_lua(struct port *port, struct lua_State *L)
 			lua_setfield(L, -2, "autoincrement_ids");
 		}
 	}
-	port_destroy(port);
 }
 
 /**

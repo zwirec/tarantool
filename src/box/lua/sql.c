@@ -128,6 +128,7 @@ lbox_execute(struct lua_State *L)
 				    &fiber()->gc) != 0)
 		return luaT_error(L);
 	port_dump_lua(&port, L);
+	port_destroy(&port);
 	return 1;
 }
 
