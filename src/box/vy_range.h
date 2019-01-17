@@ -107,6 +107,8 @@ struct vy_range {
 	 * how we  decide how many runs to compact next time.
 	 */
 	int compaction_priority;
+	/** Link in vy_lsm->max_compaction_priority. */
+	struct heap_node compaction_priority_node;
 	/** Number of statements that need to be compacted. */
 	struct vy_disk_stmt_counter compaction_queue;
 	/**
@@ -121,8 +123,6 @@ struct vy_range {
 	int n_compactions;
 	/** Link in vy_lsm->tree. */
 	rb_node(struct vy_range) tree_node;
-	/** Link in vy_lsm->range_heap. */
-	struct heap_node heap_node;
 	/**
 	 * Incremented whenever a run is added to or deleted
 	 * from this range. Used invalidate read iterators.
@@ -134,15 +134,17 @@ struct vy_range {
  * Heap of all ranges of the same LSM tree, prioritized by
  * vy_range->compaction_priority.
  */
-#define HEAP_NAME vy_range_heap
+#define HEAP_NAME vy_max_compaction_priority
 static inline bool
-vy_range_heap_less(struct heap_node *a, struct heap_node *b)
+vy_max_compaction_priority_less(struct heap_node *a, struct heap_node *b)
 {
-	struct vy_range *r1 = container_of(a, struct vy_range, heap_node);
-	struct vy_range *r2 = container_of(b, struct vy_range, heap_node);
+	struct vy_range *r1 = container_of(a, struct vy_range,
+					   compaction_priority_node);
+	struct vy_range *r2 = container_of(b, struct vy_range,
+					   compaction_priority_node);
 	return r1->compaction_priority > r2->compaction_priority;
 }
-#define HEAP_LESS(h, l, r) vy_range_heap_less(l, r)
+#define HEAP_LESS(h, l, r) vy_max_compaction_priority_less(l, r)
 #include "salad/heap.h"
 #undef HEAP_LESS
 #undef HEAP_NAME
@@ -151,7 +153,7 @@ vy_range_heap_less(struct heap_node *a, struct heap_node *b)
 static inline bool
 vy_range_is_scheduled(struct vy_range *range)
 {
-	return range->heap_node.pos == UINT32_MAX;
+	return range->compaction_priority_node.pos == UINT32_MAX;
 }
 
 /**

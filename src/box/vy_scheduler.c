@@ -1228,7 +1228,7 @@ vy_task_dump_complete(struct vy_task *task)
 		vy_range_update_compaction_priority(range, &lsm->opts);
 		vy_lsm_acct_range(lsm, range);
 	}
-	vy_range_heap_update_all(&lsm->range_heap);
+	vy_max_compaction_priority_update_all(&lsm->max_compaction_priority);
 	free(new_slices);
 
 delete_mems:
@@ -1610,8 +1610,9 @@ vy_task_compaction_complete(struct vy_task *task)
 	/* The iterator has been cleaned up in worker. */
 	task->wi->iface->close(task->wi);
 
-	assert(range->heap_node.pos == UINT32_MAX);
-	vy_range_heap_insert(&lsm->range_heap, &range->heap_node);
+	assert(range->compaction_priority_node.pos == UINT32_MAX);
+	vy_max_compaction_priority_insert(&lsm->max_compaction_priority,
+					  &range->compaction_priority_node);
 	vy_scheduler_update_lsm(scheduler, lsm);
 
 	say_info("%s: completed compacting range %s",
@@ -1642,8 +1643,9 @@ vy_task_compaction_abort(struct vy_task *task)
 
 	vy_run_discard(task->new_run);
 
-	assert(range->heap_node.pos == UINT32_MAX);
-	vy_range_heap_insert(&lsm->range_heap, &range->heap_node);
+	assert(range->compaction_priority_node.pos == UINT32_MAX);
+	vy_max_compaction_priority_insert(&lsm->max_compaction_priority,
+					  &range->compaction_priority_node);
 	vy_scheduler_update_lsm(scheduler, lsm);
 }
 
@@ -1657,14 +1659,14 @@ vy_task_compaction_new(struct vy_scheduler *scheduler, struct vy_worker *worker,
 		.abort = vy_task_compaction_abort,
 	};
 
-	struct heap_node *range_node;
+	struct heap_node *node;
 	struct vy_range *range;
 
 	assert(!lsm->is_dropped);
 
-	range_node = vy_range_heap_top(&lsm->range_heap);
-	assert(range_node != NULL);
-	range = container_of(range_node, struct vy_range, heap_node);
+	node = vy_max_compaction_priority_top(&lsm->max_compaction_priority);
+	assert(node != NULL);
+	range = container_of(node, struct vy_range, compaction_priority_node);
 	assert(range->compaction_priority > 1);
 
 	if (vy_lsm_split_range(lsm, range) ||
@@ -1722,8 +1724,8 @@ vy_task_compaction_new(struct vy_scheduler *scheduler, struct vy_worker *worker,
 	 * Remove the range we are going to compact from the heap
 	 * so that it doesn't get selected again.
 	 */
-	vy_range_heap_delete(&lsm->range_heap, range_node);
-	range_node->pos = UINT32_MAX;
+	vy_max_compaction_priority_delete(&lsm->max_compaction_priority, node);
+	node->pos = UINT32_MAX;
 	vy_scheduler_update_lsm(scheduler, lsm);
 
 	say_info("%s: started compacting range %s, runs %d/%d",

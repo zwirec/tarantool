@@ -180,7 +180,7 @@ vy_lsm_new(struct vy_lsm_env *lsm_env, struct vy_cache_env *cache_env,
 	vy_cache_create(&lsm->cache, cache_env, cmp_def, index_def->iid == 0);
 	rlist_create(&lsm->sealed);
 	vy_range_tree_new(lsm->tree);
-	vy_range_heap_create(&lsm->range_heap);
+	vy_max_compaction_priority_create(&lsm->max_compaction_priority);
 	rlist_create(&lsm->runs);
 	lsm->pk = pk;
 	if (pk != NULL)
@@ -257,7 +257,7 @@ vy_lsm_delete(struct vy_lsm *lsm)
 		vy_lsm_remove_run(lsm, run);
 
 	vy_range_tree_iter(lsm->tree, NULL, vy_range_tree_free_cb, NULL);
-	vy_range_heap_destroy(&lsm->range_heap);
+	vy_max_compaction_priority_destroy(&lsm->max_compaction_priority);
 	tuple_format_unref(lsm->disk_format);
 	key_def_delete(lsm->cmp_def);
 	key_def_delete(lsm->key_def);
@@ -665,10 +665,12 @@ vy_lsm_generation(struct vy_lsm *lsm)
 int
 vy_lsm_compaction_priority(struct vy_lsm *lsm)
 {
-	struct heap_node *n = vy_range_heap_top(&lsm->range_heap);
-	if (n == NULL)
+	struct heap_node *node;
+	node = vy_max_compaction_priority_top(&lsm->max_compaction_priority);
+	if (node == NULL)
 		return 0;
-	struct vy_range *range = container_of(n, struct vy_range, heap_node);
+	struct vy_range *range = container_of(node, struct vy_range,
+					      compaction_priority_node);
 	return range->compaction_priority;
 }
 
@@ -732,8 +734,9 @@ vy_lsm_remove_run(struct vy_lsm *lsm, struct vy_run *run)
 void
 vy_lsm_add_range(struct vy_lsm *lsm, struct vy_range *range)
 {
-	assert(range->heap_node.pos == UINT32_MAX);
-	vy_range_heap_insert(&lsm->range_heap, &range->heap_node);
+	assert(range->compaction_priority_node.pos == UINT32_MAX);
+	vy_max_compaction_priority_insert(&lsm->max_compaction_priority,
+					  &range->compaction_priority_node);
 	vy_range_tree_insert(lsm->tree, range);
 	lsm->range_count++;
 }
@@ -741,8 +744,9 @@ vy_lsm_add_range(struct vy_lsm *lsm, struct vy_range *range)
 void
 vy_lsm_remove_range(struct vy_lsm *lsm, struct vy_range *range)
 {
-	assert(range->heap_node.pos != UINT32_MAX);
-	vy_range_heap_delete(&lsm->range_heap, &range->heap_node);
+	assert(range->compaction_priority_node.pos != UINT32_MAX);
+	vy_max_compaction_priority_delete(&lsm->max_compaction_priority,
+					  &range->compaction_priority_node);
 	vy_range_tree_remove(lsm->tree, range);
 	lsm->range_count--;
 }
@@ -1224,5 +1228,5 @@ vy_lsm_force_compaction(struct vy_lsm *lsm)
 		vy_lsm_acct_range(lsm, range);
 	}
 
-	vy_range_heap_update_all(&lsm->range_heap);
+	vy_max_compaction_priority_update_all(&lsm->max_compaction_priority);
 }

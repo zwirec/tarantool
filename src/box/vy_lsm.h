@@ -252,7 +252,7 @@ struct vy_lsm {
 	/** Number of ranges in this LSM tree. */
 	int range_count;
 	/** Heap of ranges, prioritized by compaction_priority. */
-	heap_t range_heap;
+	heap_t max_compaction_priority;
 	/**
 	 * List of all runs created for this LSM tree,
 	 * linked by vy_run->in_lsm.
