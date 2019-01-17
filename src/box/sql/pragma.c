@@ -431,7 +431,7 @@ sqlite3Pragma(Parse * pParse, Token * pId,	/* First part of [schema.]id field */
 	}
 	/* Register the result column names for pragmas that return results */
 	if ((pPragma->mPragFlg & PragFlg_NoColumns) == 0 &&
-	    ((pPragma->mPragFlg & PragFlg_NoColumns1) == 0 || zRight == 0))
+	    ((pPragma->mPragFlg & PragFlg_NoColumns1) == 0 || zRight == NULL))
 		vdbe_set_pragma_result_columns(v, pPragma);
 	/* Jump to the appropriate pragma handler */
 	switch (pPragma->ePragTyp) {
