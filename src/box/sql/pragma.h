@@ -162,7 +162,7 @@ static const PragmaName aPragmaName[] = {
 	 /* ePragFlg:  */ PragFlg_Result0 | PragFlg_NoColumns1,
 	 /* ColNames:  */ 0, 0,
 	 /* iArg:      */ SQLITE_ReverseOrder},
-#if defined(SQLITE_ENABLE_SELECTTRACE)
+#if defined(SQLITE_DEBUG)
 	{ /* zName:     */ "select_trace",
 	/* ePragTyp:  */ PragTyp_FLAG,
 	/* ePragFlg:  */ PragFlg_Result0 | PragFlg_NoColumns1,
@@ -230,9 +230,6 @@ static const PragmaName aPragmaName[] = {
 	 /* ePragFlg:  */ PragFlg_Result0 | PragFlg_NoColumns1,
 	 /* ColNames:  */ 0, 0,
 	 /* iArg:      */ SQLITE_VdbeTrace},
-#endif
-#if defined(SQLITE_ENABLE_WHERETRACE)
-
 	{ /* zName:     */ "where_trace",
 	/* ePragTyp:  */ PragTyp_FLAG,
 	/* ePragFlg:  */ PragFlg_Result0 | PragFlg_NoColumns1,

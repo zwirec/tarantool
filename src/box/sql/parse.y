@@ -449,11 +449,11 @@ multiselect_op(A) ::= EXCEPT|INTERSECT(OP).  {A = @OP; /*A-overwrites-OP*/}
 %endif SQLITE_OMIT_COMPOUND_SELECT
 oneselect(A) ::= SELECT(S) distinct(D) selcollist(W) from(X) where_opt(Y)
                  groupby_opt(P) having_opt(Q) orderby_opt(Z) limit_opt(L). {
-#ifdef SELECTTRACE_ENABLED
+#ifdef SQLITE_DEBUG
   Token s = S; /*A-overwrites-S*/
 #endif
   A = sqlite3SelectNew(pParse,W,X,Y,P,Q,Z,D,L.pLimit,L.pOffset);
-#ifdef SELECTTRACE_ENABLED
+#ifdef SQLITE_DEBUG
   /* Populate the Select.zSelName[] string that is used to help with
   ** query planner debugging, to differentiate between multiple Select
   ** objects in a complex query.
