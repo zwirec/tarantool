@@ -106,7 +106,6 @@ static_assert(sizeof(struct port_sql) <= sizeof(struct port),
 /**
  * Dump data from port to buffer. Data in port contains tuples,
  * metadata, or information obtained from an executed SQL query.
- * The port is destroyed.
  *
  * Dumped msgpack structure:
  * +----------------------------------------------+
@@ -597,30 +596,27 @@ port_sql_dump_msgpack(struct port *port, struct obuf *out)
 	assert(port->vtab == &port_sql_vtab);
 	sqlite3 *db = sql_get();
 	struct sqlite3_stmt *stmt = ((struct port_sql *)port)->stmt;
-	int rc = 0, column_count = sqlite3_column_count(stmt);
+	int column_count = sqlite3_column_count(stmt);
 	if (column_count > 0) {
 		int keys = 2;
 		int size = mp_sizeof_map(keys);
 		char *pos = (char *) obuf_alloc(out, size);
 		if (pos == NULL) {
 			diag_set(OutOfMemory, size, "obuf_alloc", "pos");
-			goto err;
+			return -1;
 		}
 		pos = mp_encode_map(pos, keys);
-		if (sql_get_description(stmt, out, column_count) != 0) {
-err:
-			rc = -1;
-			goto finish;
-		}
+		if (sql_get_description(stmt, out, column_count) != 0)
+			return -1;
 		size = mp_sizeof_uint(IPROTO_DATA);
 		pos = (char *) obuf_alloc(out, size);
 		if (pos == NULL) {
 			diag_set(OutOfMemory, size, "obuf_alloc", "pos");
-			goto err;
+			return -1;
 		}
 		pos = mp_encode_uint(pos, IPROTO_DATA);
 		if (port_tuple_vtab.dump_msgpack(port, out) < 0)
-			goto err;
+			return -1;
 	} else {
 		int keys = 1;
 		assert(((struct port_tuple *)port)->size == 0);
@@ -633,7 +629,7 @@ err:
 		char *pos = (char *) obuf_alloc(out, size);
 		if (pos == NULL) {
 			diag_set(OutOfMemory, size, "obuf_alloc", "pos");
-			goto err;
+			return -1;
 		}
 		pos = mp_encode_map(pos, keys);
 		pos = mp_encode_uint(pos, IPROTO_SQL_INFO);
@@ -656,7 +652,7 @@ err:
 		char *buf = obuf_alloc(out, size);
 		if (buf == NULL) {
 			diag_set(OutOfMemory, size, "obuf_alloc", "buf");
-			goto err;
+			return -1;
 		}
 		buf = mp_encode_uint(buf, SQL_INFO_ROW_COUNT);
 		buf = mp_encode_uint(buf, changes);
@@ -671,9 +667,7 @@ err:
 			}
 		}
 	}
-finish:
-	port_destroy(port);
-	return rc;
+	return 0;
 }
 
 /**
@@ -685,7 +679,7 @@ finish:
  *
  * @param db SQL handle.
  * @param stmt Prepared statement.
- * @param[out] port Port to store SQL response.
+ * @param port Port to store SQL response.
  * @param region Region to allocate temporary objects.
  *
  * @retval  0 Success.

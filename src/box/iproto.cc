@@ -1648,9 +1648,11 @@ tx_process_sql(struct cmsg *m)
 		goto error;
 	}
 	if (port_dump_msgpack(&port, out) != 0) {
+		port_destroy(&port);
 		obuf_rollback_to_svp(out, &header_svp);
 		goto error;
 	}
+	port_destroy(&port);
 	iproto_reply_sql(out, &header_svp, msg->header.sync, schema_version);
 	iproto_wpos_create(&msg->wpos, out);
 	return;
