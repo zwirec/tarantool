@@ -37,8 +37,6 @@
 #include <diag.h>
 #include <fiber.h>
 
-#include "box/error.h"
-
 int luaL_nil_ref = LUA_REFNIL;
 int luaL_map_metatable_ref = LUA_REFNIL;
 int luaL_array_metatable_ref = LUA_REFNIL;
@@ -413,8 +411,7 @@ lua_field_inspect_table(struct lua_State *L, struct luaL_serializer *cfg,
 		lua_replace(L, idx);
 		return luaL_tofield(L, cfg, idx, field);
 	} else if (!lua_isstring(L, -1)) {
-		diag_set(ClientError, ER_PROC_LUA,
-			 "invalid " LUAL_SERIALIZE " value");
+		diag_set(LuajitError, "invalid " LUAL_SERIALIZE " value");
 		return -1;
 	}
 
@@ -438,8 +435,7 @@ lua_field_inspect_table(struct lua_State *L, struct luaL_serializer *cfg,
 		lua_pop(L, 1); /* type */
 		return 0;
 	} else {
-		diag_set(ClientError, ER_PROC_LUA,
-			 "invalid " LUAL_SERIALIZE " value");
+		diag_set(LuajitError, "invalid " LUAL_SERIALIZE " value");
 		return -1;
 	}
 
@@ -473,8 +469,7 @@ skip:
 	    max > size * (uint32_t)cfg->encode_sparse_ratio &&
 	    max > (uint32_t)cfg->encode_sparse_safe) {
 		if (!cfg->encode_sparse_convert) {
-			diag_set(ClientError, ER_PROC_LUA,
-				 "excessively sparse array");
+			diag_set(LuajitError, "excessively sparse array");
 			return -1;
 		}
 		field->type = MP_MAP;
@@ -515,8 +510,7 @@ luaL_tofield(struct lua_State *L, struct luaL_serializer *cfg, int index,
 #define CHECK_NUMBER(x) ({							\
 	if (!isfinite(x) && !cfg->encode_invalid_numbers) {			\
 		if (!cfg->encode_invalid_as_nil) {				\
-			diag_set(ClientError, ER_PROC_LUA,			\
-				 "number must not be NaN or Inf");		\
+			diag_set(LuajitError, "number must not be NaN or Inf");	\
 			return -1;						\
 		}								\
 		field->type = MP_NIL;						\
@@ -539,7 +533,7 @@ luaL_tofield(struct lua_State *L, struct luaL_serializer *cfg, int index,
 			field->dval = num;
 			CHECK_NUMBER(num);
 		}
-		break;
+		return 0;
 	case LUA_TCDATA:
 	{
 		GCcdata *cd = cdataV(L->base + index - 1);
@@ -550,85 +544,84 @@ luaL_tofield(struct lua_State *L, struct luaL_serializer *cfg, int index,
 		case CTID_BOOL:
 			field->type = MP_BOOL;
 			field->bval = *(bool*) cdata;
-			break;
+			return 0;
 		case CTID_CCHAR:
 		case CTID_INT8:
 			ival = *(int8_t *) cdata;
 			field->type = (ival >= 0) ? MP_UINT : MP_INT;
 			field->ival = ival;
-			break;
+			return 0;
 		case CTID_INT16:
 			ival = *(int16_t *) cdata;
 			field->type = (ival >= 0) ? MP_UINT : MP_INT;
 			field->ival = ival;
-			break;
+			return 0;
 		case CTID_INT32:
 			ival = *(int32_t *) cdata;
 			field->type = (ival >= 0) ? MP_UINT : MP_INT;
 			field->ival = ival;
-			break;
+			return 0;
 		case CTID_INT64:
 			ival = *(int64_t *) cdata;
 			field->type = (ival >= 0) ? MP_UINT : MP_INT;
 			field->ival = ival;
-			break;
+			return 0;
 		case CTID_UINT8:
 			field->type = MP_UINT;
 			field->ival = *(uint8_t *) cdata;
-			break;
+			return 0;
 		case CTID_UINT16:
 			field->type = MP_UINT;
 			field->ival = *(uint16_t *) cdata;
-			break;
+			return 0;
 		case CTID_UINT32:
 			field->type = MP_UINT;
 			field->ival = *(uint32_t *) cdata;
-			break;
+			return 0;
 		case CTID_UINT64:
 			field->type = MP_UINT;
 			field->ival = *(uint64_t *) cdata;
-			break;
+			return 0;
 		case CTID_FLOAT:
 			field->type = MP_FLOAT;
 			field->fval = *(float *) cdata;
 			CHECK_NUMBER(field->fval);
-			break;
+			return 0;
 		case CTID_DOUBLE:
 			field->type = MP_DOUBLE;
 			field->dval = *(double *) cdata;
 			CHECK_NUMBER(field->dval);
-			break;
+			return 0;
 		case CTID_P_CVOID:
 		case CTID_P_VOID:
 			if (*(void **) cdata == NULL) {
 				field->type = MP_NIL;
-				break;
+				return 0;
 			}
 			/* Fall through */
 		default:
 			field->type = MP_EXT;
-			break;
 		}
-		break;
+		return 0;
 	}
 	case LUA_TBOOLEAN:
 		field->type = MP_BOOL;
 		field->bval = lua_toboolean(L, index);
-		break;
+		return 0;
 	case LUA_TNIL:
 		field->type = MP_NIL;
-		break;
+		return 0;
 	case LUA_TSTRING:
 		field->sval.data = lua_tolstring(L, index, &size);
 		field->sval.len = (uint32_t) size;
 		field->type = MP_STR;
-		break;
+		return 0;
 	case LUA_TTABLE:
 	{
 		field->compact = false;
 		if (lua_field_inspect_table(L, cfg, index, field) < 0)
 			return -1;
-		break;
+		return 0;
 	}
 	case LUA_TLIGHTUSERDATA:
 	case LUA_TUSERDATA:
@@ -636,12 +629,11 @@ luaL_tofield(struct lua_State *L, struct luaL_serializer *cfg, int index,
 		field->sval.len = 0;
 		if (lua_touserdata(L, index) == NULL) {
 			field->type = MP_NIL;
-			break;
+			return 0;
 		}
 		/* Fall through */
 	default:
 		field->type = MP_EXT;
-		break;
 	}
 #undef CHECK_NUMBER
 	return 0;

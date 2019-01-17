@@ -150,11 +150,11 @@ restart: /* used by MP_EXT */
 		while (lua_next(L, top) != 0) {
 			lua_pushvalue(L, -2); /* push a copy of key to top */
 			if (luaL_tofield(L, cfg, lua_gettop(L), field) < 0)
-				luaT_error(L);
+				return luaT_error(L);
 			luamp_encode_r(L, cfg, stream, field, level + 1);
 			lua_pop(L, 1); /* pop a copy of key */
 			if (luaL_tofield(L, cfg, lua_gettop(L), field) < 0)
-				luaT_error(L);
+				return luaT_error(L);
 			luamp_encode_r(L, cfg, stream, field, level + 1);
 			lua_pop(L, 1); /* pop value */
 		}
@@ -171,7 +171,7 @@ restart: /* used by MP_EXT */
 		for (uint32_t i = 0; i < size; i++) {
 			lua_rawgeti(L, top, i + 1);
 			if (luaL_tofield(L, cfg, top + 1, field) < 0)
-				luaT_error(L);
+				return luaT_error(L);
 			luamp_encode_r(L, cfg, stream, field, level + 1);
 			lua_pop(L, 1);
 		}
@@ -207,7 +207,7 @@ luamp_encode(struct lua_State *L, struct luaL_serializer *cfg,
 
 	struct luaL_field field;
 	if (luaL_tofield(L, cfg, lua_gettop(L), &field) < 0)
-		luaT_error(L);
+		return luaT_error(L);
 	enum mp_type top_type = luamp_encode_r(L, cfg, stream, &field, 0);
 
 	if (!on_top) {
