@@ -494,7 +494,7 @@ sqlite3Pragma(Parse * pParse, Token * pId,	/* First part of [schema.]id field */
 			 */
 			if (mask == LIKE_CASE_SENS_FLAG) {
 				sqlite3RegisterLikeFunctions(db,
-							     !is_value_true);
+							     !is_pragma_set);
 			}
 		}
 		break;
