@@ -9,9 +9,6 @@ box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 -- Check that "PRAGMA parser_trace" returns 0 or 1 if called
 -- without parameter.
 result = box.sql.execute('PRAGMA parser_trace')
--- Should be nothing.
 box.sql.execute('PRAGMA parser_trace = 1')
--- Should be 1.
 box.sql.execute('PRAGMA parser_trace')
--- Should be nothing.
 box.sql.execute('PRAGMA parser_trace = '.. result[1][1])

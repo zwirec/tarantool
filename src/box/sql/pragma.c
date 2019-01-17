@@ -466,23 +466,22 @@ sqlite3Pragma(Parse * pParse, Token * pId,	/* First part of [schema.]id field */
 	switch (pPragma->ePragTyp) {
 
 	case PragTyp_FLAG:{
-		if (zRight == 0) {
+		if (zRight == NULL) {
 			setPragmaResultColumnNames(v, pPragma);
 			returnSingleInt(v, (user_session->sql_flags &
 					    pPragma->iArg) != 0);
 		} else {
-			int mask = pPragma->iArg;	/* Mask of bits to set
-							 * or clear.
-							 */
-			bool is_value_true = sqlite3GetBoolean(zRight, 0);
+			/* Mask of bits to set or clear. */
+			int mask = pPragma->iArg;
+			bool is_pragma_set = sqlite3GetBoolean(zRight, 0);
 
-			if (is_value_true)
+			if (is_pragma_set)
 				user_session->sql_flags |= mask;
 			else
 				user_session->sql_flags &= ~mask;
-#ifndef NDEBUG
+#if defined(SQLITE_DEBUG)
 			if (mask == PARSER_TRACE_FLAG) {
-				if (is_value_true)
+				if (is_pragma_set)
 					sqlite3ParserTrace(stdout, "parser: ");
 				else
 					sqlite3ParserTrace(0, 0);

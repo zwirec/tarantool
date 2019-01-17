@@ -17,16 +17,13 @@ box.sql.execute('pragma sql_default_engine=\''..engine..'\'')
 result = box.sql.execute('PRAGMA parser_trace')
 ---
 ...
--- Should be nothing.
 box.sql.execute('PRAGMA parser_trace = 1')
 ---
 ...
--- Should be 1.
 box.sql.execute('PRAGMA parser_trace')
 ---
 - - [1]
 ...
--- Should be nothing.
 box.sql.execute('PRAGMA parser_trace = '.. result[1][1])
 ---
 ...
