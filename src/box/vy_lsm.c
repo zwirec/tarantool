@@ -181,6 +181,7 @@ vy_lsm_new(struct vy_lsm_env *lsm_env, struct vy_cache_env *cache_env,
 	rlist_create(&lsm->sealed);
 	vy_range_tree_new(lsm->tree);
 	vy_max_compaction_priority_create(&lsm->max_compaction_priority);
+	vy_min_dumps_per_compaction_create(&lsm->min_dumps_per_compaction);
 	rlist_create(&lsm->runs);
 	lsm->pk = pk;
 	if (pk != NULL)
@@ -258,6 +259,7 @@ vy_lsm_delete(struct vy_lsm *lsm)
 
 	vy_range_tree_iter(lsm->tree, NULL, vy_range_tree_free_cb, NULL);
 	vy_max_compaction_priority_destroy(&lsm->max_compaction_priority);
+	vy_min_dumps_per_compaction_destroy(&lsm->min_dumps_per_compaction);
 	tuple_format_unref(lsm->disk_format);
 	key_def_delete(lsm->cmp_def);
 	key_def_delete(lsm->key_def);
@@ -351,6 +353,7 @@ vy_lsm_recover_run(struct vy_lsm *lsm, struct vy_run_recovery_info *run_info,
 		return NULL;
 
 	run->dump_lsn = run_info->dump_lsn;
+	run->dump_count = run_info->dump_count;
 	if (vy_run_recover(run, lsm->env->path,
 			   lsm->space_id, lsm->index_id) != 0 &&
 	    (!force_recovery ||
@@ -636,6 +639,7 @@ vy_lsm_recover(struct vy_lsm *lsm, struct vy_recovery *recovery,
 					    (long long)range->id));
 			return -1;
 		}
+		vy_range_update_dumps_per_compaction(range);
 		vy_lsm_acct_range(lsm, range);
 	}
 	if (prev == NULL) {
@@ -651,6 +655,7 @@ vy_lsm_recover(struct vy_lsm *lsm, struct vy_recovery *recovery,
 				    (long long)prev->id));
 		return -1;
 	}
+	vy_min_dumps_per_compaction_update_all(&lsm->min_dumps_per_compaction);
 	return 0;
 }
 
@@ -672,6 +677,18 @@ vy_lsm_compaction_priority(struct vy_lsm *lsm)
 	struct vy_range *range = container_of(node, struct vy_range,
 					      compaction_priority_node);
 	return range->compaction_priority;
+}
+
+int
+vy_lsm_dumps_per_compaction(struct vy_lsm *lsm)
+{
+	struct heap_node *node;
+	node = vy_min_dumps_per_compaction_top(&lsm->min_dumps_per_compaction);
+	if (node == NULL)
+		return 0;
+	struct vy_range *range = container_of(node, struct vy_range,
+					      dumps_per_compaction_node);
+	return range->dumps_per_compaction;
 }
 
 void
@@ -737,6 +754,8 @@ vy_lsm_add_range(struct vy_lsm *lsm, struct vy_range *range)
 	assert(range->compaction_priority_node.pos == UINT32_MAX);
 	vy_max_compaction_priority_insert(&lsm->max_compaction_priority,
 					  &range->compaction_priority_node);
+	vy_min_dumps_per_compaction_insert(&lsm->min_dumps_per_compaction,
+					   &range->dumps_per_compaction_node);
 	vy_range_tree_insert(lsm->tree, range);
 	lsm->range_count++;
 }
@@ -747,6 +766,8 @@ vy_lsm_remove_range(struct vy_lsm *lsm, struct vy_range *range)
 	assert(range->compaction_priority_node.pos != UINT32_MAX);
 	vy_max_compaction_priority_delete(&lsm->max_compaction_priority,
 					  &range->compaction_priority_node);
+	vy_min_dumps_per_compaction_delete(&lsm->min_dumps_per_compaction,
+					  &range->dumps_per_compaction_node);
 	vy_range_tree_remove(lsm->tree, range);
 	lsm->range_count--;
 }
@@ -1080,6 +1101,7 @@ vy_lsm_split_range(struct vy_lsm *lsm, struct vy_range *range)
 		}
 		part->needs_compaction = range->needs_compaction;
 		vy_range_update_compaction_priority(part, &lsm->opts);
+		vy_range_update_dumps_per_compaction(part);
 	}
 
 	/*
@@ -1197,6 +1219,7 @@ vy_lsm_coalesce_range(struct vy_lsm *lsm, struct vy_range *range)
 	 * as it fits the configured LSM tree shape.
 	 */
 	vy_range_update_compaction_priority(result, &lsm->opts);
+	vy_range_update_dumps_per_compaction(result);
 	vy_lsm_acct_range(lsm, result);
 	vy_lsm_add_range(lsm, result);
 	lsm->range_tree_version++;

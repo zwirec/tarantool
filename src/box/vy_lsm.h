@@ -253,6 +253,8 @@ struct vy_lsm {
 	int range_count;
 	/** Heap of ranges, prioritized by compaction_priority. */
 	heap_t max_compaction_priority;
+	/** Heap of ranges, prioritized by dumps_per_compaction. */
+	heap_t min_dumps_per_compaction;
 	/**
 	 * List of all runs created for this LSM tree,
 	 * linked by vy_run->in_lsm.
@@ -437,6 +439,10 @@ vy_lsm_generation(struct vy_lsm *lsm);
 /** Return max compaction_priority among ranges of an LSM tree. */
 int
 vy_lsm_compaction_priority(struct vy_lsm *lsm);
+
+/** Return min dumps_per_compaction among ranges of an LSM tree. */
+int
+vy_lsm_dumps_per_compaction(struct vy_lsm *lsm);
 
 /** Add a run to the list of runs of an LSM tree. */
 void

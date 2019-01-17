@@ -198,6 +198,7 @@ vy_range_new(int64_t id, struct tuple *begin, struct tuple *end,
 	range->cmp_def = cmp_def;
 	rlist_create(&range->slices);
 	range->compaction_priority_node.pos = UINT32_MAX;
+	range->dumps_per_compaction_node.pos = UINT32_MAX;
 	return range;
 }
 
@@ -388,6 +389,18 @@ vy_range_update_compaction_priority(struct vy_range *range,
 		 */
 		range->compaction_priority = total_run_count;
 		range->compaction_queue = total_stmt_count;
+	}
+}
+
+void
+vy_range_update_dumps_per_compaction(struct vy_range *range)
+{
+	if (!rlist_empty(&range->slices)) {
+		struct vy_slice *slice = rlist_last_entry(&range->slices,
+						struct vy_slice, in_range);
+		range->dumps_per_compaction = slice->run->dump_count;
+	} else {
+		range->dumps_per_compaction = 0;
 	}
 }
 

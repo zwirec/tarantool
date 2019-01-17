@@ -121,6 +121,13 @@ struct vy_range {
 	bool needs_compaction;
 	/** Number of times the range was compacted. */
 	int n_compactions;
+	/**
+	 * Number of dumps it takes to trigger major compaction in
+	 * this range, see vy_run::dump_count for more details.
+	 */
+	int dumps_per_compaction;
+	/** Link in vy_lsm->min_dumps_per_compaction. */
+	struct heap_node dumps_per_compaction_node;
 	/** Link in vy_lsm->tree. */
 	rb_node(struct vy_range) tree_node;
 	/**
@@ -145,6 +152,25 @@ vy_max_compaction_priority_less(struct heap_node *a, struct heap_node *b)
 	return r1->compaction_priority > r2->compaction_priority;
 }
 #define HEAP_LESS(h, l, r) vy_max_compaction_priority_less(l, r)
+#include "salad/heap.h"
+#undef HEAP_LESS
+#undef HEAP_NAME
+
+/**
+ * Heap of all ranges of the same LSM tree, prioritized by
+ * vy_range->dumps_per_compaction.
+ */
+#define HEAP_NAME vy_min_dumps_per_compaction
+static inline bool
+vy_min_dumps_per_compaction_less(struct heap_node *a, struct heap_node *b)
+{
+	struct vy_range *r1 = container_of(a, struct vy_range,
+					   dumps_per_compaction_node);
+	struct vy_range *r2 = container_of(b, struct vy_range,
+					   dumps_per_compaction_node);
+	return r1->dumps_per_compaction < r2->dumps_per_compaction;
+}
+#define HEAP_LESS(h, l, r) vy_min_dumps_per_compaction_less(l, r)
 #include "salad/heap.h"
 #undef HEAP_LESS
 #undef HEAP_NAME
@@ -243,6 +269,12 @@ vy_range_remove_slice(struct vy_range *range, struct vy_slice *slice);
 void
 vy_range_update_compaction_priority(struct vy_range *range,
 				    const struct index_opts *opts);
+
+/**
+ * Update the value of range->dumps_per_compaction.
+ */
+void
+vy_range_update_dumps_per_compaction(struct vy_range *range);
 
 /**
  * Check if a range needs to be split in two.
