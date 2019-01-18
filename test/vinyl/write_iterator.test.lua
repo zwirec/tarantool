@@ -327,6 +327,9 @@ PAD2 = 10
 -- Create a big run to prevent major compaction.
 for i = 1001, 1000 + PAD1 do s:replace{i, i} end
 box.snapshot()
+-- Some padding to trigger minor compaction.
+for i = 1001, 1000 + PAD2 do s:replace{i, i} end
+box.snapshot()
 -- Generate some INSERT statements and dump them to disk.
 _ = s:insert{1, 1} -- insert
 _ = s:replace{2, 2} -- replace, no old tuple
@@ -384,6 +387,9 @@ _ = s:insert{5, 5}
 _ = s:insert{6, 6}
 _ = s:insert{7, 7}
 _ = s:insert{8, 8}
+box.snapshot()
+-- Some padding to trigger minor compaction.
+for i = 1001, 1000 + PAD2 do s:replace{i, i} end
 box.snapshot()
 -- Generate DELETE+INSERT statements and write them to disk.
 s:delete{1} s:insert{1, 100}

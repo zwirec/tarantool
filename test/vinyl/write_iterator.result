@@ -766,6 +766,14 @@ box.snapshot()
 ---
 - ok
 ...
+-- Some padding to trigger minor compaction.
+for i = 1001, 1000 + PAD2 do s:replace{i, i} end
+---
+...
+box.snapshot()
+---
+- ok
+...
 -- Generate some INSERT statements and dump them to disk.
 _ = s:insert{1, 1} -- insert
 ---
@@ -916,6 +924,14 @@ _ = s:insert{7, 7}
 ---
 ...
 _ = s:insert{8, 8}
+---
+...
+box.snapshot()
+---
+- ok
+...
+-- Some padding to trigger minor compaction.
+for i = 1001, 1000 + PAD2 do s:replace{i, i} end
 ---
 ...
 box.snapshot()
