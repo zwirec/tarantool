@@ -333,9 +333,9 @@ swim_event_bin_fill(struct swim_event_bin *header,
 
 void
 swim_meta_header_bin_create(struct swim_meta_header_bin *header,
-			    const struct sockaddr_in *src)
+			    const struct sockaddr_in *src, bool has_routing)
 {
-	header->m_header = 0x83;
+	header->m_header = 0x83 + has_routing;
 	header->k_version = SWIM_META_TARANTOOL_VERSION;
 	header->m_version = 0xce;
 	header->v_version = mp_bswap_u32(tarantool_version_id());
@@ -345,6 +345,66 @@ swim_meta_header_bin_create(struct swim_meta_header_bin *header,
 	header->k_port = SWIM_META_SRC_PORT;
 	header->m_port = 0xcd;
 	header->v_port = mp_bswap_u16(src->sin_port);
+}
+
+static int
+swim_meta_def_decode_route(struct swim_meta_def *def, const char **pos,
+			   const char *end)
+{
+	const char *msg_pref = "Invalid SWIM routing section:";
+	if (mp_typeof(**pos) != MP_MAP || mp_check_map(*pos, end) > 0) {
+		say_error("%s route should be a map", msg_pref);
+		return -1;
+	}
+	uint64_t size = mp_decode_map(pos);
+	for (int i = 0; i < (int) size; ++i) {
+		if (mp_typeof(**pos) != MP_UINT ||
+		    mp_check_uint(*pos, end) > 0) {
+			say_error("%s a key should be uint", msg_pref);
+			return -1;
+		}
+		uint64_t key = mp_decode_uint(pos);
+		switch (key) {
+		case SWIM_ROUTE_SRC_ADDRESS:
+			if (swim_decode_ip(pos, end, msg_pref, "source address",
+					   &def->route.src) != 0)
+				return -1;
+			break;
+		case SWIM_ROUTE_SRC_PORT:
+			if (swim_decode_port(pos, end, msg_pref, "source port",
+					     &def->route.src) != 0)
+				return -1;
+			break;
+		case SWIM_ROUTE_DST_ADDRESS:
+			if (swim_decode_ip(pos, end, msg_pref,
+					   "destination address",
+					   &def->route.dst) != 0)
+				return -1;
+			break;
+		case SWIM_ROUTE_DST_PORT:
+			if (swim_decode_port(pos, end, msg_pref,
+					     "destination, port",
+					     &def->route.dst) != 0)
+				return -1;
+			break;
+		default:
+			say_error("%s unknown key", msg_pref);
+			return -1;
+		}
+	}
+	if (def->route.src.sin_port == 0 ||
+	    def->route.src.sin_addr.s_addr == 0) {
+		say_error("%s source address should be specified", msg_pref);
+		return -1;
+	}
+	if (def->route.dst.sin_port == 0 ||
+	    def->route.dst.sin_addr.s_addr == 0) {
+		say_error("%s destination address should be specified",
+			  msg_pref);
+		return -1;
+	}
+	def->is_route_specified = true;
+	return 0;
 }
 
 int
@@ -366,6 +426,10 @@ swim_meta_def_decode(struct swim_meta_def *def, const char **pos,
 		}
 		uint64_t key = mp_decode_uint(pos);
 		switch (key) {
+		case SWIM_META_ROUTING:
+			if (swim_meta_def_decode_route(def, pos, end) != 0)
+				return -1;
+			break;
 		case SWIM_META_TARANTOOL_VERSION:
 			if (mp_typeof(**pos) != MP_UINT ||
 			    mp_check_uint(*pos, end) > 0) {
@@ -405,4 +469,25 @@ swim_meta_def_decode(struct swim_meta_def *def, const char **pos,
 		return -1;
 	}
 	return 0;
+}
+
+void
+swim_route_bin_create(struct swim_route_bin *route,
+		      const struct sockaddr_in *src,
+		      const struct sockaddr_in *dst)
+{
+	route->k_routing = SWIM_META_ROUTING;
+	route->m_routing = 0x84;
+	route->k_src_addr = SWIM_ROUTE_SRC_ADDRESS;
+	route->m_src_addr = 0xce;
+	route->v_src_addr = mp_bswap_u32(src->sin_addr.s_addr);
+	route->k_src_port = SWIM_ROUTE_SRC_PORT;
+	route->m_src_port = 0xcd;
+	route->v_src_port = mp_bswap_u16(src->sin_port);
+	route->k_dst_addr = SWIM_ROUTE_DST_ADDRESS;
+	route->m_dst_addr = 0xce;
+	route->v_dst_addr = mp_bswap_u32(dst->sin_addr.s_addr);
+	route->k_dst_port = SWIM_ROUTE_DST_PORT;
+	route->m_dst_port = 0xcd;
+	route->v_dst_port = mp_bswap_u16(dst->sin_port);
 }

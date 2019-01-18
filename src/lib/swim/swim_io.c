@@ -114,6 +114,19 @@ swim_task_new(swim_task_f complete, void *ctx)
 }
 
 void
+swim_task_proxy(struct swim_task *task, const struct sockaddr_in *proxy)
+{
+	assert(swim_packet_size(&task->packet) ==
+	       sizeof(struct swim_meta_header_bin));
+	task->proxy = *proxy;
+	task->is_proxy_specified = true;
+	char *tmp = swim_packet_alloc(&task->packet,
+				      sizeof(struct swim_route_bin));
+	assert(tmp != NULL);
+	(void) tmp;
+}
+
+void
 swim_task_create(struct swim_task *task, swim_task_f complete, void *ctx)
 {
 	memset(task, 0, sizeof(*task));
@@ -183,6 +196,22 @@ swim_scheduler_destroy(struct swim_scheduler *scheduler)
 	ev_io_stop(loop(), &scheduler->input);
 }
 
+static const struct sockaddr_in *
+swim_task_build_meta(struct swim_task *task, const struct sockaddr_in *src)
+{
+	struct swim_meta_header_bin header;
+	swim_meta_header_bin_create(&header, src, task->is_proxy_specified);
+	memcpy(task->packet.meta, &header, sizeof(header));
+	if (task->is_proxy_specified) {
+		struct swim_route_bin route;
+		swim_route_bin_create(&route, src, &task->dst);
+		memcpy(task->packet.meta + sizeof(header), &route,
+		       sizeof(route));
+		return &task->proxy;
+	}
+	return &task->dst;
+}
+
 static void
 swim_scheduler_on_output(struct ev_loop *loop, struct ev_io *io, int events)
 {
@@ -199,13 +228,12 @@ swim_scheduler_on_output(struct ev_loop *loop, struct ev_io *io, int events)
 	say_verbose("SWIM: send to %s",
 		    sio_strfaddr((struct sockaddr *) &task->dst,
 				 sizeof(task->dst)));
-	struct swim_meta_header_bin header;
-	swim_meta_header_bin_create(&header, &scheduler->transport.addr);
-	memcpy(task->packet.meta, &header, sizeof(header));
+	const struct sockaddr_in *dst =
+		swim_task_build_meta(task, &scheduler->transport.addr);
 	int rc = swim_transport_send(&scheduler->transport, task->packet.body,
 				     task->packet.pos - task->packet.body,
-				     (const struct sockaddr *) &task->dst,
-				     sizeof(task->dst));
+				     (const struct sockaddr *) dst,
+				     sizeof(*dst));
 	if (rc != 0)
 		diag_log();
 	if (task->complete != NULL)
@@ -238,8 +266,39 @@ swim_scheduler_on_input(struct ev_loop *loop, struct ev_io *io, int events)
 	say_verbose("SWIM: received from %s",
 		    sio_strfaddr((struct sockaddr *) &src, len));
 	struct swim_meta_def meta;
+	struct sockaddr_in *self = &scheduler->transport.addr;
 	if (swim_meta_def_decode(&meta, (const char **) &packet.body,
 				 packet.pos) < 0)
 		return;
-	scheduler->on_input(scheduler, &packet, &meta.src);
+	/*
+	 * Check if this instance is not a receiver and possibly
+	 * forward the packet.
+	 */
+	if (! meta.is_route_specified) {
+		scheduler->on_input(scheduler, &packet, &meta.src, NULL);
+	} else if (meta.route.dst.sin_port == self->sin_port &&
+		   meta.route.dst.sin_addr.s_addr == self->sin_addr.s_addr) {
+		scheduler->on_input(scheduler, &packet, &meta.route.src,
+				    &meta.src);
+	} else {
+		/* Forward the packet. */
+		struct swim_task *task = swim_task_new(NULL, NULL);
+		if (task == NULL) {
+			diag_log();
+			return;
+		}
+		swim_task_proxy(task, &meta.route.dst);
+		/*
+		 * Meta should be rebuilt with the different
+		 * source address - this instance. It is used by a
+		 * receiver to send a reply through this instance
+		 * again.
+		 */
+		swim_task_build_meta(task, self);
+		int size = swim_packet_size(&packet);
+		char *body = swim_packet_alloc(&task->packet, size);
+		assert(body != NULL);
+		memcpy(body, packet.body, size);
+		swim_task_schedule(task, &meta.route.dst, scheduler);
+	}
 }

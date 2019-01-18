@@ -290,6 +290,7 @@ enum swim_meta_key {
 	SWIM_META_TARANTOOL_VERSION = 0,
 	SWIM_META_SRC_ADDRESS,
 	SWIM_META_SRC_PORT,
+	SWIM_META_ROUTING,
 };
 
 /**
@@ -301,7 +302,7 @@ enum swim_meta_key {
  * contains at least Tarantool version.
  */
 struct PACKED swim_meta_header_bin {
-	/** mp_encode_map(3) */
+	/** mp_encode_map(3 or 4) */
 	uint8_t m_header;
 
 	/** mp_encode_uint(SWIM_META_TARANTOOL_VERSION) */
@@ -325,7 +326,7 @@ struct PACKED swim_meta_header_bin {
 
 void
 swim_meta_header_bin_create(struct swim_meta_header_bin *header,
-			    const struct sockaddr_in *src);
+			    const struct sockaddr_in *src, bool has_routing);
 
 /** Meta definition. */
 struct swim_meta_def {
@@ -333,11 +334,72 @@ struct swim_meta_def {
 	uint32_t version;
 	/** Source of the message. */
 	struct sockaddr_in src;
+	/** Route source and destination. */
+	bool is_route_specified;
+	struct {
+		struct sockaddr_in src;
+		struct sockaddr_in dst;
+	} route;
 };
 
 int
 swim_meta_def_decode(struct swim_meta_def *def, const char **pos,
 		     const char *end);
+
+enum swim_route_key {
+	/**
+	 * True source of the packet. Can be different from the
+	 * packet sender. It is expected that the answer should
+	 * be sent back to this address. Maybe indirectly through
+	 * the same proxy.
+	 */
+	SWIM_ROUTE_SRC_ADDRESS = 0,
+	SWIM_ROUTE_SRC_PORT,
+	/**
+	 * True destination of the packet. Can be different from
+	 * this instance, receiver. If it is for another instance,
+	 * then this packet is forwarded to the latter.
+	 */
+	SWIM_ROUTE_DST_ADDRESS,
+	SWIM_ROUTE_DST_PORT,
+	swim_route_key_MAX,
+};
+
+struct PACKED swim_route_bin {
+	/** mp_encode_uint(SWIM_ROUTING) */
+	uint8_t k_routing;
+	/** mp_encode_map(4) */
+	uint8_t m_routing;
+
+	/** mp_encode_uint(SWIM_ROUTE_SRC_ADDRESS) */
+	uint8_t k_src_addr;
+	/** mp_encode_uint(addr.sin_addr.s_addr) */
+	uint8_t m_src_addr;
+	uint32_t v_src_addr;
+
+	/** mp_encode_uint(SWIM_ROUTE_SRC_PORT) */
+	uint8_t k_src_port;
+	/** mp_encode_uint(addr.sin_port) */
+	uint8_t m_src_port;
+	uint16_t v_src_port;
+
+	/** mp_encode_uint(SWIM_ROUTE_DST_ADDRESS) */
+	uint8_t k_dst_addr;
+	/** mp_encode_uint(addr.sin_addr.s_addr) */
+	uint8_t m_dst_addr;
+	uint32_t v_dst_addr;
+
+	/** mp_encode_uint(SWIM_ROUTE_DST_PORT) */
+	uint8_t k_dst_port;
+	/** mp_encode_uint(addr.sin_port) */
+	uint8_t m_dst_port;
+	uint16_t v_dst_port;
+};
+
+void
+swim_route_bin_create(struct swim_route_bin *route,
+		      const struct sockaddr_in *src,
+		      const struct sockaddr_in *dst);
 
 /** }}}                     Meta component                      */
 
@@ -347,6 +409,12 @@ swim_meta_def_decode(struct swim_meta_def *def, const char **pos,
  *     SWIM_META_TARANTOOL_VERSION: uint, Tarantool version ID,
  *     SWIM_META_SRC_ADDRESS: uint, ip,
  *     SWIM_META_SRC_PORT: uint, port
+ *     SWIM_META_ROUTING: {
+ *         SWIM_ROUTE_SRC_ADDRESS: uint, ip,
+ *         SWIM_ROUTE_SRC_PORT: uint, port,
+ *         SWIM_ROUTE_DST_ADDRESS: uint, ip,
+ *         SWIM_ROUTE_DST_PORT: uint, port
+ *     }
  * }
  * {
  *     SWIM_FAILURE_DETECTION: {

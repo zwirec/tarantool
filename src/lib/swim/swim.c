@@ -929,8 +929,10 @@ swim_process_dissemination(struct swim *swim, const char **pos, const char *end)
 /** Receive and process a new message. */
 static void
 swim_on_input(struct swim_scheduler *scheduler,
-	      const struct swim_packet *packet, const struct sockaddr_in *src)
+	      const struct swim_packet *packet, const struct sockaddr_in *src,
+	      const struct sockaddr_in *proxy)
 {
+	(void) proxy;
 	const char *msg_pref = "Invalid SWIM message:";
 	struct swim *swim = container_of(scheduler, struct swim, scheduler);
 	const char *pos = packet->body;

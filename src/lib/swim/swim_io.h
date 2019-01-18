@@ -120,9 +120,16 @@ swim_packet_create(struct swim_packet *packet)
 	packet->body = packet->buf;
 }
 
+static inline int
+swim_packet_size(const struct swim_packet *packet)
+{
+	return packet->pos - packet->body;
+}
+
 typedef void (*swim_scheduler_on_input_f)(struct swim_scheduler *scheduler,
 					  const struct swim_packet *packet,
-					  const struct sockaddr_in *src);
+					  const struct sockaddr_in *src,
+					  const struct sockaddr_in *proxy);
 
 struct swim_scheduler {
 	/** Transport used to receive packets. */
@@ -172,6 +179,12 @@ struct swim_task {
 	struct swim_packet packet;
 	/** Destination address. */
 	struct sockaddr_in dst;
+	/**
+	 * Optional proxy via which the destination should be
+	 * reached.
+	 */
+	bool is_proxy_specified;
+	struct sockaddr_in proxy;
 	/** Place in a queue of tasks. */
 	struct rlist in_queue_output;
 	/**
@@ -180,6 +193,9 @@ struct swim_task {
 	 */
 	bool is_static;
 };
+
+void
+swim_task_proxy(struct swim_task *task, const struct sockaddr_in *proxy);
 
 void
 swim_task_schedule(struct swim_task *task, const struct sockaddr_in *dst,
