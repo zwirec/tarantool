@@ -179,50 +179,16 @@ vdbe_emit_pragma_status(struct Parse *parse)
 	sqlite3VdbeSetColName(v, 0, COLNAME_DECLTYPE, "TEXT", SQLITE_STATIC);
 	sqlite3VdbeSetColName(v, 1, COLNAME_NAME, "pragma_value",
 			      SQLITE_STATIC);
-	sqlite3VdbeSetColName(v, 1, COLNAME_DECLTYPE, "TEXT", SQLITE_STATIC);
+	sqlite3VdbeSetColName(v, 1, COLNAME_DECLTYPE, "INTEGER", SQLITE_STATIC);
 
 	parse->nMem = 2;
 	for (int i = 0; i < ArraySize(aPragmaName); ++i) {
+		if (aPragmaName[i].ePragTyp != PragTyp_FLAG)
+			continue;
 		sqlite3VdbeAddOp4(v, OP_String8, 0, 1, 0, aPragmaName[i].zName,
 				  0);
-		switch (aPragmaName[i].ePragTyp) {
-			case PragTyp_FLAG: {
-				const char *value;
-				if ((user_session->sql_flags &
-				     aPragmaName[i].iArg) != 0)
-					value = "true";
-				else
-					value = "false";
-				sqlite3VdbeAddOp4(v, OP_String8, 0, 2, 0, value,
-						  0);
-				break;
-			}
-			case PragTyp_DEFAULT_ENGINE: {
-				const char *value = sql_storage_engine_strs[
-					user_session->sql_default_engine];
-				sqlite3VdbeAddOp4(v, OP_String8, 0, 2, 0, value,
-						  0);
-				break;
-			}
-			case PragTyp_BUSY_TIMEOUT: {
-				int value = parse->db->busyTimeout;
-				sqlite3VdbeAddOp2(v, OP_Integer, value, 2);
-				sqlite3VdbeAddOp2(v, OP_Cast, 2, AFFINITY_TEXT);
-				break;
-			}
-			case PragTyp_COMPOUND_SELECT_LIMIT: {
-				int value = sqlite3_limit(parse->db,
-					SQL_LIMIT_COMPOUND_SELECT, -1);
-				sqlite3VdbeAddOp2(v, OP_Integer, value, 2);
-				sqlite3VdbeAddOp2(v, OP_Cast, 2, AFFINITY_TEXT);
-				break;
-			}
-			default: {
-				const char *value = "No value";
-				sqlite3VdbeAddOp4(v, OP_String8, 0, 2, 0, value,
-						  0);
-			}
-		}
+		int val = (user_session->sql_flags & aPragmaName[i].iArg) != 0;
+		sqlite3VdbeAddOp2(v, OP_Integer, val, 2);
 		sqlite3VdbeAddOp2(v, OP_ResultRow, 1, 2);
 	}
 }

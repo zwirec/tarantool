@@ -14,9 +14,6 @@ box.sql.execute('PRAGMA parser_trace')
 box.sql.execute('PRAGMA parser_trace = '.. result[1][1])
 
 --
--- Make PRAGMA command return the result in a more appropriate
--- format.
+-- Make PRAGMA command return the result in YAML format.
 --
-result = box.sql.execute('PRAGMA')
-for _,v in pairs(result) do v[2] = nil end
-result
+box.sql.execute('PRAGMA')

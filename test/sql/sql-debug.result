@@ -28,42 +28,26 @@ box.sql.execute('PRAGMA parser_trace = '.. result[1][1])
 ---
 ...
 --
--- Make PRAGMA command return the result in a more appropriate
--- format.
+-- Make PRAGMA command return the result in YAML format.
 --
-result = box.sql.execute('PRAGMA')
+box.sql.execute('PRAGMA')
 ---
-...
-for _,v in pairs(result) do v[2] = nil end
----
-...
-result
----
-- - ['busy_timeout']
-  - ['case_sensitive_like']
-  - ['collation_list']
-  - ['count_changes']
-  - ['defer_foreign_keys']
-  - ['foreign_key_list']
-  - ['full_column_names']
-  - ['index_info']
-  - ['index_list']
-  - ['parser_trace']
-  - ['query_only']
-  - ['read_uncommitted']
-  - ['recursive_triggers']
-  - ['reverse_unordered_selects']
-  - ['select_trace']
-  - ['short_column_names']
-  - ['sql_compound_select_limit']
-  - ['sql_default_engine']
-  - ['sql_trace']
-  - ['stats']
-  - ['table_info']
-  - ['vdbe_addoptrace']
-  - ['vdbe_debug']
-  - ['vdbe_eqp']
-  - ['vdbe_listing']
-  - ['vdbe_trace']
-  - ['where_trace']
+- - ['case_sensitive_like', 0]
+  - ['count_changes', 0]
+  - ['defer_foreign_keys', 0]
+  - ['full_column_names', 0]
+  - ['parser_trace', 0]
+  - ['query_only', 0]
+  - ['read_uncommitted', 0]
+  - ['recursive_triggers', 1]
+  - ['reverse_unordered_selects', 0]
+  - ['select_trace', 0]
+  - ['short_column_names', 1]
+  - ['sql_trace', 0]
+  - ['vdbe_addoptrace', 0]
+  - ['vdbe_debug', 0]
+  - ['vdbe_eqp', 0]
+  - ['vdbe_listing', 0]
+  - ['vdbe_trace', 0]
+  - ['where_trace', 0]
 ...
