@@ -1035,6 +1035,10 @@ struct bps_leaf_path_elem {
 	bps_tree_pos_t max_elem_pos;
 };
 
+#ifndef BPS_TREE_EQUAL
+#define BPS_TREE_EQUAL(a, b) (a == b)
+#endif
+
 /**
  * @brief Tree construction. Fills struct bps_tree members.
  * @param tree - pointer to a tree
@@ -4592,7 +4596,7 @@ bps_tree_debug_check_block(const struct bps_tree *tree, struct bps_block *block,
 						       inner->child_ids[i]);
 			bps_tree_elem_t calc_max_elem =
 				bps_tree_debug_find_max_elem(tree, tmp_block);
-			if (inner->elems[i] != calc_max_elem)
+			if (!BPS_TREE_EQUAL(inner->elems[i], calc_max_elem))
 				result |= 0x4000;
 		}
 		if (block->size > 1) {
@@ -4651,7 +4655,8 @@ bps_tree_debug_check(const struct bps_tree *tree)
 		return result;
 	}
 	struct bps_block *root = bps_tree_root(tree);
-	if (tree->max_elem != bps_tree_debug_find_max_elem(tree, root))
+	bps_tree_elem_t elem = bps_tree_debug_find_max_elem(tree, root);
+	if (!BPS_TREE_EQUAL(tree->max_elem, elem))
 		result |= 0x8;
 	size_t calc_count = 0;
 	bps_tree_block_id_t expected_prev_id = (bps_tree_block_id_t)(-1);
@@ -5017,12 +5022,14 @@ bps_tree_debug_check_move_to_right_leaf(struct bps_tree *tree, bool assertme)
 				}
 
 				if (a.header.size)
-					if (ma != a.elems[a.header.size - 1]) {
+					if (!BPS_TREE_EQUAL(ma,
+						a.elems[a.header.size - 1])) {
 						result |= (1 << 5);
 						assert(!assertme);
 					}
 				if (b.header.size)
-					if (mb != b.elems[b.header.size - 1]) {
+					if (!BPS_TREE_EQUAL(mb,
+						b.elems[b.header.size - 1])) {
 						result |= (1 << 5);
 						assert(!assertme);
 					}
@@ -5114,12 +5121,14 @@ bps_tree_debug_check_move_to_left_leaf(struct bps_tree *tree, bool assertme)
 				}
 
 				if (a.header.size)
-					if (ma != a.elems[a.header.size - 1]) {
+					if (!BPS_TREE_EQUAL(ma,
+						a.elems[a.header.size - 1])) {
 						result |= (1 << 7);
 						assert(!assertme);
 					}
 				if (b.header.size)
-					if (mb != b.elems[b.header.size - 1]) {
+					if (!BPS_TREE_EQUAL(mb,
+						b.elems[b.header.size - 1])) {
 						result |= (1 << 7);
 						assert(!assertme);
 					}
@@ -5225,16 +5234,16 @@ bps_tree_debug_check_insert_and_move_to_right_leaf(struct bps_tree *tree,
 					}
 
 					if (i - u + 1)
-						if (ma
-							!= a.elems[a.header.size
-								- 1]) {
+						if (!BPS_TREE_EQUAL(ma,
+							a.elems[a.header.size
+								- 1])) {
 							result |= (1 << 9);
 							assert(!assertme);
 						}
 					if (j + u)
-						if (mb
-							!= b.elems[b.header.size
-								- 1]) {
+						if (!BPS_TREE_EQUAL(mb,
+							b.elems[b.header.size
+								- 1])) {
 							result |= (1 << 9);
 							assert(!assertme);
 						}
@@ -5341,16 +5350,16 @@ bps_tree_debug_check_insert_and_move_to_left_leaf(struct bps_tree *tree,
 					}
 
 					if (i + u)
-						if (ma
-							!= a.elems[a.header.size
-								- 1]) {
+						if (!BPS_TREE_EQUAL(ma,
+							a.elems[a.header.size
+								- 1])) {
 							result |= (1 << 11);
 							assert(!assertme);
 						}
 					if (j - u + 1)
-						if (mb
-							!= b.elems[b.header.size
-								- 1]) {
+						if (!BPS_TREE_EQUAL(mb,
+							b.elems[b.header.size
+								- 1])) {
 							result |= (1 << 11);
 							assert(!assertme);
 						}
