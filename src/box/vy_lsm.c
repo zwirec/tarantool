@@ -691,6 +691,37 @@ vy_lsm_dumps_per_compaction(struct vy_lsm *lsm)
 	return range->dumps_per_compaction;
 }
 
+int64_t
+vy_lsm_range_size(struct vy_lsm *lsm)
+{
+	/* Use the configured range size if available. */
+	if (lsm->opts.range_size > 0)
+		return lsm->opts.range_size;
+	/*
+	 * It doesn't make much sense to create too small ranges.
+	 * Limit the max number of ranges per index to 1000 and
+	 * never create ranges smaller than 16 MB.
+	 */
+	enum { MIN_RANGE_SIZE = 16 * 1024 * 1024 };
+	enum { MAX_RANGE_COUNT = 1000 };
+	/*
+	 * Ideally, we want to compact roughly the same amount of
+	 * data after each dump so as to avoid IO bursts caused by
+	 * simultaneous major compaction of a bunch of ranges,
+	 * because such IO bursts can lead to a deviation of the
+	 * LSM tree from the configured shape and, as a result,
+	 * increased read amplification.  To achieve that, we need
+	 * to have at least as many ranges as the number of dumps
+	 * it takes to trigger major compaction in a range.
+	 */
+	int range_count = vy_lsm_dumps_per_compaction(lsm);
+	range_count = MIN(range_count, MAX_RANGE_COUNT);
+	int64_t range_size = lsm->stat.disk.last_level_count.bytes /
+						(range_count + 1);
+	range_size = MAX(range_size, MIN_RANGE_SIZE);
+	return range_size;
+}
+
 void
 vy_lsm_add_run(struct vy_lsm *lsm, struct vy_run *run)
 {
@@ -1055,7 +1086,8 @@ vy_lsm_split_range(struct vy_lsm *lsm, struct vy_range *range)
 	struct tuple_format *key_format = lsm->env->key_format;
 
 	const char *split_key_raw;
-	if (!vy_range_needs_split(range, &lsm->opts, &split_key_raw))
+	if (!vy_range_needs_split(range, vy_lsm_range_size(lsm),
+				  &split_key_raw))
 		return false;
 
 	/* Split a range in two parts. */
@@ -1163,7 +1195,7 @@ bool
 vy_lsm_coalesce_range(struct vy_lsm *lsm, struct vy_range *range)
 {
 	struct vy_range *first, *last;
-	if (!vy_range_needs_coalesce(range, lsm->tree, &lsm->opts,
+	if (!vy_range_needs_coalesce(range, lsm->tree, vy_lsm_range_size(lsm),
 				     &first, &last))
 		return false;
 
