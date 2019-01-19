@@ -269,6 +269,11 @@ lbox_fillspace(struct lua_State *L, struct space *space, int i)
 			lua_setfield(L, -2, "dimension");
 		}
 
+		if (index_def->type == TREE && index_opts->hint) {
+			lua_pushboolean(L, index_opts->hint);
+			lua_setfield(L, -2, "hint");
+		}
+
 		lua_pushstring(L, index_type_strs[index_def->type]);
 		lua_setfield(L, -2, "type");
 

@@ -49,6 +49,7 @@ const struct index_opts index_opts_default = {
 	/* .bloom_fpr           = */ 0.05,
 	/* .lsn                 = */ 0,
 	/* .stat                = */ NULL,
+	/* .hint                = */ false,
 };
 
 const struct opt_def index_opts_reg[] = {
@@ -62,6 +63,7 @@ const struct opt_def index_opts_reg[] = {
 	OPT_DEF("run_size_ratio", OPT_FLOAT, struct index_opts, run_size_ratio),
 	OPT_DEF("bloom_fpr", OPT_FLOAT, struct index_opts, bloom_fpr),
 	OPT_DEF("lsn", OPT_INT64, struct index_opts, lsn),
+	OPT_DEF("hint", OPT_BOOL, struct index_opts, hint),
 	OPT_END,
 };
 
