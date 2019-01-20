@@ -34,6 +34,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <tarantool_ev.h>
 
 #include "fiber.h"
@@ -42,6 +43,7 @@
 #include "trivia/util.h"
 
 #include "vy_quota.h"
+#include "vy_stat.h"
 
 /**
  * Regulator timer period, in seconds.
@@ -72,6 +74,14 @@ static const size_t VY_DUMP_BANDWIDTH_DEFAULT = 10 * 1024 * 1024;
  * with file creation.
  */
 static const size_t VY_DUMP_SIZE_ACCT_MIN = 1024 * 1024;
+
+/**
+ * Number of dumps to take into account for rate limit calculation.
+ * Shouldn't be too small to avoid uneven RPS. Shouldn't be too big
+ * either - otherwise the rate limit will adapt too slowly to workload
+ * changes. 100 feels like a good choice.
+ */
+static const int VY_RECENT_DUMP_COUNT = 100;
 
 static void
 vy_regulator_trigger_dump(struct vy_regulator *regulator)
@@ -182,6 +192,7 @@ vy_regulator_create(struct vy_regulator *regulator, struct vy_quota *quota,
 		100 * MB, 200 * MB, 300 * MB, 400 * MB, 500 * MB, 600 * MB,
 		700 * MB, 800 * MB, 900 * MB,
 	};
+	memset(regulator, 0, sizeof(*regulator));
 	regulator->dump_bandwidth_hist = histogram_new(dump_bandwidth_buckets,
 					lengthof(dump_bandwidth_buckets));
 	if (regulator->dump_bandwidth_hist == NULL)
@@ -192,11 +203,8 @@ vy_regulator_create(struct vy_regulator *regulator, struct vy_quota *quota,
 	ev_timer_init(&regulator->timer, vy_regulator_timer_cb, 0,
 		      VY_REGULATOR_TIMER_PERIOD);
 	regulator->timer.data = regulator;
-	regulator->write_rate = 0;
-	regulator->quota_used_last = 0;
 	regulator->dump_bandwidth = VY_DUMP_BANDWIDTH_DEFAULT;
 	regulator->dump_watermark = SIZE_MAX;
-	regulator->dump_in_progress = false;
 }
 
 void
@@ -268,4 +276,76 @@ vy_regulator_reset_dump_bandwidth(struct vy_regulator *regulator, size_t max)
 		regulator->dump_bandwidth = max;
 	vy_quota_set_rate_limit(regulator->quota, VY_QUOTA_RESOURCE_MEMORY,
 				regulator->dump_bandwidth);
+}
+
+void
+vy_regulator_reset_stat(struct vy_regulator *regulator)
+{
+	memset(&regulator->sched_stat_last, 0,
+	       sizeof(regulator->sched_stat_last));
+}
+
+void
+vy_regulator_update_rate_limit(struct vy_regulator *regulator,
+			       const struct vy_scheduler_stat *stat,
+			       int compaction_threads)
+{
+	struct vy_scheduler_stat *last = &regulator->sched_stat_last;
+	struct vy_scheduler_stat *recent = &regulator->sched_stat_recent;
+	/*
+	 * The maximal dump rate the database can handle while
+	 * maintaining the current level of write amplification
+	 * equals:
+	 *
+	 *                                        dump_output
+	 *   max_dump_rate = compaction_rate * -----------------
+	 *                                     compaction_output
+	 *
+	 * The average compaction rate can be estimated with:
+	 *
+	 *                                          compaction_output
+	 *   compaction_rate = compaction_threads * -----------------
+	 *                                           compaction_time
+	 *
+	 * Putting it all together and taking into account data
+	 * compaction during memory dump, we get for the max
+	 * transaction rate:
+	 *
+	 *                                 dump_input
+	 *   max_tx_rate = max_dump_rate * ----------- =
+	 *                                 dump_output
+	 *
+	 *                                        dump_input
+	 *                 compaction_threads * ---------------
+	 *                                      compaction_time
+	 *
+	 * We set the rate limit to half that to leave the database
+	 * engine enough room needed for growing write amplification.
+	 */
+	int32_t dump_count = stat->dump_count - last->dump_count;
+	int64_t dump_input = stat->dump_input - last->dump_input;
+	double compaction_time = stat->compaction_time - last->compaction_time;
+	*last = *stat;
+
+	if (dump_input < (ssize_t)VY_DUMP_SIZE_ACCT_MIN)
+		return;
+
+	recent->dump_count += dump_count;
+	recent->dump_input += dump_input;
+	recent->compaction_time += compaction_time;
+
+	double rate = 0.5 * compaction_threads * recent->dump_input /
+						 recent->compaction_time;
+	vy_quota_set_rate_limit(regulator->quota, VY_QUOTA_RESOURCE_DISK,
+				MIN(rate, SIZE_MAX));
+
+	/*
+	 * Periodically rotate statistics for quicker adaptation
+	 * to workload changes.
+	 */
+	if (recent->dump_count > VY_RECENT_DUMP_COUNT) {
+		recent->dump_count /= 2;
+		recent->dump_input /= 2;
+		recent->compaction_time /= 2;
+	}
 }
