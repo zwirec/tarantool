@@ -94,6 +94,46 @@ struct lua_yaml_dumper {
    luaL_Buffer yamlbuf;
 };
 
+enum yaml_type {
+   YAML_NO_MATCH = 0,
+   YAML_FALSE,
+   YAML_TRUE,
+   YAML_NULL
+};
+
+/**
+ * Verify whether a string represents a boolean literal in YAML.
+ *
+ * Non-standard: only subset of YAML 1.1 boolean literals are
+ * treated as boolean values.
+ */
+static yaml_type
+yaml_get_bool(const char *str, const size_t len)
+{
+   if (len > 5)
+      return YAML_NO_MATCH;
+   if (strcmp(str, "false") == 0 || strcmp(str, "no") == 0)
+      return YAML_FALSE;
+   if (strcmp(str, "true") == 0 || strcmp(str, "yes") == 0)
+      return YAML_TRUE;
+   return YAML_NO_MATCH;
+}
+
+/**
+ * Verify whether a string represents a null literal in YAML.
+ *
+ * Non-standard: don't match an empty string as null.
+ */
+static yaml_type
+yaml_get_null(const char *str, const size_t len){
+   if (len == 1 && str[0] == '~')
+      return YAML_NULL;
+   if (len == 4 && (strcmp(str, "null") == 0 || strcmp(str, "Null") == 0 ||
+       strcmp(str, "NULL") == 0))
+      return YAML_NULL;
+   return YAML_NO_MATCH;
+}
+
 static void generate_error_message(struct lua_yaml_loader *loader) {
    char buf[256];
    luaL_Buffer b;
@@ -209,7 +249,7 @@ static void load_scalar(struct lua_yaml_loader *loader) {
          lua_pushnumber(loader->L, dval);
          return;
       } else if (!strcmp(tag, "bool")) {
-         lua_pushboolean(loader->L, !strcmp(str, "true") || !strcmp(str, "yes"));
+         lua_pushboolean(loader->L, yaml_get_bool(str, length) == YAML_TRUE);
          return;
       } else if (!strcmp(tag, "binary")) {
          frombase64(loader->L, (const unsigned char *)str, length);
@@ -218,20 +258,20 @@ static void load_scalar(struct lua_yaml_loader *loader) {
    }
 
    if (loader->event.data.scalar.style == YAML_PLAIN_SCALAR_STYLE) {
-      if (!strcmp(str, "~")) {
-         luaL_pushnull(loader->L);
-         return;
-      } else if (!strcmp(str, "true") || !strcmp(str, "yes")) {
-         lua_pushboolean(loader->L, 1);
-         return;
-      } else if (!strcmp(str, "false") || !strcmp(str, "no")) {
-         lua_pushboolean(loader->L, 0);
-         return;
-      } else if (!strcmp(str, "null")) {
-         luaL_pushnull(loader->L);
-         return;
-      } else if (!length) {
+      yaml_type type;
+      if (!length) {
+         /*
+          * Non-standard: an empty value/document is null
+          * according to the standard, but we decode it as an
+          * empty string.
+          */
          lua_pushliteral(loader->L, "");
+         return;
+      } else if (yaml_get_null(str, length) == YAML_NULL) {
+         luaL_pushnull(loader->L);
+         return;
+      } else if ((type = yaml_get_bool(str, length)) != YAML_NO_MATCH) {
+         lua_pushboolean(loader->L, type == YAML_TRUE);
          return;
       }
 
@@ -548,7 +588,6 @@ static int yaml_is_flow_mode(struct lua_yaml_dumper *dumper) {
                (evp->type == YAML_MAPPING_START_EVENT &&
                 evp->data.mapping_start.style == YAML_FLOW_MAPPING_STYLE)) {
             return 1;
-            break;
          }
       }
    }
@@ -597,8 +636,13 @@ static int dump_node(struct lua_yaml_dumper *dumper)
       return dump_table(dumper, &field);
    case MP_STR:
       str = lua_tolstring(dumper->L, -1, &len);
-      if (lua_isnumber(dumper->L, -1)) {
-         /* string is convertible to number, quote it to preserve type */
+      if ((yaml_get_null(str, len) == YAML_NULL)
+         || (yaml_get_bool(str, len) != YAML_NO_MATCH)
+         || (lua_isnumber(dumper->L, -1))) {
+         /*
+          * The string is convertible to a null, a boolean or
+          * a number, quote it to preserve its type.
+          */
          style = YAML_SINGLE_QUOTED_SCALAR_STYLE;
          break;
       }
@@ -606,12 +650,10 @@ static int dump_node(struct lua_yaml_dumper *dumper)
       if (utf8_check_printable(str, len)) {
          if (yaml_is_flow_mode(dumper)) {
             style = YAML_SINGLE_QUOTED_SCALAR_STYLE;
-         } else if (strstr(str, "\n\n") != NULL || strcmp(str, "true") == 0 ||
-		    strcmp(str, "false") == 0) {
+         } else if (strstr(str, "\n\n") != 0) {
             /*
              * Tarantool-specific: use literal style for string
-             * with empty lines and strings representing boolean
-             * types.
+             * with empty lines.
              * Useful for tutorial().
              */
             style = YAML_LITERAL_SCALAR_STYLE;
