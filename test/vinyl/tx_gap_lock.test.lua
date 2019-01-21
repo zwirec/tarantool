@@ -508,7 +508,8 @@ invalid = {};
 for i = 1, TX_COUNT do
     local tx = tx_list[i]
     local v = tx.conn(string.format("s:get({%d, %d})",
-                      conflict[1], conflict[2]))[1]
+                      conflict[1], conflict[2]))
+    v = v ~= nil and v[1] or nil
     local was_aborted = false
     if v == nil or v[PAYLOAD_FIELD] == nil then
         was_aborted = true

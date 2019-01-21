@@ -21,7 +21,7 @@ local EOL = "\n...\n"
 
 test = tap.test("console")
 
-test:plan(68)
+test:plan(74)
 
 -- Start console and connect to it
 local server = console.listen(CONSOLE_SOCKET)
@@ -68,12 +68,12 @@ client_info = nil
 
 -- Check console.delimiter()
 client:write("require('console').delimiter(';')\n")
-test:is(yaml.decode(client:read(EOL)), '', "set delimiter to ';'")
+test:is(yaml.decode(client:read(EOL)), nil, "set delimiter to ';'")
 test:is(state.delimiter, ';', "state.delimiter is ';'")
 client:write("require('console').delimiter();\n")
 test:is(yaml.decode(client:read(EOL))[1], ';', "get delimiter is ';'")
 client:write("require('console').delimiter('');\n")
-test:is(yaml.decode(client:read(EOL)), '', "clear delimiter")
+test:is(yaml.decode(client:read(EOL)), nil, "clear delimiter")
 
 --
 -- gh-3476: yaml.encode encodes 'false' and 'true' incorrectly.
@@ -86,15 +86,25 @@ test:is(yaml.encode(true), "--- true\n...\n")
 test:is(yaml.encode('false'), "--- 'false'\n...\n")
 test:is(yaml.encode('true'), "--- 'true'\n...\n")
 test:is(yaml.encode(nil), "--- null\n...\n")
+test:is(yaml.encode('false'), "--- 'false'\n...\n")
+test:is(yaml.encode('true'), "--- 'true'\n...\n")
+test:is(yaml.encode(''), "--- ''\n...\n")
 
 test:is(yaml.decode('false'), false)
 test:is(yaml.decode('no'), false)
 test:is(yaml.decode('true'), true)
 test:is(yaml.decode('yes'), true)
 test:is(yaml.decode('~'), nil)
+test:is(yaml.decode(''), nil)
 test:is(yaml.decode('null'), nil)
 test:is(yaml.decode('Null'), nil)
 test:is(yaml.decode('NULL'), nil)
+
+-- Verify that yaml.decode() correctly handles nested nulls.
+test:is(yaml.decode('-')[1], nil)
+
+-- Verify that yaml.decode() returns null, not zero values count.
+test:is(select('#', yaml.decode('')), 1)
 
 box.cfg{
     listen=IPROTO_SOCKET;

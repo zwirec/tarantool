@@ -152,7 +152,7 @@ function apply(t, k, op)
         table.insert(order_of_commit, t)
         num_committed = num_committed + 1
         local res = tx.con:commit()
-        if res ~= "" and res[1]['error'] then
+        if res ~= nil and res[1]['error'] then
             tx.conflicted = true
         else
             tx.select_all = s1:select{}

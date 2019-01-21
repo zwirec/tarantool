@@ -121,12 +121,10 @@ yaml_get_bool(const char *str, const size_t len)
 
 /**
  * Verify whether a string represents a null literal in YAML.
- *
- * Non-standard: don't match an empty string as null.
  */
 static yaml_type
 yaml_get_null(const char *str, const size_t len){
-   if (len == 1 && str[0] == '~')
+   if (len == 0 || (len == 1 && str[0] == '~'))
       return YAML_NULL;
    if (len == 4 && (strcmp(str, "null") == 0 || strcmp(str, "Null") == 0 ||
        strcmp(str, "NULL") == 0))
@@ -259,15 +257,7 @@ static void load_scalar(struct lua_yaml_loader *loader) {
 
    if (loader->event.data.scalar.style == YAML_PLAIN_SCALAR_STYLE) {
       yaml_type type;
-      if (!length) {
-         /*
-          * Non-standard: an empty value/document is null
-          * according to the standard, but we decode it as an
-          * empty string.
-          */
-         lua_pushliteral(loader->L, "");
-         return;
-      } else if (yaml_get_null(str, length) == YAML_NULL) {
+      if (yaml_get_null(str, length) == YAML_NULL) {
          luaL_pushnull(loader->L);
          return;
       } else if ((type = yaml_get_bool(str, length)) != YAML_NO_MATCH) {
@@ -407,8 +397,14 @@ static void load(struct lua_yaml_loader *loader) {
       if (!do_parse(loader))
          return;
 
-      if (loader->event.type == YAML_STREAM_END_EVENT)
+      if (loader->event.type == YAML_STREAM_END_EVENT) {
+         if (loader->document_count == 0) {
+            /* Return null, not zero values count. */
+            loader->document_count++;
+            luaL_pushnull(loader->L);
+         }
          return;
+      }
 
       loader->document_count++;
       if (load_node(loader) != 1)
