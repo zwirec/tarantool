@@ -69,7 +69,7 @@ i:stat().disk.compaction.queue -- 30 statements
 - bytes_compressed: <bytes_compressed>
   pages: 3
   rows: 30
-  bytes: 411
+  bytes: 477
 ...
 i:stat().disk.compaction.queue.bytes == box.stat.vinyl().scheduler.compaction_queue
 ---
@@ -83,7 +83,7 @@ i:stat().disk.compaction.queue -- 40 statements
 - bytes_compressed: <bytes_compressed>
   pages: 4
   rows: 40
-  bytes: 548
+  bytes: 636
 ...
 i:stat().disk.compaction.queue.bytes == box.stat.vinyl().scheduler.compaction_queue
 ---
@@ -97,7 +97,7 @@ i:stat().disk.compaction.queue -- 50 statements
 - bytes_compressed: <bytes_compressed>
   pages: 5
   rows: 50
-  bytes: 685
+  bytes: 795
 ...
 i:stat().disk.compaction.queue.bytes == box.stat.vinyl().scheduler.compaction_queue
 ---
@@ -111,7 +111,7 @@ i:stat().disk.compaction.queue -- 50 statements
 - bytes_compressed: <bytes_compressed>
   pages: 5
   rows: 50
-  bytes: 685
+  bytes: 795
 ...
 i:stat().disk.compaction.queue.bytes == box.stat.vinyl().scheduler.compaction_queue
 ---
