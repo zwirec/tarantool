@@ -188,52 +188,42 @@ result
         BODY:
           tuple: [11, {}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [7, {2: 5}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [7, {2: 4}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [4, {0: 2, 2: 10}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [5, {0: 2, 2: 10, 9: 14}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [8, {1: 3, 2: 10, 8: 11}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [10, {0: 2, 9: 14}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [4, {2: 12}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [5, {2: 12, 9: 14}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [8, {1: 1, 2: 12, 8: 13}]
       - HEADER:
-          timestamp: <timestamp>
           type: INSERT
         BODY:
           tuple: [10, {9: 14}]

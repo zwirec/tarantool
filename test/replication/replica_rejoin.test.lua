@@ -78,6 +78,8 @@ for i = 1, 3 do box.space.test:insert{i * 100} end
 fio = require('fio')
 #fio.glob(fio.pathjoin(box.cfg.wal_dir, '*.xlog')) -- 1
 box.cfg{checkpoint_count = checkpoint_count}
+errinj = box.error.injection
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", true)
 test_run:cmd("start server replica")
 test_run:cmd("switch replica")
 box.info.status -- orphan

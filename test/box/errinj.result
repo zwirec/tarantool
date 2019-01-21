@@ -36,6 +36,8 @@ errinj.info()
     state: false
   ERRINJ_VYRUN_INDEX_GARBAGE:
     state: false
+  ERRINJ_WAL_RELAY_DISABLE_MEM:
+    state: false
   ERRINJ_VY_DELAY_PK_LOOKUP:
     state: false
   ERRINJ_VY_TASK_COMPLETE:

@@ -23,6 +23,8 @@ box.space.test:replace{1}
 box.snapshot()
 box.space.test:replace{2}
 fio.unlink(xlog)
+errinj = box.error.injection
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", true)
 
 -- Check that even though box.cfg.force_recovery is set,
 -- replication will still fail due to LSN gap.
@@ -39,5 +41,6 @@ test_run:cmd("stop server test")
 test_run:cmd("cleanup server test")
 test_run:cmd("delete server test")
 test_run:cleanup_cluster()
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", false)
 box.schema.user.revoke('guest', 'replication')
 box.space.test:drop()

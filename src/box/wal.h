@@ -40,6 +40,7 @@
 struct fiber;
 struct wal_writer;
 struct tt_uuid;
+struct replica;
 
 enum wal_mode { WAL_NONE = 0, WAL_WRITE, WAL_FSYNC, WAL_MODE_MAX };
 
@@ -231,6 +232,12 @@ wal_write_vy_log(struct journal_entry *req);
  */
 void
 wal_rotate_vy_log();
+
+/**
+ * Relay wal rows from vclock into fd.
+ */
+int
+wal_relay(struct replica *replica, struct vclock *vclock, int fd);
 
 #if defined(__cplusplus)
 } /* extern "C" */

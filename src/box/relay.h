@@ -41,6 +41,7 @@ struct relay;
 struct replica;
 struct tt_uuid;
 struct vclock;
+struct recovery;
 
 enum relay_state {
 	/**
@@ -84,6 +85,12 @@ relay_get_state(const struct relay *relay);
  */
 const struct vclock *
 relay_vclock(const struct relay *relay);
+
+int
+relay_status_update(struct replica *replica, struct vclock *vclock);
+
+int
+relay_recover_wals(struct replica *replica, struct recovery *recovery);
 
 #if defined(__cplusplus)
 } /* extern "C" */

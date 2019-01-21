@@ -57,6 +57,9 @@ box.cfg.force_recovery
 -- try to start the replica, ha-ha
 -- (replication should fail, some rows are missing)
 --
+--
+errinj = box.error.injection
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", true)
 test_run:cmd("start server replica")
 test_run:cmd("switch replica")
 fiber = require('fiber')
@@ -69,6 +72,7 @@ box.space.test:select{}
 test_run:cmd("switch default")
 test_run:cmd("stop server replica")
 test_run:cmd("cleanup server replica")
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", false)
 --
 -- cleanup
 box.space.test:drop()

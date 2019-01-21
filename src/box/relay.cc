@@ -73,23 +73,6 @@ struct relay_status_msg {
 	struct vclock vclock;
 };
 
-/**
- * Cbus message to update replica gc state in tx thread.
- */
-struct relay_gc_msg {
-	/** Parent */
-	struct cmsg msg;
-	/**
-	 * Link in the list of pending gc messages,
-	 * see relay::pending_gc.
-	 */
-	struct stailq_entry in_pending;
-	/** Relay instance */
-	struct relay *relay;
-	/** Vclock to advance to */
-	struct vclock vclock;
-};
-
 /** State of a replication relay. */
 struct relay {
 	/** The thread in which we relay data to the replica. */
@@ -121,20 +104,9 @@ struct relay {
 	 * dataset on the other side and send missing data rows if any.
 	 */
 	struct vclock local_vclock_at_subscribe;
+	/** Cached wal_dir cfg option. */
+	const char *wal_dir;
 
-	/** Relay endpoint */
-	struct cbus_endpoint endpoint;
-	/** A pipe from 'relay' thread to 'tx' */
-	struct cpipe tx_pipe;
-	/** A pipe from 'tx' thread to 'relay' */
-	struct cpipe relay_pipe;
-	/** Status message */
-	struct relay_status_msg status_msg;
-	/**
-	 * List of garbage collection messages awaiting
-	 * confirmation from the replica.
-	 */
-	struct stailq pending_gc;
 	/** Time when last row was sent to peer. */
 	double last_row_tm;
 	/** Relay sync state. */
@@ -187,7 +159,6 @@ relay_new(struct replica *replica)
 	relay->replica = replica;
 	fiber_cond_create(&relay->reader_cond);
 	diag_create(&relay->diag);
-	stailq_create(&relay->pending_gc);
 	relay->state = RELAY_OFF;
 	return relay;
 }
@@ -235,19 +206,14 @@ relay_exit(struct relay *relay)
 	 * cursor, which must be closed in the same thread
 	 * that opened it (it uses cord's slab allocator).
 	 */
-	recovery_delete(relay->r);
+	if (relay->r)
+		recovery_delete(relay->r);
 	relay->r = NULL;
 }
 
 static void
 relay_stop(struct relay *relay)
 {
-	struct relay_gc_msg *gc_msg, *next_gc_msg;
-	stailq_foreach_entry_safe(gc_msg, next_gc_msg,
-				  &relay->pending_gc, in_pending) {
-		free(gc_msg);
-	}
-	stailq_create(&relay->pending_gc);
 	if (relay->r != NULL)
 		recovery_delete(relay->r);
 	relay->r = NULL;
@@ -372,286 +338,33 @@ relay_final_join(int fd, uint64_t sync, struct vclock *start_vclock,
  * The message which updated tx thread with a new vclock has returned back
  * to the relay.
  */
-static void
-relay_status_update(struct cmsg *msg)
-{
-	msg->route = NULL;
-}
-
-/**
- * Deliver a fresh relay vclock to tx thread.
- */
-static void
-tx_status_update(struct cmsg *msg)
-{
-	struct relay_status_msg *status = (struct relay_status_msg *)msg;
-	vclock_copy(&status->relay->tx.vclock, &status->vclock);
-	static const struct cmsg_hop route[] = {
-		{relay_status_update, NULL}
-	};
-	cmsg_init(msg, route);
-	cpipe_push(&status->relay->relay_pipe, msg);
-}
-
-/**
- * Update replica gc state in tx thread.
- */
-static void
-tx_gc_advance(struct cmsg *msg)
-{
-	struct relay_gc_msg *m = (struct relay_gc_msg *)msg;
-	gc_consumer_advance(m->relay->replica->gc, &m->vclock);
-	free(m);
-}
-
-static void
-relay_on_close_log_f(struct trigger *trigger, void * /* event */)
-{
-	static const struct cmsg_hop route[] = {
-		{tx_gc_advance, NULL}
-	};
-	struct relay *relay = (struct relay *)trigger->data;
-	struct relay_gc_msg *m = (struct relay_gc_msg *)malloc(sizeof(*m));
-	if (m == NULL) {
-		say_warn("failed to allocate relay gc message");
-		return;
-	}
-	cmsg_init(&m->msg, route);
-	m->relay = relay;
-	vclock_copy(&m->vclock, &relay->r->vclock);
-	/*
-	 * Do not invoke garbage collection until the replica
-	 * confirms that it has received data stored in the
-	 * sent xlog.
-	 */
-	stailq_add_tail_entry(&relay->pending_gc, m, in_pending);
-}
-
-/**
- * Invoke pending garbage collection requests.
- *
- * This function schedules the most recent gc message whose
- * vclock is less than or equal to the given one. Older
- * messages are discarded as their job will be done by the
- * scheduled message anyway.
- */
-static inline void
-relay_schedule_pending_gc(struct relay *relay, const struct vclock *vclock)
-{
-	struct relay_gc_msg *curr, *next, *gc_msg = NULL;
-	stailq_foreach_entry_safe(curr, next, &relay->pending_gc, in_pending) {
-		if (vclock_sum(&curr->vclock) > vclock_sum(vclock))
-			break;
-		stailq_shift(&relay->pending_gc);
-		free(gc_msg);
-		gc_msg = curr;
-	}
-	if (gc_msg != NULL)
-		cpipe_push(&relay->tx_pipe, &gc_msg->msg);
-}
-
-static void
-relay_set_error(struct relay *relay, struct error *e)
-{
-	/* Don't override existing error. */
-	if (diag_is_empty(&relay->diag))
-		diag_add_error(&relay->diag, e);
-}
-
-static void
-relay_process_wal_event(struct wal_watcher *watcher, unsigned events)
-{
-	struct relay *relay = container_of(watcher, struct relay, wal_watcher);
-	if (fiber_is_cancelled()) {
-		/*
-		 * The relay is exiting. Rescanning the WAL at this
-		 * point would be pointless and even dangerous,
-		 * because the relay could have written a packet
-		 * fragment to the socket before being cancelled
-		 * so that writing another row to the socket would
-		 * lead to corrupted replication stream and, as
-		 * a result, permanent replication breakdown.
-		 */
-		return;
-	}
-	try {
-		recover_remaining_wals(relay->r, &relay->stream, NULL,
-				       (events & WAL_EVENT_ROTATE) != 0);
-		relay_flush(relay);
-	} catch (Exception *e) {
-		relay_set_error(relay, e);
-		fiber_cancel(fiber());
-	}
-}
-
-/*
- * Relay reader fiber function.
- * Read xrow encoded vclocks sent by the replica.
- */
 int
-relay_reader_f(va_list ap)
+relay_status_update(struct replica *replica, struct vclock *vclock)
 {
-	struct relay *relay = va_arg(ap, struct relay *);
-	struct fiber *relay_f = va_arg(ap, struct fiber *);
-
-	struct ibuf ibuf;
-	struct ev_io io;
-	coio_create(&io, relay->io.fd);
-	ibuf_create(&ibuf, &cord()->slabc, 1024);
-	try {
-		while (!fiber_is_cancelled()) {
-			struct xrow_header xrow;
-			coio_read_xrow_timeout_xc(&io, &ibuf, &xrow,
-					replication_disconnect_timeout());
-			/* vclock is followed while decoding, zeroing it. */
-			vclock_create(&relay->recv_vclock);
-			xrow_decode_vclock_xc(&xrow, &relay->recv_vclock);
-			fiber_cond_signal(&relay->reader_cond);
-		}
-	} catch (Exception *e) {
-		relay_set_error(relay, e);
-		fiber_cancel(relay_f);
-	}
-	ibuf_destroy(&ibuf);
+	struct relay *relay = replica->relay;
+	vclock_copy(&relay->tx.vclock, vclock);
+	if (vclock_compare(vclock, &replica->gc->vclock) == 1)
+		gc_consumer_advance(replica->gc, vclock);
 	return 0;
 }
 
-/**
- * Send a heartbeat message over a connected relay.
- */
-static void
-relay_send_heartbeat(struct relay *relay)
+int
+relay_recover_wals(struct replica *replica, struct recovery *recovery)
 {
-	struct xrow_header row;
-	xrow_encode_timestamp(&row, instance_id, ev_now(loop()));
-	try {
-		relay_send(relay, &row);
-	} catch (Exception *e) {
-		relay_set_error(relay, e);
-		fiber_cancel(fiber());
-	}
-}
-
-/**
- * A libev callback invoked when a relay client socket is ready
- * for read. This currently only happens when the client closes
- * its socket, and we get an EOF.
- */
-static int
-relay_subscribe_f(va_list ap)
-{
-	struct relay *relay = va_arg(ap, struct relay *);
-	struct recovery *r = relay->r;
+	struct relay *relay = replica->relay;
 	ibuf_create(&relay->send_buf, &cord()->slabc,
 		    2 * RELAY_BUFFER_SEND_THRESHOLD);
 
-	coio_enable();
-	relay_set_cord_name(relay->io.fd);
-
-	/* Create cpipe to tx for propagating vclock. */
-	cbus_endpoint_create(&relay->endpoint, tt_sprintf("relay_%p", relay),
-			     fiber_schedule_cb, fiber());
-	cbus_pair("tx", relay->endpoint.name, &relay->tx_pipe,
-		  &relay->relay_pipe, NULL, NULL, cbus_process);
-
-	/* Setup garbage collection trigger. */
-	struct trigger on_close_log = {
-		RLIST_LINK_INITIALIZER, relay_on_close_log_f, relay, NULL
-	};
-	trigger_add(&r->on_close_log, &on_close_log);
-
-	/* Setup WAL watcher for sending new rows to the replica. */
-	wal_set_watcher(&relay->wal_watcher, relay->endpoint.name,
-			relay_process_wal_event, cbus_process);
-
-	/* Start fiber for receiving replica acks. */
-	char name[FIBER_NAME_MAX];
-	snprintf(name, sizeof(name), "%s:%s", fiber()->name, "reader");
-	struct fiber *reader = fiber_new_xc(name, relay_reader_f);
-	fiber_set_joinable(reader, true);
-	fiber_start(reader, relay, fiber());
-
-	/*
-	 * If the replica happens to be up to date on subscribe,
-	 * don't wait for timeout to happen - send a heartbeat
-	 * message right away to update the replication lag as
-	 * soon as possible.
-	 */
-	relay_send_heartbeat(relay);
-
-	/*
-	 * Run the event loop until the connection is broken
-	 * or an error occurs.
-	 */
-	while (!fiber_is_cancelled()) {
-		double timeout = replication_timeout;
-		struct errinj *inj = errinj(ERRINJ_RELAY_REPORT_INTERVAL,
-					    ERRINJ_DOUBLE);
-		if (inj != NULL && inj->dparam != 0)
-			timeout = inj->dparam;
-
-		fiber_cond_wait_deadline(&relay->reader_cond,
-					 relay->last_row_tm + timeout);
-
-		/*
-		 * The fiber can be woken by IO cancel, by a timeout of
-		 * status messaging or by an acknowledge to status message.
-		 * Handle cbus messages first.
-		 */
-		cbus_process(&relay->endpoint);
-		/* Check for a heartbeat timeout. */
-		if (ev_monotonic_now(loop()) - relay->last_row_tm > timeout)
-			relay_send_heartbeat(relay);
-		/*
-		 * Check that the vclock has been updated and the previous
-		 * status message is delivered
-		 */
-		if (relay->status_msg.msg.route != NULL)
-			continue;
-		struct vclock *send_vclock;
-		if (relay->version_id < version_id(1, 7, 4))
-			send_vclock = &r->vclock;
-		else
-			send_vclock = &relay->recv_vclock;
-		if (vclock_sum(&relay->status_msg.vclock) ==
-		    vclock_sum(send_vclock))
-			continue;
-		static const struct cmsg_hop route[] = {
-			{tx_status_update, NULL}
-		};
-		cmsg_init(&relay->status_msg.msg, route);
-		vclock_copy(&relay->status_msg.vclock, send_vclock);
-		relay->status_msg.relay = relay;
-		cpipe_push(&relay->tx_pipe, &relay->status_msg.msg);
-		/* Collect xlog files received by the replica. */
-		relay_schedule_pending_gc(relay, send_vclock);
+	int res = 0;
+	try {
+		recover_remaining_wals(recovery, &relay->stream, NULL, true);
+		relay_flush(relay);
+	} catch (Exception &ex) {
+		res = -1;
 	}
 
-	/*
-	 * Log the error that caused the relay to break the loop.
-	 * Don't clear the error for status reporting.
-	 */
-	assert(!diag_is_empty(&relay->diag));
-	diag_add_error(diag_get(), diag_last_error(&relay->diag));
-	diag_log();
-	say_crit("exiting the relay loop");
-
-	/* Clear garbage collector trigger and WAL watcher. */
-	trigger_clear(&on_close_log);
-	wal_clear_watcher(&relay->wal_watcher, cbus_process);
-
-	/* Join ack reader fiber. */
-	fiber_cancel(reader);
-	fiber_join(reader);
-
-	/* Destroy cpipe to tx. */
-	cbus_unpair(&relay->tx_pipe, &relay->relay_pipe,
-		    NULL, NULL, cbus_process);
-	cbus_endpoint_destroy(&relay->endpoint, cbus_process);
-
-	relay_exit(relay);
 	ibuf_destroy(&relay->send_buf);
-	return -1;
+	return res;
 }
 
 /** Replication acceptor fiber handler. */
@@ -676,21 +389,22 @@ relay_subscribe(struct replica *replica, int fd, uint64_t sync,
 
 	relay_start(relay, fd, sync, relay_send_row);
 	vclock_copy(&relay->local_vclock_at_subscribe, &replicaset.vclock);
-	relay->r = recovery_new(cfg_gets("wal_dir"), false,
-			        replica_clock);
+	relay->wal_dir = cfg_gets("wal_dir");
+	relay->r = NULL;
 	vclock_copy(&relay->tx.vclock, replica_clock);
 	relay->version_id = replica_version_id;
 
-	int rc = cord_costart(&relay->cord, "subscribe",
-			      relay_subscribe_f, relay);
-	if (rc == 0)
-		rc = cord_cojoin(&relay->cord);
+	wal_relay(replica, replica_clock, fd);
 
+	relay_exit(relay);
 	relay_stop(relay);
 	replica_on_relay_stop(replica);
 
-	if (rc != 0)
+	if (!diag_is_empty(&fiber()->diag)) {
+		if (diag_is_empty(&relay->diag))
+			diag_add_error(&relay->diag, diag_last_error(&fiber()->diag));
 		diag_raise();
+	}
 }
 
 static void

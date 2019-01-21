@@ -30,6 +30,13 @@ test_run:cmd("switch master_quorum2")
 ---
 - true
 ...
+errinj = box.error.injection
+---
+...
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", true)
+---
+- ok
+...
 box.space.test:insert{1}
 ---
 - [1]

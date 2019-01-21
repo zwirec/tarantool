@@ -92,6 +92,19 @@ coio_read_xrow_timeout_xc(struct ev_io *coio, struct ibuf *in,
 	xrow_header_decode_xc(row, (const char **) &in->rpos, in->rpos + len);
 }
 
+int
+coio_read_xrow_timeout(int fd, struct ibuf *in,
+		       struct xrow_header *row, ev_tstamp timeout)
+{
+	struct ev_io io;
+	coio_create(&io, fd);
+	try {
+		coio_read_xrow_timeout_xc(&io, in, row, timeout);
+	} catch(...) {
+		return -1;
+	}
+	return 0;
+}
 
 void
 coio_write_xrow(struct ev_io *coio, const struct xrow_header *row)

@@ -13,6 +13,8 @@ test_run:cmd("switch master_quorum1")
 repl = box.cfg.replication
 box.cfg{replication = ""}
 test_run:cmd("switch master_quorum2")
+errinj = box.error.injection
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", true)
 box.space.test:insert{1}
 box.snapshot()
 box.space.test:insert{2}

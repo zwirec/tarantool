@@ -121,6 +121,14 @@ box.cfg.force_recovery
 -- try to start the replica, ha-ha
 -- (replication should fail, some rows are missing)
 --
+--
+errinj = box.error.injection
+---
+...
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", true)
+---
+- ok
+...
 test_run:cmd("start server replica")
 ---
 - true
@@ -160,6 +168,10 @@ test_run:cmd("stop server replica")
 test_run:cmd("cleanup server replica")
 ---
 - true
+...
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", false)
+---
+- ok
 ...
 --
 -- cleanup

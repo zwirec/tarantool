@@ -36,13 +36,19 @@
 #include "errinj.h"
 #include "error.h"
 #include "exception.h"
+#include "sio.h"
+#include "coio.h"
 
 #include "xlog.h"
 #include "xrow.h"
+#include "xrow_io.h"
 #include "vy_log.h"
 #include "cbus.h"
 #include "coio_task.h"
 #include "replication.h"
+#include "recovery.h"
+#include "relay.h"
+#include "iproto_constants.h"
 
 enum {
 	/**
@@ -54,6 +60,10 @@ enum {
 	 * latency. 1 MB seems to be a well balanced choice.
 	 */
 	WAL_FALLOCATE_LEN = 1024 * 1024,
+	/** Wal memory threshold. */
+	WAL_MEMORY_THRESHOLD = 4 * 1024 * 1024,
+	/** Wal memory chunk threshold. */
+	WAL_MEM_CHUNK_THRESHOLD = 16 * 1024,
 };
 
 const char *wal_mode_STRS[] = { "none", "write", "fsync", NULL };
@@ -77,6 +87,7 @@ struct wal_thread {
 	 * priority pipe and DOES NOT support yield.
 	 */
 	struct cpipe tx_prio_pipe;
+	struct rlist relay;
 };
 
 /*
@@ -158,6 +169,26 @@ struct wal_writer
 	 * Used for replication relays.
 	 */
 	struct rlist watchers;
+	/**
+	 * Wal memory buffer routines.
+	 * Writer stores rows into two memory buffers swapping by buffer
+	 * threshold. Memory buffers are splitted into chunks with the
+	 * same server id issued by chunk threshold. In order to search
+	 * position in wal memory all chunks indexed by wal_mem_index array.
+	 * Each wal_mem_index contains corresponding replica_id and vclock
+	 * just before first row in the chunk as well as chunk buffer number,
+	 * position and size of the chunk in memory. When buffer should be
+	 * swapped then all buffers chunks discarded and wal_mem_discard_count_count
+	 * increases in order to adjust relays position.
+	 */
+	/** Rows buffers. */
+	struct ibuf wal_mem[2];
+	/** Index buffer. */
+	struct ibuf wal_mem_index;
+	/** Count of discarded mem chunks. */
+	uint64_t wal_mem_discard_count;
+	/** Condition to signal if there are new rows. */
+	struct fiber_cond memory_cond;
 };
 
 struct wal_msg {
@@ -173,6 +204,66 @@ struct wal_msg {
 	struct stailq rollback;
 	/** vclock after the batch processed. */
 	struct vclock vclock;
+};
+
+/**
+ * Wal memory chunk index.
+ */
+struct wal_mem_index {
+	/** replica id. */
+	uint32_t replica_id;
+	/** vclock just before first row in the chunk. */
+	struct vclock vclock;
+	/** Buffer number. */
+	uint8_t buf_no;
+	/** Chunk starting offset. */
+	uint64_t pos;
+	/** Chunk size. */
+	uint64_t size;
+};
+
+/**
+ * Wal memory position checkpoint.
+ */
+struct wal_mem_checkpoint {
+	/** Chunks count. */
+	uint32_t count;
+	/** Chunk size. */
+	uint32_t size;
+};
+
+/** Current relaying position. */
+struct wal_relay_mem_pos {
+	uint64_t wal_mem_discard_count;
+	uint32_t chunk_index;
+	uint32_t offset;
+};
+
+/**
+ * Wal relay structure.
+ */
+struct wal_relay {
+	struct rlist item;
+	/** Writer. */
+	struct wal_writer *writer;
+	/** Sent vclock. */
+	struct vclock vclock;
+	/** Vclock when subscribed. */
+	struct vclock vclock_at_subscribe;
+	/** Socket to send data. */
+	int fd;
+	/** Peer replica. */
+	struct replica *replica;
+	/** Cord to recover and relay data from files. */
+	struct cord cord;
+	/** A diagnostic area. */
+	struct diag diag;
+	/** Current position. */
+	struct wal_relay_mem_pos pos;
+	/** Relay writer fiber. */
+	struct fiber *writer_fiber;
+	/** Relay reader fiber. */
+	struct fiber *reader_fiber;
 };
 
 /**
@@ -230,7 +321,6 @@ xlog_write_entry(struct xlog *l, struct journal_entry *entry)
 	xlog_tx_begin(l);
 	struct xrow_header **row = entry->rows;
 	for (; row < entry->rows + entry->n_rows; row++) {
-		(*row)->tm = ev_now(loop());
 		struct errinj *inj = errinj(ERRINJ_WAL_BREAK_LSN, ERRINJ_INT);
 		if (inj != NULL && inj->iparam == (*row)->lsn) {
 			(*row)->lsn = inj->iparam - 1;
@@ -340,6 +430,43 @@ tx_notify_checkpoint(struct cmsg *msg)
 }
 
 /**
+ * A message to initialize a writer in a wal thread.
+ */
+struct wal_writer_create_msg {
+	struct cbus_call_msg base;
+	struct wal_writer *writer;
+};
+
+/**
+ * Writer initialization to do in a wal thread.
+ */
+static int
+wal_writer_create_wal(struct cbus_call_msg *base)
+{
+	struct wal_writer_create_msg *msg =
+		container_of(base, struct wal_writer_create_msg, base);
+	struct wal_writer *writer= msg->writer;
+	ibuf_create(&writer->wal_mem[0], &cord()->slabc, 65536);
+	ibuf_create(&writer->wal_mem[1], &cord()->slabc, 65536);
+	ibuf_create(&writer->wal_mem_index, &cord()->slabc, 8192);
+	struct wal_mem_index *index;
+	index = ibuf_alloc(&writer->wal_mem_index, sizeof(struct wal_mem_index));
+	if (index == NULL) {
+		/* Could not initialize wal writer. */
+		panic("Could not create wal");
+		unreachable();
+	}
+	writer->wal_mem_discard_count = 0;
+	vclock_copy(&index->vclock, &writer->vclock);
+	index->pos = 0;
+	index->size = 0;
+	index->buf_no = 0;
+	fiber_cond_create(&writer->memory_cond);
+
+	return 0;
+}
+
+/**
  * Initialize WAL writer context. Even though it's a singleton,
  * encapsulate the details just in case we may use
  * more writers in the future.
@@ -377,6 +504,11 @@ wal_writer_create(struct wal_writer *writer, enum wal_mode wal_mode,
 
 	writer->on_garbage_collection = on_garbage_collection;
 	writer->on_checkpoint_threshold = on_checkpoint_threshold;
+	struct wal_writer_create_msg msg;
+	msg.writer = writer;
+	cbus_call(&wal_thread.wal_pipe, &wal_thread.tx_prio_pipe,
+			   &msg.base, wal_writer_create_wal, NULL,
+			   TIMEOUT_INFINITY);
 }
 
 /** Destroy a WAL writer structure. */
@@ -920,9 +1052,9 @@ wal_assign_lsn(struct vclock *vclock, struct xrow_header **begin,
 	}
 	if ((*begin)->replica_id != instance_id) {
 		/*
-		 * Move all local changes to the end of rows array and
+		 * Move all local changes to the end of rows array to form
 		 * a fake local transaction (like an autonomous transaction)
-		 * because we could not replicate the transaction back.
+		 * in order to be able to replicate local changes back.
 		 */
 		struct xrow_header **row = end - 1;
 		while (row >= begin) {
@@ -943,7 +1075,7 @@ wal_assign_lsn(struct vclock *vclock, struct xrow_header **begin,
 		while (begin < end && begin[0]->replica_id != instance_id)
 			++begin;
 	}
-	/* Setup txn_id and tnx_replica_id for localy generated rows. */
+	/* Setup txn_id and tnx_replica_id for locally generated rows. */
 	row = begin;
 	while (row < end) {
 		row[0]->txn_id = begin[0]->lsn;
@@ -951,6 +1083,186 @@ wal_assign_lsn(struct vclock *vclock, struct xrow_header **begin,
 		row[0]->txn_last = row == end - 1 ? 1 : 0;
 		++row;
 	}
+}
+
+static inline struct wal_mem_index *
+wal_mem_index_first(struct wal_writer *writer)
+{
+	return (struct wal_mem_index *)writer->wal_mem_index.rpos;
+}
+
+static inline struct wal_mem_index *
+wal_mem_index_last(struct wal_writer *writer)
+{
+	return (struct wal_mem_index *)writer->wal_mem_index.wpos - 1;
+}
+
+static inline struct wal_mem_index *
+wal_mem_index_new(struct wal_writer *writer, int buf_no, struct vclock *vclock)
+{
+	struct wal_mem_index *last = wal_mem_index_last(writer);
+	if (last->size == 0)
+		return last;
+	last = (struct wal_mem_index *)ibuf_alloc(&writer->wal_mem_index,
+						  sizeof(struct wal_mem_index));
+	if (last == NULL) {
+		diag_set(OutOfMemory, sizeof(struct wal_mem_index),
+			 "region", "struct wal_mem_index");
+		return NULL;
+	}
+	last->buf_no = buf_no;
+	last->size = 0;
+	last->pos = ibuf_used(writer->wal_mem + buf_no);
+	vclock_copy(&last->vclock, vclock);
+	return last;
+}
+
+/** Save current memory position. */
+static inline void
+wal_mem_get_checkpoint(struct wal_writer *writer,
+		       struct wal_mem_checkpoint *mem_checkpoint)
+{
+	mem_checkpoint->count = wal_mem_index_last(writer) -
+			      wal_mem_index_first(writer);
+	mem_checkpoint->size = wal_mem_index_last(writer)->size;
+}
+
+/** Restore memory position. */
+static inline void
+wal_mem_set_checkpoint(struct wal_writer *writer,
+		       struct wal_mem_checkpoint *mem_checkpoint)
+{
+	struct wal_mem_index *index = wal_mem_index_first(writer) +
+				      mem_checkpoint->count;
+	assert(index->buf_no == wal_mem_index_last(writer)->buf_no);
+	index->size = mem_checkpoint->size;
+	/* Truncate buffers. */
+	writer->wal_mem_index.wpos = (char *)(index + 1);
+	struct ibuf *buf = writer->wal_mem + index->buf_no;
+	buf->wpos = buf->buf + index->pos + index->size;
+}
+
+/**
+ * Prepare wal memory to accept new rows and rotate buffer if it needs.
+ */
+static int
+wal_mem_prepare(struct wal_writer *writer)
+{
+	struct wal_mem_index *last = wal_mem_index_last(writer);
+	uint8_t buf_no = last->buf_no;
+	if (ibuf_used(&writer->wal_mem[buf_no]) > WAL_MEMORY_THRESHOLD) {
+		/* We are going to rotate buffers. */
+		struct wal_mem_index *first = wal_mem_index_first(writer);
+		while (first->buf_no == 1 - buf_no)
+			++first;
+		/* Discard all indexes on buffer to clear. */
+		writer->wal_mem_discard_count += first - wal_mem_index_first(writer);
+		writer->wal_mem_index.rpos = (char *)first;
+
+		buf_no = 1 - buf_no;
+		ibuf_reset(&writer->wal_mem[buf_no]);
+
+		last = wal_mem_index_new(writer, buf_no, &writer->vclock);
+		if (last == NULL)
+			return -1;
+	}
+	return 0;
+}
+
+/** Get a chunk to store rows data. */
+static struct wal_mem_index *
+wal_get_chunk(struct wal_writer *writer, uint32_t replica_id,
+	      struct vclock *vclock)
+{
+	struct wal_mem_index *last = wal_mem_index_last(writer);
+	int buf_no = last->buf_no;
+
+	if (last->size == 0)
+		last->replica_id = replica_id;
+
+	if (last->size > WAL_MEM_CHUNK_THRESHOLD ||
+	    last->replica_id != replica_id) {
+		/* Open new chunk. */
+		last = wal_mem_index_new(writer, buf_no, vclock);
+		if (last == NULL)
+			return NULL;
+		last->replica_id = replica_id;
+	}
+	return last;
+}
+
+/**
+ * Encode an entry into a wal memory buffer.
+ */
+static ssize_t
+wal_encode_entry(struct wal_writer *writer, struct journal_entry *entry,
+		 struct vclock *vclock)
+{
+	double tm = ev_now(loop());
+	struct xrow_header nop_row;
+	nop_row.type = IPROTO_NOP;
+	nop_row.group_id = GROUP_DEFAULT;
+	nop_row.bodycnt = 0;
+	nop_row.tm = tm;
+
+	struct wal_mem_index *last = wal_mem_index_last(writer);
+	int buf_no = last->buf_no;
+	last = NULL;
+	struct ibuf *mem_buf = writer->wal_mem + buf_no;
+
+	/* vclock to track encoding row. */
+	struct vclock chunk_vclock;
+	vclock_copy(&chunk_vclock, vclock);
+
+	wal_assign_lsn(vclock, entry->rows, entry->rows + entry->n_rows);
+	entry->res = vclock_sum(vclock);
+
+	struct xrow_header **row = entry->rows;
+	while (row < entry->rows + entry->n_rows) {
+		(*row)->tm = tm;
+		struct iovec iov[XROW_IOVMAX];
+		if ((*row)->group_id == GROUP_LOCAL) {
+			nop_row.replica_id = (*row)->replica_id;
+			nop_row.lsn = (*row)->lsn;
+			nop_row.txn_id = (*row)->txn_id;
+			nop_row.txn_replica_id = (*row)->txn_replica_id;
+		}
+		struct xrow_header *send_row = (*row)->group_id != GROUP_LOCAL ?
+					        *row : &nop_row;
+		if (last == NULL) {
+			/* Do not allow split transactions into chunks. */
+			last = wal_get_chunk(writer, send_row->replica_id,
+					     &chunk_vclock);
+		}
+		if (last == NULL)
+			goto error;
+		vclock_follow_xrow(&chunk_vclock, send_row);
+
+		int iovcnt = xrow_to_iovec(send_row, iov);
+		if (iovcnt < 0)
+			goto error;
+		uint64_t xrow_size = 0;
+		for (int i = 0; i < iovcnt; ++i)
+			xrow_size += iov[i].iov_len;
+		if (ibuf_reserve(mem_buf, xrow_size) == NULL) {
+			diag_set(OutOfMemory, xrow_size,
+				 "region", "entry memory");
+			goto error;
+		}
+
+		for (int i = 0; i < iovcnt; ++i) {
+			memcpy(ibuf_alloc(mem_buf, iov[i].iov_len),
+			       iov[i].iov_base, iov[i].iov_len);
+			last->size += iov[i].iov_len;
+		}
+		if (row[0]->txn_last == 1)
+			last = NULL;
+		++row;
+	}
+	return 0;
+
+error:
+	return -1;
 }
 
 static void
@@ -1016,22 +1328,32 @@ wal_write_to_disk(struct cmsg *msg)
 	int rc;
 	struct journal_entry *entry;
 	struct stailq_entry *last_committed = NULL;
+	if (wal_mem_prepare(writer) != 0)
+		goto done;
+	struct wal_mem_checkpoint mem_checkpoint;
+	wal_mem_get_checkpoint(writer, &mem_checkpoint);
 	stailq_foreach_entry(entry, &wal_msg->commit, fifo) {
-		wal_assign_lsn(&vclock, entry->rows, entry->rows + entry->n_rows);
-		entry->res = vclock_sum(&vclock);
-		rc = xlog_write_entry(l, entry);
-		if (rc < 0)
+		rc = wal_encode_entry(writer, entry, &vclock);
+		if (rc != 0)
 			goto done;
+		rc = xlog_write_entry(l, entry);
+		if (rc < 0) {
+			wal_mem_set_checkpoint(writer, &mem_checkpoint);
+			goto done;
+		}
 		if (rc > 0) {
 			writer->checkpoint_wal_size += rc;
 			last_committed = &entry->fifo;
 			vclock_copy(&writer->vclock, &vclock);
+			wal_mem_get_checkpoint(writer, &mem_checkpoint);
 		}
 		/* rc == 0: the write is buffered in xlog_tx */
 	}
 	rc = xlog_flush(l);
-	if (rc < 0)
+	if (rc < 0) {
+		wal_mem_set_checkpoint(writer, &mem_checkpoint);
 		goto done;
+	}
 
 	writer->checkpoint_wal_size += rc;
 	last_committed = stailq_last(&wal_msg->commit);
@@ -1087,6 +1409,7 @@ done:
 		wal_writer_begin_rollback(writer);
 	}
 	fiber_gc();
+	fiber_cond_broadcast(&writer->memory_cond);
 	wal_notify_watchers(writer, WAL_EVENT_WRITE);
 }
 
@@ -1095,6 +1418,8 @@ static int
 wal_thread_f(va_list ap)
 {
 	(void) ap;
+	struct wal_writer *writer = &wal_writer_singleton;
+	rlist_create(&wal_thread.relay);
 
 	/** Initialize eio in this thread */
 	coio_enable();
@@ -1110,7 +1435,14 @@ wal_thread_f(va_list ap)
 
 	cbus_loop(&endpoint);
 
-	struct wal_writer *writer = &wal_writer_singleton;
+	struct wal_relay *msg;
+	rlist_foreach_entry(msg, &wal_thread.relay, item) {
+		if (msg->cord.id != 0) {
+			if (tt_pthread_cancel(msg->cord.id) == ESRCH)
+				continue;
+			tt_pthread_join(msg->cord.id, NULL);
+		}
+	}
 
 	/*
 	 * Create a new empty WAL on shutdown so that we don't
@@ -1396,6 +1728,475 @@ wal_notify_watchers(struct wal_writer *writer, unsigned events)
 		wal_watcher_notify(watcher, events);
 }
 
+/**
+ * Send data to peer.
+ * Assume that socket already in non blocking mode.
+ *
+ * Return:
+ * 0 chunk sent without yield
+ * 1 chunk sent with yield
+ * -1 an error occurred
+ */
+static int
+wal_relay_send(void *data, size_t to_write, int fd)
+{
+	{
+		struct errinj *inj = errinj(ERRINJ_RELAY_SEND_DELAY, ERRINJ_BOOL);
+		if (inj != NULL && inj->bparam) {
+			void *errinj_data =  region_alloc(&fiber()->gc, to_write);
+			if (errinj_data == NULL) {
+				diag_set(OutOfMemory, to_write, "region", "relay pending data");
+				return -1;
+			}
+			memcpy(errinj_data, data, to_write);
+			data = errinj_data;
+			while (inj != NULL && inj->bparam)
+				fiber_sleep(0.01);
+		}
+	}
+
+	int rc = 0;
+	ssize_t written = write(fd, data, to_write);
+	if (written < 0 && ! (errno == EAGAIN || errno == EWOULDBLOCK))
+		goto io_error;
+	if (written == (ssize_t)to_write)
+		goto done;
+
+	/* Preserve data to send. */
+	if (written < 0)
+		written = 0;
+	to_write -= written;
+	void *pending_data = region_alloc(&fiber()->gc, to_write);
+	if (pending_data == NULL) {
+		diag_set(OutOfMemory, to_write, "region", "relay pending data");
+		return -1;
+	}
+	data += written;
+	memcpy(pending_data, data, to_write);
+	while (to_write > 0) {
+		if (coio_wait(fd, COIO_WRITE, TIMEOUT_INFINITY) < 0)
+			goto error;
+		written = write(fd, pending_data, to_write);
+		if (written < 0 && ! (errno == EAGAIN || errno == EWOULDBLOCK))
+			goto io_error;
+		if (written < 0)
+			written = 0;
+		pending_data += written;
+		to_write -= written;
+	}
+	rc = 1;
+
+done:
+	fiber_gc();
+	{
+		struct errinj *inj = errinj(ERRINJ_RELAY_SEND_DELAY, ERRINJ_BOOL);
+		inj = errinj(ERRINJ_RELAY_TIMEOUT, ERRINJ_DOUBLE);
+		if (inj != NULL && inj->dparam > 0)
+			fiber_sleep(inj->dparam);
+	}
+	return rc;
+
+io_error:
+	diag_set(SocketError, sio_socketname(fd), "write");
+error:
+	fiber_gc();
+	return -1;
+}
+
+/** Send heartbeat to the peer. */
+static int
+wal_relay_heartbeat(int fd)
+{
+	struct xrow_header row;
+	xrow_encode_timestamp(&row, instance_id, ev_now(loop()));
+	struct iovec iov[XROW_IOVMAX];
+	int iovcnt = xrow_to_iovec(&row, iov);
+	if (iovcnt < 0)
+		return -1;
+	for (int i = 0; i < iovcnt; ++i)
+		if (wal_relay_send(iov[i].iov_base, iov[i].iov_len, fd) < 0)
+			return -1;
+	return 0;
+}
+
+/**
+ * Send memory chunk to peer.
+ * Assume that socket already in non blocking mode.
+ *
+ * Return:
+ * 0 chunk sent without yield
+ * 1 chunk sent with yield
+ * -1 an error occurred
+ */
+static int
+wal_relay_send_chunk(struct wal_relay *wal_relay)
+{
+	struct wal_writer *writer = wal_relay->writer;
+	struct wal_relay_mem_pos *pos = &wal_relay->pos;
+
+	/* Adjust position in case of rotation. */
+	assert(pos->chunk_index >= writer->wal_mem_discard_count -
+				 pos->wal_mem_discard_count);
+	pos->chunk_index -= writer->wal_mem_discard_count -
+			    pos->wal_mem_discard_count;
+	pos->wal_mem_discard_count = writer->wal_mem_discard_count;
+
+	struct wal_mem_index *first = wal_mem_index_first(writer);
+	struct wal_mem_index *last = wal_mem_index_last(writer);
+	struct wal_mem_index *chunk = first + pos->chunk_index;
+
+	if (chunk < last && chunk->size == pos->offset) {
+		/* Current chunk is done, use the next one. */
+		++pos->chunk_index;
+		pos->offset = 0;
+		++chunk;
+	}
+	assert(first <= chunk && last >= chunk);
+	assert(chunk->size >= pos->offset);
+	ssize_t to_write = chunk->size - pos->offset;
+	if (to_write == 0)
+		return 0;
+	/* Preserve the clock after the transfer because it might change. */
+	struct vclock last_vclock;
+	vclock_copy(&last_vclock,
+		    chunk == last ? &writer->vclock : &(chunk + 1)->vclock);
+	struct ibuf *buf = writer->wal_mem + chunk->buf_no;
+	void *data = buf->rpos + chunk->pos + pos->offset;
+	if ((wal_relay->replica->id != chunk->replica_id ||
+	     vclock_get(&chunk->vclock, chunk->replica_id) <
+	     vclock_get(&wal_relay->vclock_at_subscribe, chunk->replica_id)) &&
+	    wal_relay_send(data, to_write, wal_relay->fd) < 0)
+		return -1;
+	vclock_copy(&wal_relay->vclock, &last_vclock);
+	pos->offset += to_write;
+	return 0;
+}
+
+/** Test if vclock position in a writer memory. */
+static inline bool
+wal_relay_in_mem(struct wal_writer *writer, struct vclock *vclock)
+{
+	struct errinj *inj = errinj(ERRINJ_WAL_RELAY_DISABLE_MEM,
+				    ERRINJ_BOOL);
+	if (inj != NULL && inj->bparam) {
+		return false;
+	}
+	struct wal_mem_index *first = wal_mem_index_first(writer);
+	int cmp = vclock_compare(&first->vclock, vclock);
+	return cmp == -1 || cmp == 0;
+}
+
+/** Setup relay position. */
+static void
+wal_relay_setup_chunk(struct wal_relay *wal_relay)
+{
+	struct wal_writer *writer = wal_relay->writer;
+	struct vclock *vclock = &wal_relay->vclock;
+	struct wal_mem_index *first = wal_mem_index_first(writer);
+	struct wal_mem_index *last = wal_mem_index_last(writer);
+	struct wal_mem_index *mid = NULL;
+	while (last - first > 1) {
+		mid = first + (last - first + 1) / 2;
+		int cmp = vclock_compare(vclock, &mid->vclock);
+		if (cmp == 0) {
+			first = last = mid;
+			break;
+		}
+		if (cmp == 1)
+			first = mid;
+		else
+			last = mid;
+	}
+	if (last != first) {
+		int cmp = vclock_compare(vclock, &last->vclock);
+		if (cmp == 0 || cmp == 1)
+			++first;
+	}
+	wal_relay->pos.chunk_index = first - wal_mem_index_first(writer);
+	wal_relay->pos.wal_mem_discard_count = writer->wal_mem_discard_count;
+	wal_relay->pos.offset = 0;
+}
+
+/**
+ * Recover wal memory from current position until the end.
+ */
+static int
+wal_relay_recover_mem(struct wal_relay *wal_relay)
+{
+	struct wal_writer *writer = wal_relay->writer;
+	struct vclock *vclock = &wal_relay->vclock;
+	if (!wal_relay_in_mem(writer, vclock))
+		return 0;
+	wal_relay_setup_chunk(wal_relay);
+
+	do {
+		int rc = wal_relay_send_chunk(wal_relay);
+		if (rc < 0)
+			return -1;
+		if (vclock_compare(&writer->vclock, vclock) == 1) {
+			/* There are more data, send the next chunk. */
+			continue;
+		}
+		double timeout = replication_timeout;
+		struct errinj *inj = errinj(ERRINJ_RELAY_REPORT_INTERVAL,
+					    ERRINJ_DOUBLE);
+		if (inj != NULL && inj->dparam != 0)
+			timeout = inj->dparam;
+		/* Wait for new rows or heartbeat timeout. */
+		while (fiber_cond_wait_timeout(&writer->memory_cond,
+					       timeout) == -1 &&
+		       !fiber_is_cancelled(fiber())) {
+			if (wal_relay_heartbeat(wal_relay->fd) < 0)
+				return -1;
+			if (inj != NULL && inj->dparam != 0)
+				timeout = inj->dparam;
+			continue;
+		}
+	} while (!fiber_is_cancelled(fiber()) &&
+		 wal_relay_in_mem(writer, vclock));
+
+	return fiber_is_cancelled(fiber()) ? -1: 0;
+}
+
+/**
+ * Cord function to recover xlog files.
+ */
+static int
+wal_relay_recover_file_f(va_list ap)
+{
+	struct wal_relay *wal_relay = va_arg(ap, struct wal_relay *);
+	struct wal_writer *writer = wal_relay->writer;
+	struct replica *replica = wal_relay->replica;
+	struct vclock *vclock = &wal_relay->vclock;
+
+	struct recovery *recovery;
+	recovery = recovery_new(writer->wal_dir.dirname, false, vclock);
+	if (recovery == NULL)
+		return -1;
+
+	int res = relay_recover_wals(replica, recovery);
+	vclock_copy(vclock, &recovery->vclock);
+
+	recovery_delete(recovery);
+	return res;
+}
+
+/**
+ * Create cord to recover and relay xlog files.
+ */
+static int
+wal_relay_recover_file(struct wal_relay *msg)
+{
+	cord_costart(&msg->cord, "recovery wal files",
+		     wal_relay_recover_file_f, msg);
+	int res =  cord_cojoin(&msg->cord);
+	msg->cord.id = 0;
+	return res;
+}
+
+/**
+ * Message to inform relay about peer vclock changes.
+ */
+struct wal_relay_status_msg {
+	struct cbus_call_msg base;
+	/** Replica. */
+	struct replica *replica;
+	/** Known replica vclock. */
+	struct vclock vclock;
+};
+
+static int
+tx_wal_relay_status(struct cbus_call_msg *base)
+{
+	struct wal_relay_status_msg *msg =
+		container_of(base, struct wal_relay_status_msg, base);
+	relay_status_update(msg->replica, &msg->vclock);
+	return 0;
+}
+
+/**
+ * Peer vclock reader fiber function.
+ */
+static int
+wal_relay_reader_f(va_list ap)
+{
+	struct wal_relay *wal_relay = va_arg(ap, struct wal_relay *);
+	struct replica *replica = wal_relay->replica;
+
+	struct ibuf ibuf;
+	ibuf_create(&ibuf, &cord()->slabc, 1024);
+	while (!fiber_is_cancelled()) {
+		struct xrow_header xrow;
+		if (coio_read_xrow_timeout(wal_relay->fd, &ibuf, &xrow,
+					   replication_disconnect_timeout()) != 0)
+			break;
+		struct wal_relay_status_msg msg;
+		/* vclock is followed while decoding, zeroing it. */
+		vclock_create(&msg.vclock);
+		xrow_decode_vclock(&xrow, &msg.vclock);
+		msg.replica = replica;
+		cbus_call(&wal_thread.tx_prio_pipe, &wal_thread.wal_pipe,
+			  &msg.base, tx_wal_relay_status, NULL,
+			  TIMEOUT_INFINITY);
+	}
+	if (diag_is_empty(&wal_relay->diag))
+		diag_move(&fiber()->diag, &wal_relay->diag);
+	fiber_cancel(wal_relay->writer_fiber);
+	ibuf_destroy(&ibuf);
+	return 0;
+
+}
+
+/**
+ * Message to control wal relay.
+ */
+struct wal_relay_start_msg {
+	struct cmsg base;
+	/** Stop condition. */
+	struct fiber_cond stop_cond;
+	/** Done status to protect against spurious wakeup. */
+	bool done;
+	/** Replica. */
+	struct replica *replica;
+	/** Replica known vclock. */
+	struct vclock *vclock;
+	/** Replica socket. */
+	int fd;
+	/** Diagnostic area. */
+	struct diag diag;
+};
+
+/**
+ * Handler to inform when wal relay is exited.
+ */
+static void
+wal_relay_done(struct cmsg *base)
+{
+	struct wal_relay_start_msg *msg;
+	msg = container_of(base, struct wal_relay_start_msg, base);
+	msg->done = true;
+	fiber_cond_signal(&msg->stop_cond);
+}
+
+/**
+ * Helper to send wal relay done message.
+ */
+static void
+wal_relay_done_send(struct wal_relay_start_msg *msg)
+{
+	static struct cmsg_hop done_route[] = {
+		{wal_relay_done, NULL}
+	};
+	/*
+	 * Because of complicated cbus routing and fiber_start behavior
+	 * message could be still in cbus processing, so let cbus finish
+	 * with it.
+	 */
+	fiber_reschedule();
+	cmsg_init(&msg->base, done_route);
+	diag_move(&fiber()->diag, &msg->diag);
+	cpipe_push(&wal_thread.tx_prio_pipe, &msg->base);
+}
+
+/**
+ * Wal relay writer fiber.
+ */
+static int
+wal_relay_f(va_list ap)
+{
+	struct wal_writer *writer = &wal_writer_singleton;
+
+	struct wal_relay_start_msg *msg = va_arg(ap, struct wal_relay_start_msg *);
+	struct wal_relay wal_relay;
+	memset(&wal_relay, 0, sizeof(wal_relay));
+	rlist_add(&wal_thread.relay, &wal_relay.item);
+	wal_relay.writer = writer;
+	wal_relay.replica = msg->replica;
+	wal_relay.fd = msg->fd;
+	vclock_copy(&wal_relay.vclock, msg->vclock);
+	vclock_copy(&wal_relay.vclock_at_subscribe, &writer->vclock);
+	diag_create(&wal_relay.diag);
+	wal_relay.writer_fiber = fiber();
+	wal_relay.reader_fiber = fiber_new("relay_status", wal_relay_reader_f);
+	if (wal_relay.reader_fiber == NULL)
+		goto done;
+	fiber_set_joinable(wal_relay.reader_fiber, true);
+	fiber_start(wal_relay.reader_fiber, &wal_relay);
+
+	/* Open a new chunk to separate logs before subscribe. */
+	if (wal_mem_index_new(writer, wal_mem_index_last(writer)->buf_no,
+			      &writer->vclock) == NULL)
+		goto done;
+
+	if (wal_relay_heartbeat(msg->fd) < 0)
+		goto done;
+
+	while (!fiber_is_cancelled(fiber())) {
+		if (wal_relay_recover_mem(&wal_relay) < 0)
+			break;
+		if (wal_relay_recover_file(&wal_relay) < 0)
+			break;
+	}
+
+done:
+	if (diag_is_empty(&fiber()->diag))
+		diag_move(&wal_relay.diag, &fiber()->diag);
+	fiber_cancel(wal_relay.reader_fiber);
+	fiber_join(wal_relay.reader_fiber);
+
+	rlist_del(&wal_relay.item);
+	vclock_copy(msg->vclock, &wal_relay.vclock);
+
+	wal_relay_done_send(msg);
+	return 0;
+}
+
+/**
+ * Start a wal relay in a wal thread.
+ */
+static void
+wal_relay_start(struct cmsg *base)
+{
+	struct wal_relay_start_msg *msg;
+	msg = container_of(base, struct wal_relay_start_msg, base);
+
+	struct fiber *writer_fiber = fiber_new("wal_relay", wal_relay_f);
+	if (writer_fiber == NULL)
+		return wal_relay_done_send(msg);
+	fiber_start(writer_fiber, msg);
+}
+
+/**
+ * Start a wal relay.
+ */
+int
+wal_relay(struct replica *replica, struct vclock *vclock, int fd)
+{
+	/*
+	 * Send wal relay start to wal thread and then wait for a
+	 * finish condition.
+	 * We are not able to do that job in synchronous manner with
+	 * cbus_call and fiber join because wal thread has no fiber pool
+	 * and then cbus handler not allowed to yield.
+	 */
+	struct wal_relay_start_msg msg;
+	memset(&msg, 0, sizeof(msg));
+	msg.vclock = vclock;
+	msg.fd = fd;
+	msg.replica = replica;
+	msg.done = false;
+	fiber_cond_create(&msg.stop_cond);
+	diag_create(&msg.diag);
+	static struct cmsg_hop start_route[] = {
+		{wal_relay_start, NULL}};
+	cmsg_init(&msg.base, start_route);
+	cpipe_push(&wal_thread.wal_pipe, &msg.base);
+	while (!msg.done)
+		fiber_cond_wait(&msg.stop_cond);
+	if (!diag_is_empty(&msg.diag))
+		diag_move(&msg.diag, &fiber()->diag);
+	return diag_is_empty(&fiber()->diag) ? 0: -1;
+}
 
 /**
  * After fork, the WAL writer thread disappears.

@@ -210,6 +210,13 @@ fio = require('fio')
 box.cfg{checkpoint_count = checkpoint_count}
 ---
 ...
+errinj = box.error.injection
+---
+...
+errinj.set("ERRINJ_WAL_RELAY_DISABLE_MEM", true)
+---
+- ok
+...
 test_run:cmd("start server replica")
 ---
 - true
