@@ -664,27 +664,35 @@ statGet(sqlite3_context * context, int argc, sqlite3_value ** argv)
 		 *
 		 *        I = (K+D-1)/D
 		 */
-		char *z;
 		int i;
 
-		char *zRet = sqlite3MallocZero((p->nKeyCol + 1) * 25);
+		size_t size = mp_sizeof_array(p->nKeyCol + 1);
+		size += mp_sizeof_uint(p->nRow);
+		for (i = 0; i < p->nKeyCol; ++i) {
+			uint64_t nDistinct = p->current.anDLt[i] + 1;
+			uint64_t iVal = (p->nRow + nDistinct - 1) / nDistinct;
+			size += mp_sizeof_uint(iVal);
+		}
+		char *zRet = sqlite3MallocZero(size);
 		if (zRet == 0) {
 			sqlite3_result_error_nomem(context);
 			return;
 		}
-
-		sqlite3_snprintf(24, zRet, "%llu", (u64) p->nRow);
-		z = zRet + sqlite3Strlen30(zRet);
-		for (i = 0; i < p->nKeyCol; i++) {
-			u64 nDistinct = p->current.anDLt[i] + 1;
-			u64 iVal = (p->nRow + nDistinct - 1) / nDistinct;
-			sqlite3_snprintf(24, z, " %llu", iVal);
-			z += sqlite3Strlen30(z);
+		char *z = zRet;
+		z = mp_encode_array(z, p->nKeyCol + 1);
+		z = mp_encode_uint(z, p->nRow);
+		for (i = 0; i < p->nKeyCol; ++i) {
+			uint64_t nDistinct = p->current.anDLt[i] + 1;
+			uint64_t iVal = (p->nRow + nDistinct - 1) / nDistinct;
+			z = mp_encode_uint(z, iVal);
 			assert(p->current.anEq[i]);
 		}
-		assert(z[0] == '\0' && z > zRet);
+		const char *b = zRet;
+		int r = mp_check(&b, z);
+		assert(!r);
+		assert(zRet != z);
 
-		sqlite3_result_text(context, zRet, -1, sqlite3_free);
+		sqlite3_result_msgpack(context, zRet, size, sqlite3_free);
 	} else if (eCall == STAT_GET_KEY) {
 		if (p->iGet < 0) {
 			samplePushPrevious(p, 0);
@@ -713,19 +721,28 @@ statGet(sqlite3_context * context, int argc, sqlite3_value ** argv)
 		}
 	}
 
-	char *zRet = sqlite3MallocZero(p->nCol * 25);
+	int i;
+
+	size_t size = mp_sizeof_array(p->nCol);
+	for (i = 0; i < p->nCol; ++i) {
+		size += mp_sizeof_uint(aCnt[i]);
+	}
+
+	char *zRet = sqlite3MallocZero(size);
 	if (zRet == 0) {
 		sqlite3_result_error_nomem(context);
 	} else {
-		int i;
 		char *z = zRet;
+		z = mp_encode_array(z, p->nCol);
 		for (i = 0; i < p->nCol; i++) {
-			sqlite3_snprintf(24, z, "%llu ", (u64) aCnt[i]);
-			z += sqlite3Strlen30(z);
+			z = mp_encode_uint(z, aCnt[i]);
 		}
-		assert(z[0] == '\0' && z > zRet);
-		z[-1] = '\0';
-		sqlite3_result_text(context, zRet, -1, sqlite3_free);
+		const char *b = zRet;
+		int r = mp_check(&b, z);
+		assert(!r);
+		assert(zRet != z);
+
+		sqlite3_result_msgpack(context, zRet, size, sqlite3_free);
 	}
 
 }
@@ -1176,24 +1193,18 @@ struct analysis_index_info {
  * @param[out] stat_log Decoded array of stat logariphms.
  */
 static void
-decode_stat_string(const char *stat_string, int stat_size, tRowcnt *stat_exact,
+decode_stat_array(const char *stat_array, int stat_size, tRowcnt *stat_exact,
 		   LogEst *stat_log) {
-	const char *z = stat_string;
+	const char *z = stat_array;
+	mp_decode_array(&z);
 	if (z == NULL)
-		z = "";
-	for (int i = 0; *z && i < stat_size; i++) {
-		tRowcnt v = 0;
-		int c;
-		while ((c = z[0]) >= '0' && c <= '9') {
-			v = v * 10 + c - '0';
-			z++;
-		}
+		return;
+	for (int i = 0; i < stat_size; i++) {
+		tRowcnt v = (tRowcnt) mp_decode_uint(&z);
 		if (stat_exact != NULL)
 			stat_exact[i] = v;
 		if (stat_log != NULL)
 			stat_log[i] = sqlite3LogEst(v);
-		if (*z == ' ')
-			z++;
 	}
 }
 
@@ -1268,23 +1279,10 @@ analysis_loader(void *data, int argc, char **argv, char **unused)
 		diag_set(OutOfMemory, stat1_size, "region", "tuple_log_est");
 		return -1;
 	}
-	decode_stat_string(argv[2], column_count, stat->tuple_stat1,
+	decode_stat_array(argv[2], column_count, stat->tuple_stat1,
 			   stat->tuple_log_est);
 	stat->is_unordered = false;
 	stat->skip_scan_enabled = true;
-	char *z = argv[2];
-	/* Position ptr at the end of stat string. */
-	for (; *z == ' ' || (*z >= '0' && *z <= '9'); ++z);
-	while (z[0]) {
-		if (sql_strlike_cs("unordered%", z, '[') == 0)
-			index->def->opts.stat->is_unordered = true;
-		else if (sql_strlike_cs("noskipscan%", z, '[') == 0)
-			index->def->opts.stat->skip_scan_enabled = false;
-		while (z[0] != 0 && z[0] != ' ')
-			z++;
-		while (z[0] == ' ')
-			z++;
-	}
 	return 0;
 }
 
@@ -1487,11 +1485,11 @@ load_stat_from_space(struct sqlite3 *db, const char *sql_select_prepare,
 		struct index_stat *stat = &stats[current_idx_count];
 		struct index_sample *sample =
 			&stat->samples[stats[current_idx_count].sample_count];
-		decode_stat_string((char *)sqlite3_column_text(stmt, 2),
+		decode_stat_array((char *)sqlite3_column_blob(stmt, 2),
 				   column_count, sample->eq, 0);
-		decode_stat_string((char *)sqlite3_column_text(stmt, 3),
+		decode_stat_array((char *)sqlite3_column_blob(stmt, 3),
 				   column_count, sample->lt, 0);
-		decode_stat_string((char *)sqlite3_column_text(stmt, 4),
+		decode_stat_array((char *)sqlite3_column_blob(stmt, 4),
 				   column_count, sample->dlt, 0);
 		/* Take a copy of the sample. */
 		sample->key_size = sqlite3_column_bytes(stmt, 5);
