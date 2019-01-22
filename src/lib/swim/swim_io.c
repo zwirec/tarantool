@@ -183,6 +183,12 @@ swim_scheduler_bind(struct swim_scheduler *scheduler, struct sockaddr_in *addr)
 }
 
 void
+swim_scheduler_stop_input(struct swim_scheduler *scheduler)
+{
+	ev_io_stop(loop(), &scheduler->input);
+}
+
+void
 swim_scheduler_destroy(struct swim_scheduler *scheduler)
 {
 	struct swim_task *task, *tmp;
@@ -193,7 +199,7 @@ swim_scheduler_destroy(struct swim_scheduler *scheduler)
 	}
 	swim_transport_destroy(&scheduler->transport);
 	ev_io_stop(loop(), &scheduler->output);
-	ev_io_stop(loop(), &scheduler->input);
+	swim_scheduler_stop_input(scheduler);
 }
 
 static const struct sockaddr_in *
@@ -236,9 +242,15 @@ swim_scheduler_on_output(struct ev_loop *loop, struct ev_io *io, int events)
 				     sizeof(*dst));
 	if (rc != 0)
 		diag_log();
+	/*
+	 * Save 'is_static' to a local variable because in
+	 * complete() the task and even the entire scheduler can
+	 * be deleted (see swim_quit(), for example).
+	 */
+	bool is_static = task->is_static;
 	if (task->complete != NULL)
 		task->complete(task, rc);
-	if (! task->is_static)
+	if (! is_static)
 		swim_task_delete(task);
 }
 

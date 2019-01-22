@@ -159,6 +159,9 @@ int
 swim_scheduler_bind(struct swim_scheduler *scheduler, struct sockaddr_in *addr);
 
 void
+swim_scheduler_stop_input(struct swim_scheduler *scheduler);
+
+void
 swim_scheduler_destroy(struct swim_scheduler *scheduler);
 
 /**

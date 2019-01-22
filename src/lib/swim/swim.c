@@ -701,6 +701,9 @@ swim_decrease_events_ttl(struct swim *swim)
 		if (--member->status_ttl == 0) {
 			rlist_del_entry(member, in_queue_events);
 			cached_round_msg_invalidate(swim);
+			if (member->status == MEMBER_LEFT &&
+			    ! member->is_pinned)
+				swim_member_delete(swim, member);
 		}
 	}
 }
@@ -866,6 +869,8 @@ swim_check_acks(struct ev_loop *loop, struct ev_periodic *p, int events)
 			    ! m->is_pinned && m->status_ttl == 0)
 				swim_member_delete(swim, m);
 			break;
+		case MEMBER_LEFT:
+			break;
 		default:
 			unreachable();
 		}
@@ -1029,6 +1034,40 @@ swim_process_dissemination(struct swim *swim, const char **pos, const char *end)
 	return 0;
 }
 
+static int
+swim_process_quit(struct swim *swim, const char **pos, const char *end,
+		  const struct sockaddr_in *src)
+{
+	const char *msg_pref = "Invald SWIM quit message:";
+	if (mp_typeof(**pos) != MP_MAP || mp_check_map(*pos, end) > 0) {
+		say_error("%s message should be map", msg_pref);
+		return -1;
+	}
+	uint64_t tmp = mp_decode_map(pos);
+	if (tmp != 1) {
+		say_error("%s map of size 1 is expected", msg_pref);
+		return -1;
+	}
+	if (mp_typeof(**pos) != MP_UINT || mp_check_uint(*pos, end) > 0) {
+		say_error("%s key should be uint", msg_pref);
+		return -1;
+	}
+	tmp = mp_decode_uint(pos);
+	if (tmp != SWIM_QUIT_INCARNATION) {
+		say_error("%s key should be incarnation", msg_pref);
+		return -1;
+	}
+	if (mp_typeof(**pos) != MP_UINT || mp_check_uint(*pos, end) > 0) {
+		say_error("%s incarnation value should be uint", msg_pref);
+		return -1;
+	}
+	tmp = mp_decode_uint(pos);
+	struct swim_member *m = swim_find_member(swim, src);
+	if (m != NULL)
+		swim_member_update_status(swim, m, MEMBER_LEFT, tmp);
+	return 0;
+}
+
 /** Receive and process a new message. */
 static void
 swim_on_input(struct swim_scheduler *scheduler,
@@ -1066,6 +1105,11 @@ swim_on_input(struct swim_scheduler *scheduler,
 		case SWIM_DISSEMINATION:
 			say_verbose("SWIM: process dissemination");
 			if (swim_process_dissemination(swim, &pos, end) != 0)
+				return;
+			break;
+		case SWIM_QUIT:
+			say_verbose("SWIM: process quit");
+			if (swim_process_quit(swim, &pos, end, src) != 0)
 				return;
 			break;
 		default:
@@ -1240,4 +1284,45 @@ swim_delete(struct swim *swim)
 	mh_i64ptr_delete(swim->members);
 	free(swim->shuffled_members);
 	cached_round_msg_invalidate(swim);
+}
+
+static void
+swim_quit_step_complete(struct swim_task *task, int rc)
+{
+	(void) rc;
+	struct swim *swim = (struct swim *) task->ctx;
+	if (rlist_empty(&swim->queue_round)) {
+		swim_delete(swim);
+		return;
+	}
+	struct swim_member *m =
+		rlist_shift_entry(&swim->queue_round, struct swim_member,
+				  in_queue_round);
+	swim_task_schedule(&swim->round_step_task, &m->addr, &swim->scheduler);
+}
+
+void
+swim_quit(struct swim *swim)
+{
+	ev_periodic_stop(loop(), &swim->round_tick);
+	ev_periodic_stop(loop(), &swim->wait_ack_tick);
+	swim_scheduler_stop_input(&swim->scheduler);
+	/* Start the last round - quiting. */
+	if (swim_new_round(swim) != 0 || rlist_empty(&swim->queue_round)) {
+		swim_delete(swim);
+		return;
+	}
+	swim_task_destroy(&swim->round_step_task);
+	swim_task_create(&swim->round_step_task, swim_quit_step_complete, swim);
+	struct swim_quit_bin header;
+	swim_quit_bin_create(&header, swim->self->incarnation);
+	int size = mp_sizeof_map(1) + sizeof(header);
+	char *pos = swim_packet_alloc(&swim->round_step_task.packet, size);
+	assert(pos != NULL);
+	pos = mp_encode_map(pos, 1);
+	memcpy(pos, &header, sizeof(header));
+	struct swim_member *m =
+		rlist_shift_entry(&swim->queue_round, struct swim_member,
+				  in_queue_round);
+	swim_task_schedule(&swim->round_step_task, &m->addr, &swim->scheduler);
 }

@@ -208,6 +208,15 @@ lua_swim_remove_member(struct lua_State *L)
 					  swim_remove_member);
 }
 
+static void
+lua_swim_invalidate(struct lua_State *L)
+{
+	uint32_t ctypeid;
+	struct swim **cdata = (struct swim **) luaL_checkcdata(L, 1, &ctypeid);
+	assert(ctypeid == CTID_STRUCT_SWIM_PTR);
+	*cdata = NULL;
+}
+
 static int
 lua_swim_delete(struct lua_State *L)
 {
@@ -215,10 +224,7 @@ lua_swim_delete(struct lua_State *L)
 	if (swim == NULL)
 		return luaL_error(L, "Usage: swim:delete()");
 	swim_delete(swim);
-	uint32_t ctypeid;
-	struct swim **cdata = (struct swim **) luaL_checkcdata(L, 1, &ctypeid);
-	assert(ctypeid == CTID_STRUCT_SWIM_PTR);
-	*cdata = NULL;
+	lua_swim_invalidate(L);
 	return 0;
 }
 
@@ -234,6 +240,17 @@ lua_swim_info(struct lua_State *L)
 	return 1;
 }
 
+static int
+lua_swim_quit(struct lua_State *L)
+{
+	struct swim *swim = lua_swim_ptr(L, 1);
+	if (swim == NULL)
+		return luaL_error(L, "Usage: swim:quit()");
+	swim_quit(swim);
+	lua_swim_invalidate(L);
+	return 0;
+}
+
 void
 tarantool_lua_swim_init(struct lua_State *L)
 {
@@ -244,6 +261,7 @@ tarantool_lua_swim_init(struct lua_State *L)
 		{"remove_member", lua_swim_remove_member},
 		{"delete", lua_swim_delete},
 		{"info", lua_swim_info},
+		{"quit", lua_swim_quit},
 		{NULL, NULL}
 	};
 	luaL_register_module(L, "swim", lua_swim_methods);

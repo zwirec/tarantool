@@ -60,6 +60,8 @@ enum swim_member_status {
 	 * from the membership, if it is not pinned.
 	 */
 	MEMBER_DEAD,
+	/** The member has voluntary left the cluster. */
+	MEMBER_LEFT,
 	swim_member_status_MAX,
 };
 
@@ -93,6 +95,7 @@ enum swim_component_type {
 	SWIM_ANTI_ENTROPY = 0,
 	SWIM_FAILURE_DETECTION,
 	SWIM_DISSEMINATION,
+	SWIM_QUIT,
 };
 
 /** {{{                Failure detection component              */
@@ -409,6 +412,26 @@ swim_route_bin_create(struct swim_route_bin *route,
 
 /** }}}                     Meta component                      */
 
+enum swim_quit_key {
+	SWIM_QUIT_INCARNATION = 0,
+};
+
+struct PACKED swim_quit_bin {
+	/** mp_encode_uint(SWIM_QUIT) */
+	uint8_t k_quit;
+	/** mp_encode_map(1) */
+	uint8_t m_quit;
+
+	/** mp_encode_uint(SWIM_QUIT_INCARNATION) */
+	uint8_t k_incarnation;
+	/** mp_encode_uint(64bit incarnation) */
+	uint8_t m_incarnation;
+	uint64_t v_incarnation;
+};
+
+void
+swim_quit_bin_create(struct swim_quit_bin *header, uint64_t incarnation);
+
 /**
  * SWIM message structure:
  * {
@@ -451,6 +474,12 @@ swim_route_bin_create(struct swim_route_bin *route,
  *         },
  *         ...
  *     ],
+ *
+ *                 OR
+ *
+ *     SWIM_QUIT: {
+ *         SWIM_QUIT_INCARNATION: uint
+ *     }
  * }
  */
 

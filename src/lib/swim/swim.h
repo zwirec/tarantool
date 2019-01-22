@@ -93,6 +93,9 @@ swim_remove_member(struct swim *swim, const char *uri);
 void
 swim_info(struct swim *swim, struct info_handler *info);
 
+void
+swim_quit(struct swim *swim);
+
 #if defined(__cplusplus)
 }
 #endif
