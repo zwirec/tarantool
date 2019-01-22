@@ -146,6 +146,12 @@ json_parse_integer(struct json_lexer *lexer, struct json_token *token)
 	int len = 0;
 	int value = 0;
 	char c = *pos;
+	if (c == '*') {
+		token->type = JSON_TOKEN_ANY;
+		++len;
+		++pos;
+		goto end;
+	}
 	if (! isdigit(c))
 		return lexer->symbol_count + 1;
 	do {
@@ -154,10 +160,11 @@ json_parse_integer(struct json_lexer *lexer, struct json_token *token)
 	} while (++pos < end && isdigit((c = *pos)));
 	if (value < lexer->index_base)
 		return lexer->symbol_count + 1;
+	token->num = value - lexer->index_base;
+	token->type = JSON_TOKEN_NUM;
+end:
 	lexer->offset += len;
 	lexer->symbol_count += len;
-	token->type = JSON_TOKEN_NUM;
-	token->num = value - lexer->index_base;
 	return 0;
 }
 
@@ -269,6 +276,8 @@ json_token_cmp(const struct json_token *a, const struct json_token *b)
 		ret = memcmp(a->str, b->str, a->len);
 	} else if (a->type == JSON_TOKEN_NUM) {
 		ret = a->num - b->num;
+	} else if (a->type == JSON_TOKEN_ANY) {
+		ret = 0;
 	} else {
 		unreachable();
 	}
@@ -331,6 +340,9 @@ json_token_snprint(char *buf, int size, const struct json_token *token,
 		break;
 	case JSON_TOKEN_STR:
 		len = snprintf(buf, size, "[\"%.*s\"]", token->len, token->str);
+		break;
+	case JSON_TOKEN_ANY:
+		len = snprintf(buf, size, "[*]");
 		break;
 	default:
 		unreachable();
@@ -420,6 +432,9 @@ json_token_hash(struct json_token *token)
 	} else if (token->type == JSON_TOKEN_NUM) {
 		data = &token->num;
 		data_size = sizeof(token->num);
+	} else if (token->type == JSON_TOKEN_ANY) {
+		data = "*";
+		data_size = 1;
 	} else {
 		unreachable();
 	}
@@ -435,6 +450,7 @@ json_tree_create(struct json_tree *tree)
 	tree->root.type = JSON_TOKEN_END;
 	tree->root.max_child_idx = -1;
 	tree->root.sibling_idx = -1;
+	tree->root.is_multikey = false;
 	tree->hash = mh_json_new();
 	return tree->hash == NULL ? -1 : 0;
 }
@@ -459,7 +475,7 @@ struct json_token *
 json_tree_lookup_slowpath(struct json_tree *tree, struct json_token *parent,
 			  const struct json_token *token)
 {
-	assert(token->type == JSON_TOKEN_STR);
+	assert(token->type == JSON_TOKEN_STR || token->type == JSON_TOKEN_ANY);
 	struct json_token key;
 	key.type = token->type;
 	key.str = token->str;
@@ -483,6 +499,7 @@ json_tree_add(struct json_tree *tree, struct json_token *parent,
 	token->children = NULL;
 	token->children_capacity = 0;
 	token->max_child_idx = -1;
+	token->is_multikey = false;
 	token->hash = json_token_hash(token);
 	int insert_idx = token->type == JSON_TOKEN_NUM ?
 			 (int)token->num : parent->max_child_idx + 1;
@@ -507,7 +524,7 @@ json_tree_add(struct json_tree *tree, struct json_token *parent,
 	 * Insert the token into the hash (only for tokens representing
 	 * JSON map entries, see the comment to json_tree::hash).
 	 */
-	if (token->type == JSON_TOKEN_STR) {
+	if (token->type == JSON_TOKEN_STR || token->type == JSON_TOKEN_ANY) {
 		mh_int_t id = mh_json_put(tree->hash,
 			(const struct json_token **)&token, NULL, NULL);
 		if (id == mh_end(tree->hash))
@@ -517,6 +534,8 @@ json_tree_add(struct json_tree *tree, struct json_token *parent,
 	 * Success, now we can insert the new token into its parent's
 	 * children array.
 	 */
+	if (token->type == JSON_TOKEN_ANY)
+		parent->is_multikey = true;
 	assert(parent->children[insert_idx] == NULL);
 	parent->children[insert_idx] = token;
 	parent->max_child_idx = MAX(parent->max_child_idx, insert_idx);
@@ -536,6 +555,8 @@ json_tree_del(struct json_tree *tree, struct json_token *token)
 	 * Clear the entry corresponding to this token in parent's
 	 * children array and update max_child_idx if necessary.
 	 */
+	if (token->type == JSON_TOKEN_ANY)
+		parent->is_multikey = false;
 	parent->children[token->sibling_idx] = NULL;
 	token->sibling_idx = -1;
 	while (parent->max_child_idx >= 0 &&
@@ -545,7 +566,7 @@ json_tree_del(struct json_tree *tree, struct json_token *token)
 	 * Remove the token from the hash (only for tokens representing
 	 * JSON map entries, see the comment to json_tree::hash).
 	 */
-	if (token->type == JSON_TOKEN_STR) {
+	if (token->type == JSON_TOKEN_STR || token->type == JSON_TOKEN_ANY) {
 		mh_int_t id = mh_json_find(tree->hash, token, NULL);
 		assert(id != mh_end(tree->hash));
 		mh_json_del(tree->hash, id, NULL);

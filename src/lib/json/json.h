@@ -66,6 +66,7 @@ struct json_lexer {
 enum json_token_type {
 	JSON_TOKEN_NUM,
 	JSON_TOKEN_STR,
+	JSON_TOKEN_ANY,
 	/** Lexer reached end of path. */
 	JSON_TOKEN_END,
 };
@@ -118,6 +119,10 @@ struct json_token {
 	 * For more details, see the comment to json_tree::hash.
 	 */
 	uint32_t hash;
+	/**
+	 * This record child indexes are generalized with [*].
+	 */
+	bool is_multikey;
 };
 
 struct mh_json_t;

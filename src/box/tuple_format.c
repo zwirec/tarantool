@@ -247,7 +247,7 @@ tuple_format_use_key_part(struct tuple_format *format, uint32_t field_count,
 	 * simply accessible, so we don't store an offset for it.
 	 */
 	if (field->offset_slot == TUPLE_OFFSET_SLOT_NIL &&
-	    is_sequential == false &&
+	    is_sequential == false && field->token.type != JSON_TOKEN_ANY &&
 	    (part->fieldno > 0 || part->path != NULL)) {
 		*current_slot = *current_slot - 1;
 		field->offset_slot = *current_slot;
@@ -357,7 +357,7 @@ tuple_format_create(struct tuple_format *format, struct key_def * const *keys,
 			for (int i = field->token.num - 1;
 			     i > 0 && neighbors[i] == NULL; i--)
 				format->min_tuple_size += mp_sizeof_nil();
-		} else {
+		} else if (field->token.type == JSON_TOKEN_STR) {
 			/* Account a key string for map member. */
 			assert(field->token.type == JSON_TOKEN_STR);
 			format->min_tuple_size +=
@@ -689,8 +689,12 @@ tuple_init_field_map(struct tuple_format *format, uint32_t *field_map,
 			parent = parent->parent;
 		}
 		struct json_token token;
-		token.type = mp_stack_top(&mp_stack)->type == MP_ARRAY ?
-			     JSON_TOKEN_NUM : JSON_TOKEN_STR;
+		if (parent->is_multikey) {
+			token.type = JSON_TOKEN_ANY;
+		} else {
+			token.type = mp_stack_top(&mp_stack)->type == MP_ARRAY ?
+				     JSON_TOKEN_NUM : JSON_TOKEN_STR;
+		}
 		if (token.type == JSON_TOKEN_NUM) {
 			token.num = mp_stack_top(&mp_stack)->curr - 1;
 		} else if (token.type == JSON_TOKEN_STR) {
@@ -701,8 +705,6 @@ tuple_init_field_map(struct tuple_format *format, uint32_t *field_map,
 				continue;
 			}
 			token.str = mp_decode_str(&pos, (uint32_t *)&token.len);
-		} else {
-			unreachable();
 		}
 		enum mp_type type = mp_typeof(*pos);
 		assert(parent != NULL);

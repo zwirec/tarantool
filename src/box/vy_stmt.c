@@ -438,9 +438,8 @@ vy_stmt_new_surrogate_from_key(const char *key, enum iproto_type type,
 			for (int i = field->token.num - 1;
 			     i > 0 && neighbors[i] == NULL; i--)
 				wpos = mp_encode_nil(wpos);
-		} else {
+		} else if (field->token.type == JSON_TOKEN_STR) {
 			/* Write a key string for map member. */
-			assert(field->token.type == JSON_TOKEN_STR);
 			const char *str = field->token.str;
 			uint32_t len = field->token.len;
 			wpos = mp_encode_str(wpos, str, len);
