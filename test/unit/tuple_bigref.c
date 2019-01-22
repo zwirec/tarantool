@@ -143,6 +143,7 @@ main()
 
 	memory_init();
 	fiber_init(fiber_c_invoke);
+	tuple_format_init();
 	tuple_init(NULL);
 
 	tuple_end = mp_encode_array(tuple_end, 1);

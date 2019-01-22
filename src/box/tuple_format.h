@@ -143,6 +143,10 @@ struct tuple_format {
 	void *engine;
 	/** Identifier */
 	uint16_t id;
+	/**
+	 * Hash key for shared formats of epeheral spaces.
+	 */
+	uint32_t hash;
 	/** Reference counter */
 	int refs;
 	/**
@@ -151,6 +155,11 @@ struct tuple_format {
 	 * in progress.
 	 */
 	bool is_temporary;
+	/**
+	 * This format belongs to ephemeral space and thus might
+	 * be shared with other ephemeral spaces.
+	 */
+	bool is_ephemeral;
 	/**
 	 * Size of field map of tuple in bytes.
 	 * \sa struct tuple
@@ -200,7 +209,7 @@ struct tuple_format {
  * a given format.
  */
 static inline uint32_t
-tuple_format_field_count(struct tuple_format *format)
+tuple_format_field_count(const struct tuple_format *format)
 {
 	const struct json_token *root = &format->fields.root;
 	return root->children != NULL ? root->max_child_idx + 1 : 0;
@@ -265,6 +274,7 @@ tuple_format_unref(struct tuple_format *format)
  * @param space_field_count Length of @a space_fields.
  * @param exact_field_count Exact field count for format.
  * @param is_temporary Set if format belongs to temporary space.
+ * @param is_ephemeral Set if format belongs to ephemeral space.
  *
  * @retval not NULL Tuple format.
  * @retval     NULL Memory error.
@@ -274,7 +284,8 @@ tuple_format_new(struct tuple_format_vtab *vtab, void *engine,
 		 struct key_def * const *keys, uint16_t key_count,
 		 const struct field_def *space_fields,
 		 uint32_t space_field_count, uint32_t exact_field_count,
-		 struct tuple_dictionary *dict, bool is_temporary);
+		 struct tuple_dictionary *dict, bool is_temporary,
+		 bool is_ephemeral);
 
 /**
  * Check, if @a format1 can store any tuples of @a format2. For
@@ -458,6 +469,13 @@ tuple_field_by_part_raw(struct tuple_format *format, const char *data,
 {
 	return tuple_field_raw(format, data, field_map, part->fieldno);
 }
+
+/**
+ * Initialize tuple format subsystem.
+ * @retval 0 on success, -1 otherwise.
+ */
+int
+tuple_format_init();
 
 #if defined(__cplusplus)
 } /* extern "C" */
