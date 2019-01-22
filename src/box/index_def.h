@@ -162,6 +162,10 @@ struct index_opts {
 	 */
 	bool hint;
 	/**
+	 * Multikey tree index.
+	 */
+	bool is_multikey;
+	/**
 	 * SQL specific statistics concerning tuples
 	 * distribution for query planer. It is automatically
 	 * filled after running ANALYZE command.
@@ -213,6 +217,8 @@ index_opts_cmp(const struct index_opts *o1, const struct index_opts *o2)
 		return o1->bloom_fpr < o2->bloom_fpr ? -1 : 1;
 	if (o1->hint != o2->hint)
 		return o1->hint < o2->hint ? -1 : 1;
+	if (o1->is_multikey != o2->is_multikey)
+		return o1->is_multikey < o2->is_multikey ? -1 : 1;
 	return 0;
 }
 

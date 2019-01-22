@@ -530,6 +530,31 @@ tuple_field_by_part_raw(struct tuple_format *format, const char *data,
 	}
 }
 
+/**
+ * Propagate @a field to MessagePack(field)[index].
+ * @param[in][out] field Field to propagate.
+ * @param index 0-based index to propagate to.
+ *
+ * @retval  0 Success, the index was found.
+ * @retval -1 Not found.
+ */
+int
+tuple_field_go_to_index(const char **field, uint64_t index);
+
+static inline const char *
+tuple_field_by_part_raw_multikey(struct tuple_format *format, const char *data,
+				 const uint32_t *field_map, struct key_part *part,
+				 uint32_t multikey_idx)
+{
+	int32_t offset_slot;
+	const char *field = tuple_field_raw_by_path(format, data, field_map,
+						    part->fieldno, part->path,
+						    part->path_len,
+						    &offset_slot);
+	tuple_field_go_to_index(&field, multikey_idx);
+	return field;
+}
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

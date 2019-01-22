@@ -116,7 +116,6 @@
 #define memtx_tree_index_random _api_name(index_random)
 #define memtx_tree_index_count _api_name(index_count)
 #define memtx_tree_index_get _api_name(index_get)
-#define memtx_tree_index_replace _api_name(index_replace)
 #define memtx_tree_index_create_iterator _api_name(index_create_iterator)
 #define memtx_tree_index_begin_build _api_name(index_begin_build)
 #define memtx_tree_index_reserve _api_name(index_reserve)
@@ -586,6 +585,8 @@ memtx_tree_index_delete_tuple(struct index *base, struct tuple *tuple)
 }
 #endif /* memtx_tree_index_delete_tuple */
 
+#ifndef memtx_tree_index_replace
+#define memtx_tree_index_replace _api_name(index_replace)
 static int
 memtx_tree_index_replace(struct index *base, struct tuple *old_tuple,
 			 struct tuple *new_tuple, enum dup_replace_mode mode,
@@ -625,6 +626,7 @@ memtx_tree_index_replace(struct index *base, struct tuple *old_tuple,
 	*result = old_tuple;
 	return 0;
 }
+#endif /* memtx_tree_index_replace */
 
 static struct iterator *
 memtx_tree_index_create_iterator(struct index *base, enum iterator_type type,

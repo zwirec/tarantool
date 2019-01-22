@@ -817,15 +817,7 @@ box_tuple_format_unref(box_tuple_format_t *format)
 	tuple_format_unref(format);
 }
 
-/**
- * Propagate @a field to MessagePack(field)[index].
- * @param[in][out] field Field to propagate.
- * @param index 0-based index to propagate to.
- *
- * @retval  0 Success, the index was found.
- * @retval -1 Not found.
- */
-static inline int
+int
 tuple_field_go_to_index(const char **field, uint64_t index)
 {
 	enum mp_type type = mp_typeof(**field);
@@ -908,6 +900,8 @@ tuple_field_go_to_path(const char **data, const char *path, uint32_t path_len)
 			break;
 		case JSON_TOKEN_STR:
 			rc = tuple_field_go_to_key(data, token.str, token.len);
+			break;
+		case JSON_TOKEN_ANY:
 			break;
 		default:
 			assert(token.type == JSON_TOKEN_END);

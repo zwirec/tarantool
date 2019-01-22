@@ -543,6 +543,22 @@ tuple_field_by_part(const struct tuple *tuple, struct key_part *part)
 				       tuple_field_map(tuple), part);
 }
 
+static inline const char *
+tuple_field_by_part_multikey(const struct tuple *tuple, struct key_part *part,
+			     uint32_t multikey_idx)
+{
+	const char *field =
+		tuple_field_by_part_raw_multikey(tuple_format(tuple),
+						 tuple_data(tuple),
+						 tuple_field_map(tuple),
+						 part, multikey_idx);
+	// printf("tuple_field_by_part_multikey([%p = %s], "
+	//        "part{fieldno = %d, path = %.*s} idx = %d) --> %s\n",
+	//        tuple, tuple_str(tuple), part->fieldno, part->path_len,
+	//        part->path, multikey_idx, mp_str(field));
+	return field;
+}
+
 /**
  * Get tuple field by its JSON path.
  * @param tuple Tuple to get field from.

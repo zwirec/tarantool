@@ -50,6 +50,7 @@ const struct index_opts index_opts_default = {
 	/* .lsn                 = */ 0,
 	/* .stat                = */ NULL,
 	/* .hint                = */ false,
+	/* .is_multikey         = */ false,
 };
 
 const struct opt_def index_opts_reg[] = {
@@ -64,6 +65,7 @@ const struct opt_def index_opts_reg[] = {
 	OPT_DEF("bloom_fpr", OPT_FLOAT, struct index_opts, bloom_fpr),
 	OPT_DEF("lsn", OPT_INT64, struct index_opts, lsn),
 	OPT_DEF("hint", OPT_BOOL, struct index_opts, hint),
+	OPT_DEF("is_multikey", OPT_BOOL, struct index_opts, is_multikey),
 	OPT_END,
 };
 

@@ -272,6 +272,9 @@ lbox_fillspace(struct lua_State *L, struct space *space, int i)
 		if (index_def->type == TREE && index_opts->hint) {
 			lua_pushboolean(L, index_opts->hint);
 			lua_setfield(L, -2, "hint");
+		} else if (index_def->type == TREE && index_opts->is_multikey) {
+			lua_pushboolean(L, index_opts->is_multikey);
+			lua_setfield(L, -2, "is_multikey");
 		}
 
 		lua_pushstring(L, index_type_strs[index_def->type]);

@@ -107,6 +107,19 @@ key_hint(const char *key, const struct key_def *key_def)
 void
 tuple_hint_set(struct key_def *key_def);
 
+/**
+ * @brief Compare two fields parts using a type definition
+ * @param field_a field
+ * @param field_b field
+ * @param field_type field type definition
+ * @retval 0  if field_a == field_b
+ * @retval <0 if field_a < field_b
+ * @retval >0 if field_a > field_b
+ */
+int
+tuple_compare_field(const char *field_a, const char *field_b,
+		    int8_t type, struct coll *coll);
+
 #if defined(__cplusplus)
 } /* extern "C" */
 #endif /* defined(__cplusplus) */

@@ -89,6 +89,10 @@ struct key_part {
 	/** Part sort order. */
 	enum sort_order sort_order;
 	/**
+	 * 
+	 */
+	bool is_multikey;
+	/**
 	 * JSON path to indexed data, relative to the field number,
 	 * or NULL if this key part index a top-level field.
 	 * This string is not 0-terminated. String memory is
